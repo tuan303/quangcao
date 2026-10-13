@@ -1,8 +1,8 @@
 {
-  "name": "quangcao-nshm",
+  "name": "quangcao",
   "version": "1.0.0",
   "private": true,
-  "description": "Dashboard báo cáo quảng cáo Facebook – Trường Ngôi Sao Hoàng Mai. Đăng nhập Microsoft 365 (Firebase Auth), số liệu lưu Firestore, đồng bộ hằng ngày.",
+  "description": "Dashboard báo cáo quảng cáo Facebook – Trường Ngôi Sao Hoàng Mai. Đăng nhập Microsoft 365 (Firebase Auth, dự án quangcao-9a705), số liệu lưu Firestore, đồng bộ hằng ngày.",
   "type": "module",
   "engines": { "node": "22.x" },
   "scripts": {

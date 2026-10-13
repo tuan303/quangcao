@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// Dashboard Quảng cáo Facebook – Trường Ngôi Sao Hoàng Mai (dự án Firebase quangcao-9a705).
+// Trình duyệt KHÔNG đọc/ghi Firestore trực tiếp: mọi số liệu đi qua các hàm Vercel (/api/data, /api/ingest, /api/sync),
+// vốn dùng firebase-admin (service account) nên không chịu các quy tắc này. Vì vậy chặn toàn bộ truy cập từ phía client.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

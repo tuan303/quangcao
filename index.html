@@ -1387,7 +1387,6 @@ async function webBoot() {
     webGate('Không tải được thư viện đăng nhập', 'Không tải được Firebase từ www.gstatic.com. Kiểm tra kết nối mạng hoặc tiện ích chặn quảng cáo rồi tải lại trang.');
     return;
   }
-  WEB.U.getRedirectResult(WEB.auth).catch(function (e) { webLoginScreen(loginError(e)); });
   WEB.U.onAuthStateChanged(WEB.auth, function (user) {
     WEB.user = user;
     var who = $('#whoBtn');
@@ -1405,6 +1404,8 @@ function loginError(e) {
   var c = (e && e.code) || '';
   if (/unauthorized-domain/.test(c)) return 'Tên miền của trang chưa có trong Firebase Authentication → Settings → Authorized domains.';
   if (/network/.test(c)) return 'Lỗi mạng khi đăng nhập. Vui lòng thử lại.';
+  if (/popup-blocked/.test(c)) return 'Trình duyệt đã chặn cửa sổ đăng nhập. Hãy cho phép cửa sổ bật lên (pop-up) cho trang này rồi bấm lại.';
+  if (/operation-not-supported|web-storage-unsupported/.test(c)) return 'Trình duyệt này không hỗ trợ đăng nhập (thường gặp khi mở link trong Zalo, Messenger, Facebook). Hãy mở trang bằng Safari, Chrome hoặc Edge.';
   return 'Đăng nhập chưa thành công (' + (c || (e && e.message) || 'lỗi không rõ') + ').';
 }
 function webLoginScreen(err) {
@@ -1418,7 +1419,6 @@ async function webLogin() {
   catch (e) {
     var c = (e && e.code) || '';
     if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return;
-    if (/popup-blocked|operation-not-supported/.test(c)) { try { await WEB.U.signInWithRedirect(WEB.auth, webProvider()); return; } catch (e2) { e = e2; } }
     webLoginScreen(loginError(e));
   }
 }

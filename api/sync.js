@@ -1,5 +1,5 @@
 // /api/sync – lấy số liệu mới nhất trực tiếp từ Meta Marketing API rồi ghi vào Firestore.
-//   GET  – Vercel Cron (Authorization: Bearer <CRON_SECRET>), mỗi sáng 06:30 giờ Hà Nội
+//   GET  – Vercel Cron (Authorization: Bearer <CRON_SECRET>), lịch 06:30 giờ Hà Nội (gói Hobby: chạy trong khoảng 06:00–07:00)
 //   POST – quản trị bấm "Đồng bộ ngay" (Bearer <Firebase ID token>, email trong FBADS_ADMINS)
 //   ?groups=base,ads,bd  chọn nhóm số liệu (mặc định: base mỗi ngày; ads thứ 2 và thứ 5; bd thứ 3 và thứ 6)
 //   ?dry=1               chạy thử: lấy và kiểm tra số liệu nhưng KHÔNG ghi (dùng để kiểm tra token lần đầu)

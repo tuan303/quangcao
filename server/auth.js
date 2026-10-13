@@ -3,7 +3,9 @@
 //   FBADS_VIEWERS hoặc FBADS_ADMINS (hoặc tên miền trong FBADS_VIEWER_DOMAINS nếu muốn mở cho cả trường).
 //   Quản trị (FBADS_ADMINS): xem + bấm "Đồng bộ ngay".
 //   Máy (cron Vercel): Bearer CRON_SECRET. Claude đẩy số liệu: Bearer INGEST_SECRET.
-// ⚠ Như dự án dự giờ: app registration Microsoft Entra mà Firebase dùng phải là SINGLE-TENANT.
+// ⚠ App registration Microsoft Entra mà Firebase dùng phải là SINGLE-TENANT (“Accounts in this organizational directory only”),
+//   redirect URI https://quangcao-9a705.firebaseapp.com/__/auth/handler. Firebase luôn báo email_verified = false với Microsoft,
+//   nên email trong token chỉ đáng tin khi app là single-tenant (người ngoài tenant của trường không đăng nhập được).
 import { createHash, timingSafeEqual } from 'node:crypto';
 
 export const REQUIRED_PROVIDER = 'microsoft.com';

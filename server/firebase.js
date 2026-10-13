@@ -1,11 +1,11 @@
-// firebase-admin, khởi tạo lười từ biến môi trường (giống dự án Dashboard dự giờ).
+// firebase-admin cho dự án Firebase quangcao-9a705, khởi tạo lười từ biến môi trường.
 //   FIREBASE_SERVICE_ACCOUNT = nội dung file JSON của service account (nguyên văn hoặc base64)
 //   hoặc FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { initializeFirestore, getFirestore } from 'firebase-admin/firestore';
 import { verifyFirebaseIdToken } from './verify-token.js';
 
-const APP_NAME = 'quangcao-nshm-server';
+const APP_NAME = 'quangcao-server';
 export const publicError = (message, code, status = 500) => Object.assign(new Error(message), { expose: true, code, status });
 const unquote = s => { const t = String(s ?? '').trim(); return (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")) ? t.slice(1, -1) : t; };
 
@@ -44,8 +44,14 @@ export function projectId() {
   const sa = getServiceAccount();
   return (sa && sa.project_id) || String(process.env.FIREBASE_PROJECT_ID || '').trim();
 }
+function unverifiedAud(token) {
+  try { return JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString('utf8')).aud || ''; } catch { return ''; }
+}
 export const verifyIdToken = token => {
   const pid = projectId();
   if (!pid) throw publicError('Chưa cấu hình service account Firebase trên Vercel (FIREBASE_SERVICE_ACCOUNT). Đặt biến môi trường rồi Redeploy.', 'CONFIG_FIREBASE');
+  const aud = unverifiedAud(token);
+  // Trang đăng nhập bằng một dự án Firebase nhưng service account thuộc dự án khác → lỗi cấu hình, không phải lỗi người dùng.
+  if (aud && aud !== pid) throw publicError('Service account trên Vercel thuộc dự án Firebase "' + pid + '" nhưng trang đăng nhập bằng dự án "' + aud + '". Thay FIREBASE_SERVICE_ACCOUNT bằng khóa của dự án "' + aud + '" rồi Redeploy.', 'CONFIG_FIREBASE');
   return verifyFirebaseIdToken(token, pid);
 };
