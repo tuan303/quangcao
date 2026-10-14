@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import '../fbads-core.js';
-import { runCall, runCreatives, mapRow, leadsOfRow } from '../server/meta.js';
+import { runCall, runCreatives, mapRow, leadsOfRow, setDeadline } from '../server/meta.js';
 const C = globalThis.FBCore;
 
 function fakeGraph(routes) {
@@ -10,7 +10,7 @@ function fakeGraph(routes) {
   globalThis.fetch = async (url, opts) => {
     const u = new URL(url); seen.push(u);
     assert.equal(opts.headers.Authorization, 'Bearer TEST');
-    for (const r of routes) { const out = r(u); if (out) return { ok: !out.error, status: out.error ? 400 : 200, json: async () => out }; }
+    for (const r of routes) { const out = r(u); if (out) return { ok: !out.error, status: out.error ? 400 : 200, json: async () => out, text: async () => JSON.stringify(out) }; }
     throw new Error('no route for ' + u.pathname + u.search);
   };
   return seen;
@@ -128,4 +128,19 @@ test('results: default attribution window only; a field dropped at account level
   const campReq = seen.find(u => u.searchParams.get('level') === 'campaign');
   assert.ok(campReq.searchParams.get('fields').split(',').includes('results'), 'campaign level still requests results');
   assert.equal(camps.ad_entities[0].results.values[0].value, '4');
+});
+
+test('a response cut off by the timeout is a failure, never an empty success', async () => {
+  let n = 0;
+  globalThis.fetch = async () => { n++; return { ok: true, status: 200, text: async () => { throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }); } }; };
+  const call = C.plan('2026-10-03', { mode: 'quick', accounts: ['333'] }).find(c => c.name === 'camps');
+  await assert.rejects(runCall(call, 'TEST', {}), /hết thời gian/);
+  assert.equal(n, 3, 'retried twice before failing');
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '{"data":[{"campaign_id":' });
+  await assert.rejects(runCall(call, 'TEST', {}), /không đọc được/);
+  setDeadline(Date.now() + 500); // past the global deadline: no new request is started
+  let called = false; globalThis.fetch = async () => { called = true; return { ok: true, status: 200, text: async () => '{"data":[]}' }; };
+  await assert.rejects(runCall(call, 'TEST', {}), /hết thời gian/);
+  assert.equal(called, false);
+  setDeadline(0);
 });

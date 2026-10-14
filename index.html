@@ -751,17 +751,28 @@ function renderLive() {
 }
 // Báo khi lần đồng bộ gần nhất chưa lấy đủ số liệu của một tài khoản (lỗi quyền, hết giờ…), để số lead thiếu không bị đọc thành "0 lead".
 function renderSyncNotice() {
-  var m = S.mdl && S.mdl.meta, el = $('#syncNotice'), pa = m && m.perAccount, miss = [];
-  if (pa) Object.keys(pa).forEach(function (id) { var x = pa[id]; if (x && (x.failed || x.skipped)) miss.push([id, x]); });
-  if (!miss.length) { el.hidden = true; el.innerHTML = ''; return; }
+  var m = (S.mdl && S.mdl.meta) || (S.docs && S.docs.meta), el = $('#syncNotice'), pa = m && m.perAccount, base = [], heavy = [];
+  if (pa) Object.keys(pa).forEach(function (id) { var x = pa[id]; if (!x) return; if (x.failed || x.skipped) base.push([id, x]); else if (x.heavy) heavy.push([id, x]); });
+  var loss = (m && m.leadLoss) || [];
+  if (!base.length && !heavy.length && !loss.length) { hideSyncNotice(); return; }
   var accts = (m.accounts && m.accounts.length ? m.accounts : C.ACCOUNTS);
   var name = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0] || C.ACCOUNTS.filter(function (x) { return x.id === id; })[0]; return a ? (a.short || a.name) : 'TK ' + id; };
-  var list = miss.map(function (e) { return name(e[0]) + ' (' + [e[1].failed ? e[1].failed + ' phần lỗi' : '', e[1].skipped ? e[1].skipped + ' phần chưa kịp lấy' : ''].filter(Boolean).join(', ') + ')'; }).join('; ');
-  var err = S.editor ? miss.filter(function (e) { return e[1].error; }).map(function (e) { return '<br>' + esc(name(e[0])) + ': <code>' + esc(e[1].error) + '</code>'; }).join('') : '';
-  var canSync = S.editor && !$('#syncBtn').hidden, anySkip = miss.some(function (e) { return e[1].skipped; }), anyFail = miss.some(function (e) { return e[1].failed; });
-  var hint = !S.editor ? '' : (anySkip && canSync ? ' Bấm Đồng bộ ngay để lấy tiếp phần còn thiếu.' : '') + (anyFail ? ' Phần lỗi thường do người dùng hệ thống chưa được chỉ định tài khoản quảng cáo đó (quyền Xem hiệu quả).' : '');
-  var html = '<b>Chưa lấy đủ số liệu</b><span>Lần đồng bộ gần nhất chưa lấy đủ: ' + esc(list) + '. Chi tiêu và lead của các tài khoản này có thể chưa mới.' + hint + err + '</span>';
-  if (el.innerHTML !== html) el.innerHTML = html;
+  var parts = [];
+  if (base.length) {
+    var list = base.map(function (e) { return name(e[0]) + ' (' + [e[1].failed ? e[1].failed + ' phần lỗi' : '', e[1].skipped ? e[1].skipped + ' phần chưa kịp lấy' : ''].filter(Boolean).join(', ') + ')'; }).join('; ');
+    parts.push('Lần đồng bộ gần nhất chưa lấy đủ: ' + esc(list) + '. Chi tiêu và lead của các tài khoản này có thể chưa mới.');
+  }
+  if (loss.length) parts.push('Meta không trả số lead của ' + esc(loss.map(name).join(', ')) + ' trong lần này, nên trang giữ số lead đã lưu trước đó.');
+  if (heavy.length && !base.length) parts.push('Mẫu quảng cáo và số liệu khán giả của ' + esc(heavy.map(function (e) { return name(e[0]); }).join(', ')) + ' chưa được cập nhật trong lần này.');
+  if (S.editor) {
+    var canSync = !$('#syncBtn').hidden;
+    if (canSync && base.concat(heavy).some(function (e) { return e[1].skipped || e[1].heavy; })) parts.push('Bấm Đồng bộ ngay để lấy tiếp phần còn thiếu.');
+    var perm = base.filter(function (e) { return /chưa được (cấp quyền|chỉ định)|ads_read|#10\b|#200\b/.test(e[1].error || ''); });
+    if (perm.length) parts.push('Lỗi quyền: hãy chỉ định tài khoản quảng cáo cho người dùng hệ thống (quyền Xem hiệu quả).');
+    base.forEach(function (e) { if (e[1].error) parts.push('<br>' + esc(name(e[0])) + ': <code>' + esc(e[1].error) + '</code>'); });
+  }
+  var html = '<b>Chưa lấy đủ số liệu</b><span>' + parts.join(' ') + '</span>';
+  if (el._html !== html) { el.innerHTML = html; el._html = html; }
   el.hidden = false;
 }
 function renderAll() {
@@ -1226,9 +1237,9 @@ function setDocs(docs) {
   if (!acctOptions().some(function (o) { return o.k === S.acct; })) S.acct = 'adm';
   renderAll();
 }
-function hideSyncNotice() { var n = $('#syncNotice'); n.hidden = true; n.innerHTML = ''; }
+function hideSyncNotice() { var n = $('#syncNotice'); n.hidden = true; n.innerHTML = ''; n._html = ''; }
 function showEmpty(msg) {
-  var b = $('#boot'); b.hidden = false; hideSyncNotice();
+  var b = $('#boot'); b.hidden = false; renderSyncNotice(); // lần đồng bộ đầu bị lỗi: vẫn cho biết tài khoản nào lỗi
   b.innerHTML = '<div><h3>' + esc(msg ? msg[0] : 'Chưa có số liệu quảng cáo') + '</h3><p>' + esc(msg ? msg[1] : (S.editor ? 'Bấm Đồng bộ ngay ở góc trên để lấy số liệu từ Facebook Ads lần đầu.' : 'Số liệu sẽ xuất hiện sau lần đồng bộ đầu tiên của người quản trị.')) + '</p></div>';
   $('#live').className = 'live stale'; $('#liveTx').textContent = 'Chưa có số liệu';
 }
@@ -1396,6 +1407,8 @@ async function runSync(mode) {
 /* ---------------- Vercel mode: Microsoft 365 sign-in (Firebase Auth) + /api ---------------- */
 var WEB = null;
 function webGate(title, text, actions) {
+  // màn hình đăng nhập/không có quyền: bỏ số liệu đang hiện để không có thao tác nào (đổi tab, đổi cỡ cửa sổ…) vẽ lại báo cáo
+  S.mdl = null; S.docs = {}; S.editor = false; $("#syncBtn").hidden = true;
   var b = $('#boot'); b.hidden = false; hideSyncNotice();
   $$('section[data-view]').forEach(function (x) { x.hidden = true; }); $('#foot').hidden = true;
   b.innerHTML = '<div><h3>' + esc(title) + '</h3><p>' + esc(text) + '</p>' + (actions || '') + '</div>';

@@ -14,16 +14,32 @@ export function metaError(e, status) {
   return Object.assign(new Error('Meta API: ' + m + (hint || '')), { meta: e, status, expose: true });
 }
 
+// Hạn chót chung của cả lần đồng bộ (api/sync.js đặt): mọi yêu cầu, kể cả đang chạy dở, dừng trước mốc này để còn thời gian ghi.
+let deadlineAt = 0;
+export function setDeadline(ts) { deadlineAt = ts || 0; }
+const timeoutError = why => Object.assign(new Error('Meta API: ' + why), { status: 504, expose: true, meta: { code: 'timeout' } });
+
 async function graph(pathOrUrl, params, token) {
   const url = /^https?:/.test(pathOrUrl) ? new URL(pathOrUrl) : new URL(BASE + pathOrUrl);
   if (!/^https?:/.test(pathOrUrl)) for (const [k, v] of Object.entries(params || {})) if (v != null && v !== '') url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   url.searchParams.delete('access_token');
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(20000) });
-    const j = await res.json().catch(() => ({}));
-    if (res.ok && !j.error) return j;
-    const e = j.error || {};
-    if (attempt < 2 && (RETRY_CODES.has(e.code) || res.status >= 500)) { await sleep(1200 * (attempt + 1) + Math.random() * 500); continue; }
+    const left = deadlineAt ? deadlineAt - Date.now() : 20000;
+    if (left < 1500) throw timeoutError('hết thời gian của lần đồng bộ này');
+    let res, j;
+    try {
+      res = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(Math.min(20000, left)) });
+      const text = await res.text(); // đọc hết thân phản hồi trong cùng giới hạn thời gian
+      try { j = text ? JSON.parse(text) : {}; } catch { j = null; }
+    } catch (e) {
+      // hết giờ hoặc mất kết nối: thử lại nếu còn thời gian, nếu không thì báo lỗi (không bao giờ coi là thành công rỗng)
+      if (attempt < 2 && (!deadlineAt || deadlineAt - Date.now() > 5000)) { await sleep(800 * (attempt + 1)); continue; }
+      throw timeoutError(e && (e.name === 'TimeoutError' || e.name === 'AbortError') ? 'hết thời gian chờ phản hồi' : 'mất kết nối (' + String(e && e.message || e).slice(0, 80) + ')');
+    }
+    if (res.ok && j && !j.error) return j;
+    if (res.ok && !j) { if (attempt < 2) { await sleep(800 * (attempt + 1)); continue; } throw timeoutError('phản hồi không đọc được'); }
+    const e = (j && j.error) || {};
+    if (attempt < 2 && (RETRY_CODES.has(e.code) || res.status >= 500) && (!deadlineAt || deadlineAt - Date.now() > 5000)) { await sleep(1200 * (attempt + 1) + Math.random() * 500); continue; }
     throw metaError(e, res.status);
   }
 }

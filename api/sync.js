@@ -8,15 +8,15 @@
 import { authorize } from '../server/auth.js';
 import { send, safeError } from '../server/http.js';
 
-const DEADLINE_MS = 45000; // Vercel Hobby cho tối đa 60 giây mỗi lần gọi
-const HEAVY_DEADLINE_MS = 30000; // nhóm nặng (mẫu quảng cáo, độ tuổi/giới tính…) không bắt đầu sau mốc này, để còn thời gian ghi
+// Vercel Hobby cho tối đa 60 giây mỗi lần gọi: không bắt đầu lời gọi mới sau 40 giây (nhóm nặng: 28 giây),
+// và mọi yêu cầu đang chạy dở bị cắt ở giây 52 (server/meta.js setDeadline) để luôn còn thời gian ghi.
+const DEADLINE_MS = 40000;
+const HEAVY_DEADLINE_MS = 28000;
+const HARD_DEADLINE_MS = 52000;
 
-/** Bảo vệ số liệu đã có ở các ngày cũ (trước hôm kia):
- *  - chi tiêu lệch ở nhiều ngày → không ghi (409);
- *  - lead đang có mà số mới về 0 (Meta không trả loại lead nào) → giữ số lead đang lưu cho ngày đó, không chặn cả lần đồng bộ. */
+/** Bảo vệ số liệu đã có ở các ngày cũ (trước hôm kia): chi tiêu lệch ở nhiều ngày → không ghi (409). */
 function compareStored(stored, merged, today, C) {
-  const cutoff = C.dates.addDays(today, -2), out = { checkedDays: 0, mismatches: [], leadKept: [] };
-  const L = C.MI.lead, ML = C.MI.mlead;
+  const cutoff = C.dates.addDays(today, -2), out = { checkedDays: 0, mismatches: [] };
   for (const id of Object.keys(merged)) {
     if (id.indexOf('acct-') !== 0 || !stored[id]) continue;
     const a = stored[id].daily || {}, b = merged[id].daily || {};
@@ -25,13 +25,26 @@ function compareStored(stored, merged, today, C) {
       out.checkedDays++;
       const x = a[d][0], y = b[d][0];
       if (Math.abs(x - y) > Math.max(1000, Math.abs(x) * 0.01)) out.mismatches.push({ account: id.slice(5), day: d, stored: x, fresh: y });
-      if (Math.max(a[d][L] || 0, a[d][ML] || 0) > 0 && !(b[d][L] > 0) && !(b[d][ML] > 0)) {
-        b[d] = b[d].slice(); b[d][L] = a[d][L] || 0; b[d][ML] = a[d][ML] || 0;
-        out.leadKept.push({ account: id.slice(5), day: d });
-      }
     }
   }
   out.blocked = out.mismatches.length > 3;
+  return out;
+}
+
+/** Meta bỗng không trả loại lead nào cho một tài khoản (đổi phiên bản API, mất quyền…) trong khi số đang lưu cho cùng những ngày đó có lead:
+ *  đó là mất dữ liệu chứ không phải lead thật về 0. Khi đó giữ lead đang lưu ở số theo ngày và không ghi đè các bảng chiến dịch/mẫu quảng cáo/khán giả
+ *  của tài khoản đó. Một ngày lẻ về 0 trong khi các ngày khác vẫn có lead thì là số thật và được ghi bình thường. */
+function leadLossAccounts(stored, fresh, perAccount, C) {
+  const L = C.MI.lead, ML = C.MI.mlead, out = [];
+  for (const id of Object.keys(fresh)) {
+    if (id.indexOf('acct-') !== 0 || !stored[id]) continue;
+    const acct = id.slice(5), A = perAccount[acct];
+    if (!A || !A.dailyRows || Object.keys(A.leadTypes).length) continue; // có dòng theo ngày và không thấy loại lead nào
+    const a = stored[id].daily || {}, b = fresh[id].daily || {};
+    let had = 0;
+    for (const d of Object.keys(b)) if (a[d]) had += Math.max(a[d][L] || 0, a[d][ML] || 0);
+    if (had > 0) out.push(acct);
+  }
   return out;
 }
 
@@ -47,9 +60,10 @@ export default async function handler(req, res) {
 
     await import('../fbads-core.js');
     const C = globalThis.FBCore;
-    const { runCall, runCreatives } = await import('../server/meta.js');
+    const { runCall, runCreatives, setDeadline } = await import('../server/meta.js');
     const { readAll, writeDocs } = await import('../server/store.js');
     const q = req.query || {}, started = Date.now();
+    setDeadline(started + HARD_DEADLINE_MS);
     const dry = /^(1|true)$/.test(String(q.dry || ''));
     const today = C.dates.todayVN(), dow = C.dates.parseISO(today).getUTCDay();
     let groups = String(q.groups || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -69,8 +83,13 @@ export default async function handler(req, res) {
     const quick = C.plan(today, { mode: 'quick', accounts: accts }), full = C.plan(today, { mode: 'full', accounts: accts });
     let calls = [];
     const fullAccts = {};
+    const oldRowsOf = doc => Object.keys((doc && doc.daily) || {}).filter(d => d < recentFrom).length;
+    const covered = state.covered || {};
     if (groups.includes('base')) for (const acct of accts) {
-      const hasDoc = !!stored['acct-' + acct];
+      const doc = stored['acct-' + acct], hasDoc = !!doc;
+      // số đang lưu không còn như lúc đánh dấu đủ lịch sử (bị ghi đè ngắn hơn, hoặc lâu không đồng bộ nên hở quá 45 ngày) → lấy lại
+      const days = hasDoc ? Object.keys(doc.daily || {}).sort() : [];
+      if (hasDoc && hist[acct] && (oldRowsOf(doc) < (covered[acct] || 0) || (days.length && days[days.length - 1] < recentFrom))) { delete hist[acct]; delete win[acct]; }
       if (hasDoc && hist[acct]) { calls = calls.concat(quick.filter(c => c.acct === acct && !/^(ads|adm|bd_)/.test(c.name))); continue; }
       // chưa đủ lịch sử: lấy từ đầu, bỏ qua các khung ngày cũ đã lấy xong ở lần trước
       const done = new Set(hasDoc ? win[acct] || [] : []);
@@ -91,11 +110,13 @@ export default async function handler(req, res) {
     calls = calls.map((c, i) => [prio(c), i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 
     const raw = {}, failed = [], skipped = [], cache = {};
-    const blank = () => ({ calls: 0, ok: 0, failed: 0, skipped: 0, rows: 0, noActions: 0, leadTypes: {} });
+    // failed/skipped: số liệu chính (chi tiêu, lead, chiến dịch); heavy: mẫu quảng cáo, nội dung, khán giả
+    const blank = () => ({ calls: 0, ok: 0, failed: 0, skipped: 0, heavy: 0, rows: 0, dailyRows: 0, noActions: 0, leadTypes: {} });
     const perAccount = Object.fromEntries(accts.map(a => [a, blank()]));
     const pa = a => perAccount[a] ||= blank();
-    const fail = (acct, name, e) => { const msg = String(e.message || e).slice(0, 200); failed.push({ call: acct + '|' + name, error: msg }); const A = pa(acct); A.failed++; A.error ||= msg; };
-    const skip = (acct, name) => { skipped.push(acct + '|' + name); pa(acct).skipped++; };
+    const isHeavy = name => /^(ads|adm|bd_|creatives)/.test(name);
+    const fail = (acct, name, e) => { const msg = String(e.message || e).slice(0, 200); failed.push({ call: acct + '|' + name, error: msg }); const A = pa(acct); if (isHeavy(name)) A.heavy++; else { A.failed++; A.error ||= msg; } };
+    const skip = (acct, name) => { skipped.push(acct + '|' + name); const A = pa(acct); if (isHeavy(name)) A.heavy++; else A.skipped++; };
     for (const c of calls) pa(c.acct).calls++;
     const queue = calls.slice();
     async function worker() {
@@ -107,7 +128,7 @@ export default async function handler(req, res) {
           ((raw[c.acct] ||= {})[c.name] = []).push(p);
           A.ok++; A.rows += p.diag.rows; A.noActions += p.diag.noActions;
           // chỉ cộng từ các dòng theo ngày (không chồng nhau), để số chẩn đoán so được với Trình quản lý quảng cáo
-          if (/^daily_w/.test(c.name)) for (const [k, v] of Object.entries(p.diag.leadTypes)) A.leadTypes[k] = (A.leadTypes[k] || 0) + v;
+          if (/^daily_w/.test(c.name)) { A.dailyRows += p.diag.rows; for (const [k, v] of Object.entries(p.diag.leadTypes)) A.leadTypes[k] = (A.leadTypes[k] || 0) + v; }
         } catch (e) {
           if (e && e.meta && e.meta.code === 190) throw e; // token hỏng: dừng ngay
           fail(c.acct, c.name, e);
@@ -129,6 +150,13 @@ export default async function handler(req, res) {
     for (const acct of Object.keys(raw)) for (const n of Object.keys(raw[acct])) if (bad.has(acct + '|' + n.replace(/__.*$/, ''))) delete raw[acct][n];
 
     const fresh = C.normalize(raw, { windows: C.windowsOf(calls) });
+    const leadLoss = leadLossAccounts(stored, fresh, perAccount, C);
+    for (const acct of leadLoss) {
+      // giữ lead đang lưu cho các ngày đã có; không ghi đè bảng chiến dịch/mẫu quảng cáo/khán giả của tài khoản này
+      const a = stored['acct-' + acct].daily || {}, b = fresh['acct-' + acct].daily || {};
+      for (const d of Object.keys(b)) if (a[d]) { b[d] = b[d].slice(); b[d][C.MI.lead] = a[d][C.MI.lead] || 0; b[d][C.MI.mlead] = a[d][C.MI.mlead] || 0; }
+      for (const id of Object.keys(fresh)) if (id !== 'acct-' + acct && id.split('-')[1] === acct) delete fresh[id];
+    }
     // tài khoản đang lấy lại lịch sử: số chiến dịch theo ngày cũ (ngoài 62 ngày vừa lấy) được tính theo cách cũ → bỏ, để kỳ cũ dùng số theo tháng vừa lấy lại
     const base = Object.assign({}, stored);
     for (const acct of Object.keys(fullAccts)) if (fresh['campd-' + acct]) delete base['campd-' + acct];
@@ -143,22 +171,29 @@ export default async function handler(req, res) {
       const recentOk = calls.filter(c => c.acct === acct && /^daily_w/.test(c.name) && !isOldDaily(c)).every(c => raw[acct] && raw[acct][c.name]);
       if (recentOk && f.oldWins.every(r => got.has(r))) hist[acct] = today;
     }
-    const syncstate = { hist, win, at: new Date().toISOString() };
-    const meta = Object.assign({}, prevMeta, {
-      v: C.VERSION, syncedAt: new Date().toISOString(), syncedBy: who.kind === 'cron' ? 'vercel-cron' : 'vercel:' + who.email, dataUntil: today, start: C.START,
+    for (const acct of Object.keys(hist)) { const d = merged['acct-' + acct] || stored['acct-' + acct]; if (d) covered[acct] = oldRowsOf(d); }
+    for (const acct of Object.keys(covered)) if (!hist[acct]) delete covered[acct];
+    const syncstate = { hist, win, covered, at: new Date().toISOString() };
+    const gotFresh = Object.keys(fresh).length > 0, by = who.kind === 'cron' ? 'vercel-cron' : 'vercel:' + who.email;
+    const meta = Object.assign({}, prevMeta, gotFresh ? {
+      v: C.VERSION, syncedAt: new Date().toISOString(), syncedBy: by, dataUntil: today, start: C.START,
       accounts: prevMeta.accounts && prevMeta.accounts.length ? prevMeta.accounts : C.ACCOUNTS, source: 'meta-api',
-      fullAt: groups.includes('ads') && groups.includes('bd') && !failed.length && !skipped.length ? new Date().toISOString() : (prevMeta.fullAt || null),
+      fullAt: groups.includes('ads') && groups.includes('bd') && !failed.length && !skipped.length ? new Date().toISOString() : (prevMeta.fullAt || null)
+    } : {}, {
+      // không lấy được gì: giữ nguyên ngày đồng bộ và ngày số liệu, chỉ ghi lại lần thử và tài khoản nào đang lỗi
+      lastAttemptAt: new Date().toISOString(),
       failed: failed.map(f => f.call).concat(skipped),
-      perAccount: Object.fromEntries(Object.entries(perAccount).map(([a, x]) => [a, { ok: x.ok, failed: x.failed, skipped: x.skipped, error: x.error || null, history: hist[a] ? 'done' : 'partial' }]))
+      leadLoss,
+      perAccount: Object.fromEntries(Object.entries(perAccount).map(([a, x]) => [a, { ok: x.ok, failed: x.failed, skipped: x.skipped, heavy: x.heavy, error: x.error || null, history: hist[a] ? 'done' : 'partial' }]))
     });
     const mdl = C.model(Object.assign({}, stored, merged, { meta }));
     const t30 = C.totals(mdl, accts.filter(a => (C.ACCOUNTS.find(x => x.id === a) || {}).role !== 'recruit'), C.dates.addDays(today, -30), C.dates.addDays(today, -1));
     const summary = { last30d: { spend: Math.round(t30.spend), leads: t30.leads, cpl: t30.cpl && Math.round(t30.cpl) } };
-    const checkOut = { checkedDays: checks.checkedDays, mismatches: checks.mismatches.slice(0, 5), leadKept: checks.leadKept.length };
+    const checkOut = { checkedDays: checks.checkedDays, mismatches: checks.mismatches.slice(0, 5), leadLoss };
     if (checks.blocked) return send(res, 409, { ok: false, error: 'Số liệu mới lệch với số liệu đang lưu ở nhiều ngày cũ nên không ghi. Kiểm tra token/tài khoản rồi chạy lại với ?dry=1.', checks: checkOut, failed, skipped, summary, perAccount });
     let written = 0;
     // luôn lưu kết quả đồng bộ (kể cả khi không lấy được gì) để trang báo đúng tài khoản nào đang thiếu số liệu
-    if (!dry) written = await writeDocs(Object.keys(fresh).length ? Object.assign({}, merged, { meta, syncstate }) : { meta, syncstate }, { by: meta.syncedBy });
+    if (!dry) written = await writeDocs(gotFresh ? Object.assign({}, merged, { meta, syncstate }) : { meta, syncstate }, { by });
     send(res, 200, { ok: true, dry, groups, calls: calls.length, written, fresh: Object.keys(fresh).length, failed, skipped, checks: checkOut, summary, perAccount, ms: Date.now() - started });
   } catch (e) {
     console.error('[sync]', e);
