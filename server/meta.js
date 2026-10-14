@@ -9,7 +9,8 @@ const RETRY_CODES = new Set([1, 2, 4, 17, 32, 341, 613, 80000, 80003, 80004]);
 export function metaError(e, status) {
   const m = (e && e.message) || ('HTTP ' + status);
   const hint = e && (e.code === 190 ? ' (token hết hạn hoặc không hợp lệ: tạo lại token System User rồi cập nhật META_ACCESS_TOKEN)'
-    : e.code === 200 || e.code === 10 ? ' (token chưa được cấp quyền ads_read cho tài khoản quảng cáo này)' : '');
+    : e.code === 200 || e.code === 10 ? ' (token chưa được cấp quyền ads_read cho tài khoản quảng cáo này)'
+    : e.code === 100 && e.error_subcode === 33 ? ' (người dùng hệ thống chưa được chỉ định tài khoản quảng cáo này, hoặc sai ID tài khoản)' : '');
   return Object.assign(new Error('Meta API: ' + m + (hint || '')), { meta: e, status, expose: true });
 }
 
@@ -37,7 +38,9 @@ const INSIGHT_FIELDS = ['date_start', 'date_stop', 'account_id', 'campaign_id', 
   'spend', 'impressions', 'reach', 'frequency', 'clicks', 'inline_link_clicks', 'unique_inline_link_clicks', 'actions', 'video_play_actions',
   'video_thruplay_watched_actions', 'video_p25_watched_actions', 'video_p50_watched_actions', 'video_p75_watched_actions', 'video_p100_watched_actions',
   'outbound_clicks', 'results', 'views'];
-const unsupported = new Set(); // các trường Graph từ chối (#100) – bỏ đi và thử lại, nhớ cho các lần gọi sau
+// các trường Graph từ chối (#100) – bỏ đi và thử lại, nhớ cho các lần gọi sau. Nhớ riêng theo cấp (account/campaign/ad):
+// cấp tài khoản thường không trả `results`, nhưng cấp chiến dịch vẫn cần trường này.
+const unsupportedByLevel = {};
 
 async function insights(acct, q, token) {
   const level = q.level === 'ad_account' || q.level === 'account' ? 'account' : q.level;
@@ -50,6 +53,7 @@ async function insights(acct, q, token) {
     return f;
   }).filter(f => !(level === 'account' && /effective_status/.test(f.field)));
   if (filtering.length) params.filtering = filtering;
+  const unsupported = unsupportedByLevel[level] ||= new Set();
   for (let tries = 0; tries < 4; tries++) {
     params.fields = INSIGHT_FIELDS.filter(f => !unsupported.has(f)).join(',');
     try { return await allPages('act_' + acct + '/insights', params, token); }
@@ -69,18 +73,48 @@ function resultsOf(r) {
   if (!v) return null;
   const items = Array.isArray(v) ? v : [v];
   let t = 0;
-  for (const it of items) { if (Array.isArray(it && it.values)) for (const x of it.values) t += Number(x && x.value) || 0; else t += Number(it && it.value) || 0; }
+  for (const it of items) {
+    // mỗi kết quả có thể kèm nhiều cửa sổ phân bổ: chỉ lấy giá trị 'default', không cộng các cửa sổ với nhau
+    if (Array.isArray(it && it.values)) { const x = it.values.find(w => !w || !w.attribution_windows || w.attribution_windows.includes('default')) || it.values[0]; t += Number(x && x.value) || 0; }
+    else t += Number(it && it.value) || 0;
+  }
   return { values: [{ value: String(t) }] };
+}
+
+// ---- lead ----
+// 'lead' là tổng lead của Meta (trên Meta + website). Các loại còn lại chồng lên nhau, nên trong mỗi nhóm chỉ lấy MỘT loại theo thứ tự ưu tiên:
+//   trên Meta (form, Messenger, Instagram): lead_grouped ⊇ leadgen.other (chỉ form);   website: fb_pixel_lead = onsite_web_lead (trùng nhau)
+// Không bao giờ cộng lead với loại khác, và không coi 'messaging_conversation_started' là lead.
+const LEAD_ON_META = ['onsite_conversion.lead_grouped', 'leadgen_grouped', 'leadgen.other', 'onsite_conversion.lead'];
+const LEAD_WEB = ['offsite_conversion.fb_pixel_lead', 'onsite_web_lead'];
+function actionMap(arr) {
+  const m = {};
+  if (Array.isArray(arr)) for (const a of arr) if (a && a.action_type) m[a.action_type] = (m[a.action_type] || 0) + (Number(a.value) || 0);
+  return m;
+}
+const firstOf = (m, keys) => { for (const k of keys) if (Object.hasOwn(m, k)) return m[k]; return null; };
+/** Lead của một dòng Graph → { lead, mlead } (chuỗi số, hoặc null khi Meta không trả loại lead nào). */
+export function leadsOfRow(actions) {
+  const m = actionMap(actions), onMeta = firstOf(m, LEAD_ON_META), web = firstOf(m, LEAD_WEB);
+  const lead = Object.hasOwn(m, 'lead') ? m.lead : onMeta == null && web == null ? null : (onMeta || 0) + (web || 0);
+  return { lead: lead == null ? null : String(lead), mlead: onMeta == null ? null : String(onMeta) };
+}
+/** Ghi lại các loại hành động có chữ "lead" mà Meta trả về, để biết ngay khi Meta đổi tên. */
+function noteLeadTypes(diag, r) {
+  diag.rows++;
+  if (!Array.isArray(r.actions)) { diag.noActions++; return; }
+  for (const a of r.actions) if (a && /lead/i.test(a.action_type || '')) diag.leadTypes[a.action_type] = (diag.leadTypes[a.action_type] || 0) + (Number(a.value) || 0);
 }
 /** Một dòng Graph → một dòng cùng tên trường như connector (amount_spent, link_click, lead, …). */
 export function mapRow(r, level) {
   const id = level === 'campaign' ? r.campaign_id : level === 'ad' ? r.ad_id : r.account_id;
   const name = level === 'campaign' ? r.campaign_name : level === 'ad' ? r.ad_name : r.account_id;
+  const L = leadsOfRow(r.actions);
   const o = {
     id, name, date_start: r.date_start, date_stop: r.date_stop,
     amount_spent: { value: r.spend || '0', unit: 'VND' }, impressions: r.impressions, reach: r.reach, frequency: r.frequency, clicks: r.clicks,
     link_click: act(r.actions, 'link_click') ?? r.inline_link_clicks ?? null, unique_link_click: r.unique_inline_link_clicks ?? null,
-    lead: act(r.actions, 'lead'), onsite_conversion_lead_grouped: act(r.actions, 'onsite_conversion.lead_grouped'),
+    lead: L.lead, onsite_conversion_lead_grouped: L.mlead,
     results: resultsOf(r), media_views: r.views ?? r.impressions ?? null,
     video_play_actions: act(r.video_play_actions), video_thruplay_watched_actions: act(r.video_thruplay_watched_actions),
     video_p25_watched_actions: act(r.video_p25_watched_actions), video_p50_watched_actions: act(r.video_p50_watched_actions),
@@ -107,7 +141,8 @@ async function adAttrs(acct, token) {
 /** Thực hiện một lời gọi trong kế hoạch của fbads-core.plan() và trả payload dạng connector. */
 export async function runCall(call, token, cache = {}) {
   const q = call.args, level = q.level === 'ad_account' ? 'account' : q.level;
-  const rows = (await insights(call.acct, q, token)).map(r => mapRow(r, level));
+  const diag = { rows: 0, noActions: 0, leadTypes: {} };
+  const rows = (await insights(call.acct, q, token)).map(r => (noteLeadTypes(diag, r), mapRow(r, level)));
   if (call.name === 'camps') {
     const attrs = cache['c' + call.acct] ||= await campaignAttrs(call.acct, token);
     for (const r of rows) { const a = attrs[r.id] || {}; Object.assign(r, { objective: a.objective || '', effective_status: a.effective_status || '', start_time: a.start_time || '', stop_time: a.stop_time || '', created_time: a.created_time || '', daily_budget: a.daily_budget || null, lifetime_budget: a.lifetime_budget || null }); }
@@ -117,7 +152,7 @@ export async function runCall(call, token, cache = {}) {
     const cattrs = cache['c' + call.acct] ||= await campaignAttrs(call.acct, token);
     for (const r of rows) { const a = attrs[r.id] || {}; Object.assign(r, { creative_id: a.creative && a.creative.id || '', effective_status: a.effective_status || '', created_time: a.created_time || '', adset_name: r.adset_name || (a.adset && a.adset.name) || '', objective: (cattrs[r.campaign_id] || {}).objective || '' }); }
   }
-  return { ad_entities: rows };
+  return { ad_entities: rows, diag };
 }
 export async function runCreatives(ids, token) {
   const fields = 'id,name,object_type,body,title,description,call_to_action_type,link_url,video_id,effective_object_story_id,object_story_id';

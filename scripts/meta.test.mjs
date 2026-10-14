@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import '../fbads-core.js';
-import { runCall, runCreatives, mapRow } from '../server/meta.js';
+import { runCall, runCreatives, mapRow, leadsOfRow } from '../server/meta.js';
 const C = globalThis.FBCore;
 
 function fakeGraph(routes) {
@@ -83,4 +83,47 @@ test('campaign x day spend filter and ad rows with creative ids; creatives by id
 test('mapRow keeps breakdown keys', () => {
   const r = mapRow({ campaign_id: 'c', spend: '5', age: '25-34', gender: 'female', publisher_platform: 'facebook', platform_position: 'feed' }, 'campaign');
   assert.equal(r.age, '25-34'); assert.equal(r.platform_position, 'feed'); assert.equal(r.amount_spent.value, '5');
+});
+
+test('lead types: one value per overlapping family, never summed twice', () => {
+  const L = o => leadsOfRow(acts(o));
+  // 'lead' (Meta's total) wins over everything, even when sub-types are present
+  assert.deepEqual(L({ lead: 211, 'onsite_conversion.lead_grouped': 211, 'leadgen.other': 197 }), { lead: '211', mlead: '211' });
+  // no 'lead': fall back to the on-Meta group, by precedence (grouped before form-only)
+  assert.deepEqual(L({ 'onsite_conversion.lead_grouped': 12, 'leadgen.other': 10 }), { lead: '12', mlead: '12' });
+  assert.deepEqual(L({ 'leadgen.other': 7 }), { lead: '7', mlead: '7' });
+  assert.deepEqual(L({ leadgen_grouped: 5, 'leadgen.other': 5 }), { lead: '5', mlead: '5' });
+  // website leads: pixel and onsite_web_lead are the same events – take one; add to on-Meta leads only when 'lead' is absent
+  assert.deepEqual(L({ 'offsite_conversion.fb_pixel_lead': 3, onsite_web_lead: 3 }), { lead: '3', mlead: null });
+  assert.deepEqual(L({ 'onsite_conversion.lead_grouped': 4, 'offsite_conversion.fb_pixel_lead': 3 }), { lead: '7', mlead: '4' });
+  // conversations started are not leads; nothing lead-like → null (not 0)
+  assert.deepEqual(L({ 'onsite_conversion.messaging_conversation_started_7d': 9, link_click: 4 }), { lead: null, mlead: null });
+  assert.deepEqual(leadsOfRow(undefined), { lead: null, mlead: null });
+  // a real zero stays a zero
+  assert.deepEqual(L({ lead: 0 }), { lead: '0', mlead: null });
+});
+
+test('form-only lead rows reach the dashboard totals', () => {
+  const r = mapRow({ account_id: '111', date_start: '2026-10-01', date_stop: '2026-10-01', spend: '1000', actions: acts({ 'leadgen.other': 3, link_click: 9 }) }, 'account');
+  const docs = C.normalize({ 111: { daily_w1: [{ ad_entities: [r] }] } });
+  const mdl = C.model(docs);
+  const t = C.totals(mdl, ['111'], '2026-10-01', '2026-10-01');
+  assert.equal(t.leads, 3);
+});
+
+test('results: default attribution window only; a field dropped at account level is still asked at campaign level', async () => {
+  const seen = fakeGraph([
+    u => u.pathname.endsWith('/act_222/insights') && u.searchParams.get('level') === 'account' && u.searchParams.get('fields').includes('results') && { error: { code: 100, message: '(#100) results is not valid for fields param' } },
+    u => u.pathname.endsWith('/act_222/insights') && u.searchParams.get('level') === 'account' && { data: [{ account_id: '222', date_start: '2026-10-01', date_stop: '2026-10-01', spend: '10', actions: acts({ lead: 1 }) }] },
+    u => u.pathname.endsWith('/act_222/insights') && u.searchParams.get('level') === 'campaign' && { data: [{ campaign_id: 'c9', campaign_name: 'X', spend: '10', date_start: '2025-03-01', date_stop: '2026-10-03',
+      actions: acts({ lead: 4 }), results: [{ indicator: 'actions:leadgen.other', values: [{ value: '4', attribution_windows: ['default'] }, { value: '6', attribution_windows: ['7d_click'] }] }] }] },
+    u => u.pathname.endsWith('/act_222/campaigns') && { data: [{ id: 'c9', objective: 'OUTCOME_LEADS' }] }
+  ]);
+  const plan = C.plan('2026-10-03', { mode: 'quick', accounts: ['222'] });
+  const daily = await runCall(plan.find(c => c.name.startsWith('daily')), 'TEST');
+  assert.equal(daily.diag.leadTypes.lead, 1);
+  const camps = await runCall(plan.find(c => c.name === 'camps'), 'TEST', {});
+  const campReq = seen.find(u => u.searchParams.get('level') === 'campaign');
+  assert.ok(campReq.searchParams.get('fields').split(',').includes('results'), 'campaign level still requests results');
+  assert.equal(camps.ad_entities[0].results.values[0].value, '4');
 });

@@ -7,24 +7,27 @@
 <meta name="description" content="Báo cáo quảng cáo Facebook của Trường Ngôi Sao Hoàng Mai cho Chủ tịch HĐQT và Ban Truyền thông: chi tiêu, lead, chi phí/lead, tiếp cận, nội dung và đề xuất, đồng bộ hằng ngày.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Literata:opsz,wght@7..72,500;7..72,600;7..72,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Crect width='72' height='72' fill='%23D21F36'/%3E%3Cpath d='M62.7 9.36H9.4v53.3h53.3z' fill='none' stroke='white' stroke-width='4'/%3E%3Ccircle cx='36' cy='36' r='18.6' fill='none' stroke='white' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<meta name="theme-color" content="#23328C" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141A3D" media="(prefers-color-scheme: dark)">
 </head>
 <body>
 <style>
 /* Layout: navy masthead with the school mark, sticky tab + filter bar, 12-column card grid.
-   Tokens follow the Ngôi Sao Hoàng Mai identity used in the lesson-observation dashboard. */
+   Nhận diện Ngôi Sao Hoàng Mai: một kiểu chữ Lexend cho mọi cấp tiêu đề; đỏ logo #D21F36 + xanh navy.
+   Đỏ thương hiệu dùng cho logo, điểm nhấn và chỉ số Lead; trạng thái "cần xử lý" dùng đỏ cam riêng (--bad) để lead không bị đọc thành tin xấu. */
 :root{
-  --font:'Lexend',system-ui,-apple-system,'Segoe UI',sans-serif;
-  --font-display:'Literata',Georgia,serif;
+  --font:'Lexend',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  --font-display:var(--font);
   --page:#F3F4F8; --surface:#FFFFFF; --surface-2:#F7F8FB; --surface-3:#ECEEF5;
-  --ink:#141831; --ink-2:#4A5070; --muted:#6F7690; --line:#E3E6EF; --grid:#ECEEF4; --axis:#C6CBDA;
-  --brand:#D21235; --navy:#23328C; --hdr:#23328C; --hdr-2:#1B2873;
-  --series:#2F44B5; --series-soft:rgba(47,68,181,.09); --lead:#D21235; --lead-soft:rgba(210,18,53,.10);
-  --ok:#1F9D55; --warn:#E09B00; --bad:#D21235;
-  --up:#13784A; --down:#C0142F; --ok-bg:#E9F7EF; --warn-bg:#FFF6E5; --crit-bg:#FDECEF;
-  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#008300; --c7:#4a3aa7; --c8:#e34948; --c0:#9AA0B4;
+  --ink:#141831; --ink-2:#4A5070; --muted:#646A84; --line:#E3E6EF; --grid:#ECEEF4; --axis:#C6CBDA;
+  --brand:#D21F36; --brand-soft:rgba(210,31,54,.10); --on-brand:#FFFFFF; --navy:#23328C; --hdr:#23328C; --hdr-2:#1B2873;
+  --series:#2F44B5; --series-soft:rgba(47,68,181,.09); --lead:var(--brand); --lead-soft:var(--brand-soft);
+  --ok:#1F9D55; --warn:#E09B00; --warn-ink:#8A5A00; --bad:#B42318;
+  --up:#13784A; --down:#B42318; --ok-bg:#E9F7EF; --warn-bg:#FFF6E5; --crit-bg:#FEF0EE;
+  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#008300; --c7:#6250d6; --c8:#D21F36; --c0:#9AA0B4;
   --shadow:0 1px 2px rgba(20,24,49,.05),0 6px 20px rgba(20,24,49,.05);
   --radius:14px;
 }
@@ -32,11 +35,11 @@
   :root:not([data-theme="light"]){
     --page:#0C0F1D; --surface:#151A2E; --surface-2:#1A2036; --surface-3:#222944;
     --ink:#F1F3FA; --ink-2:#B8BDD2; --muted:#8F96B0; --line:#272E4D; --grid:#20263F; --axis:#3A4268;
-    --brand:#E8475F; --navy:#9AA6F2; --hdr:#141A3D; --hdr-2:#0F1431;
-    --series:#7383EA; --series-soft:rgba(115,131,234,.16); --lead:#F06A7E; --lead-soft:rgba(240,106,126,.16);
-    --ok:#2DA35E; --warn:#C58D0A; --bad:#E8475F;
-    --up:#3CC27A; --down:#F06A7E; --ok-bg:#15291F; --warn-bg:#2A2414; --crit-bg:#2C1720;
-    --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#e66767; --c0:#6B7190;
+    --brand:#F0566A; --brand-soft:rgba(240,86,106,.16); --on-brand:#0C0F1D; --navy:#9AA6F2; --hdr:#141A3D; --hdr-2:#0F1431;
+    --series:#7383EA; --series-soft:rgba(115,131,234,.16); --lead:var(--brand); --lead-soft:var(--brand-soft);
+    --ok:#2DA35E; --warn:#C58D0A; --warn-ink:#F2C14E; --bad:#FF7A66;
+    --up:#3CC27A; --down:#FF7A66; --ok-bg:#15291F; --warn-bg:#2A2414; --crit-bg:#2C1A16;
+    --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#F0566A; --c0:#6B7190;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
     color-scheme:dark;
   }
@@ -44,11 +47,11 @@
 :root[data-theme="dark"]{
   --page:#0C0F1D; --surface:#151A2E; --surface-2:#1A2036; --surface-3:#222944;
   --ink:#F1F3FA; --ink-2:#B8BDD2; --muted:#8F96B0; --line:#272E4D; --grid:#20263F; --axis:#3A4268;
-  --brand:#E8475F; --navy:#9AA6F2; --hdr:#141A3D; --hdr-2:#0F1431;
-  --series:#7383EA; --series-soft:rgba(115,131,234,.16); --lead:#F06A7E; --lead-soft:rgba(240,106,126,.16);
-  --ok:#2DA35E; --warn:#C58D0A; --bad:#E8475F;
-  --up:#3CC27A; --down:#F06A7E; --ok-bg:#15291F; --warn-bg:#2A2414; --crit-bg:#2C1720;
-  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#e66767; --c0:#6B7190;
+  --brand:#F0566A; --brand-soft:rgba(240,86,106,.16); --on-brand:#0C0F1D; --navy:#9AA6F2; --hdr:#141A3D; --hdr-2:#0F1431;
+  --series:#7383EA; --series-soft:rgba(115,131,234,.16); --lead:var(--brand); --lead-soft:var(--brand-soft);
+  --ok:#2DA35E; --warn:#C58D0A; --warn-ink:#F2C14E; --bad:#FF7A66;
+  --up:#3CC27A; --down:#FF7A66; --ok-bg:#15291F; --warn-bg:#2A2414; --crit-bg:#2C1A16;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#F0566A; --c0:#6B7190;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
   color-scheme:dark;
 }
@@ -73,7 +76,7 @@ svg{display:block}
 .brandmark{display:flex;align-items:center;gap:14px;min-width:0;flex:1 1 420px}
 .brandmark svg{width:52px;height:52px;flex:none;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 .brandmark .school{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;opacity:.82;font-weight:500}
-.brandmark h1{font-family:var(--font-display);font-weight:600;font-size:24px;line-height:1.2;margin:2px 0 0;letter-spacing:-.01em;text-wrap:balance}
+.brandmark h1{font-family:var(--font-display);font-weight:600;font-size:24px;line-height:1.2;margin:2px 0 0;letter-spacing:-.02em;text-wrap:balance}
 .brandmark h1 small{font-family:var(--font);font-weight:400;font-size:13px;opacity:.78;margin-left:8px;letter-spacing:0}
 @media (max-width:640px){.brandmark h1{font-size:21px}.brandmark h1 small{display:block;margin:4px 0 0}.brandmark svg{width:44px;height:44px}}
 .hdr-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -114,6 +117,9 @@ svg{display:block}
 .fsel{cursor:pointer;padding-right:6px;max-width:230px}
 .fsel.on{border-color:var(--series);box-shadow:0 0 0 3px var(--series-soft)}
 .range-note{font-size:12.5px;color:var(--muted);margin-left:auto;white-space:nowrap}
+.notice{display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:10px 14px;border-radius:10px;background:var(--warn-bg);color:var(--warn-ink);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);font-size:13px;line-height:1.5}
+.notice b{font-weight:600;white-space:nowrap}
+.notice code{font-size:12px;overflow-wrap:anywhere}
 @media (max-width:900px){.range-note{margin-left:0;white-space:normal;flex-basis:100%}}
 
 /* Layout */
@@ -130,14 +136,14 @@ main{padding-block:20px 40px}
 .mini-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .mini-seg button{border:0;background:var(--surface);padding:4px 10px;font-size:12px;cursor:pointer;color:var(--ink-2)}
 .mini-seg button[aria-pressed="true"]{background:var(--surface-3);color:var(--ink);font-weight:600}
-.sec-title{font-family:var(--font-display);font-size:19px;font-weight:600;margin:6px 0 2px;letter-spacing:-.01em}
+.sec-title{font-family:var(--font-display);font-size:20px;font-weight:600;margin:6px 0 2px;letter-spacing:-.015em;text-wrap:balance}
 .sec-sub{color:var(--muted);font-size:13px;margin:0 0 12px}
 
 /* Executive brief */
 .brief{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:22px;background:linear-gradient(135deg,var(--surface) 0%,var(--surface-2) 100%)}
 @media (max-width:1000px){.brief{grid-template-columns:1fr}}
 .brief .eyebrow{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--brand);font-weight:600}
-.brief h2{font-family:var(--font-display);font-weight:600;font-size:22px;line-height:1.3;margin:6px 0 10px;text-wrap:balance}
+.brief h2{font-family:var(--font-display);font-weight:600;font-size:22px;line-height:1.3;margin:6px 0 10px;letter-spacing:-.015em;text-wrap:balance}
 .brief .lede{color:var(--ink-2);font-size:14px;margin:0;max-width:68ch}
 .brief .by{font-size:12px;color:var(--muted);margin-top:12px}
 .hl{display:flex;flex-direction:column;gap:8px}
@@ -146,11 +152,9 @@ main{padding-block:20px 40px}
 .tone{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;border-radius:999px;padding:2px 8px;white-space:nowrap}
 .tone svg{width:11px;height:11px}
 .tone.good{background:var(--ok-bg);color:var(--up)}
-.tone.warn{background:var(--warn-bg);color:#8A5A00}
+.tone.warn{background:var(--warn-bg);color:var(--warn-ink)}
 .tone.bad{background:var(--crit-bg);color:var(--down)}
 .tone.info{background:var(--series-soft);color:var(--series)}
-:root[data-theme="dark"] .tone.warn{color:#F2C14E}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tone.warn{color:#F2C14E}}
 .linkbtn{border:0;background:none;color:var(--series);cursor:pointer;font-size:13px;font-weight:500;padding:0}
 
 /* KPI tiles */
@@ -274,7 +278,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 @media (max-width:700px){.creatives{grid-template-columns:1fr}}
 .cr{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--surface);display:flex;flex-direction:column;gap:8px;cursor:pointer;min-width:0}
 .cr:hover{border-color:var(--series);box-shadow:0 0 0 3px var(--series-soft)}
-.cr .rk{font-family:var(--font-display);font-weight:700;color:var(--brand);font-size:14px}
+.cr .rk{font-family:var(--font-display);font-weight:700;color:var(--brand);font-size:14px;font-variant-numeric:tabular-nums}
 .cr .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
 .cr .ttl{font-weight:600;font-size:13.5px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .cr .body{font-size:12.5px;color:var(--ink-2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
@@ -302,7 +306,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 .ev p{margin:6px 0 0;font-size:12.5px;color:var(--ink-2);line-height:1.5}
 .recs{display:flex;flex-direction:column;gap:10px;counter-reset:rec}
 .rec{display:grid;grid-template-columns:34px 1fr;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
-.rec .n{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-weight:700;font-family:var(--font-display);background:var(--navy);color:#fff}
+.rec .n{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-weight:600;font-family:var(--font-display);font-variant-numeric:tabular-nums;background:var(--navy);color:#fff}
 :root[data-theme="dark"] .rec .n{color:#0C0F1D}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .rec .n{color:#0C0F1D}}
 .rec .t{font-weight:600;font-size:14px;line-height:1.35}
@@ -340,7 +344,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 .p-hd{display:flex;align-items:flex-start;gap:12px;padding:18px 22px;border-bottom:1px solid var(--line);background:var(--surface-2)}
 .p-hd .ttl{flex:1;min-width:0}
 .p-hd .k{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--brand);font-weight:600}
-.p-hd h3{margin:2px 0 0;font-size:18px;font-family:var(--font-display);font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.p-hd h3{margin:2px 0 0;font-size:18px;font-family:var(--font-display);font-weight:600;line-height:1.3;letter-spacing:-.01em;overflow-wrap:anywhere}
 .p-hd p{margin:4px 0 0;color:var(--muted);font-size:12.5px}
 .xbtn{border:1px solid var(--line);background:var(--surface);border-radius:9px;width:34px;height:34px;display:grid;place-items:center;cursor:pointer;flex:none;color:var(--ink-2)}
 .xbtn svg{width:16px;height:16px}
@@ -357,7 +361,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 /* Boot, tooltip, toast, footer */
 .boot{display:grid;place-items:center;min-height:46vh;text-align:center;color:var(--ink-2);padding:24px}
 .boot .spin{width:36px;height:36px;border:3px solid var(--surface-3);border-top-color:var(--brand);border-radius:50%;animation:spin .9s linear infinite;margin:0 auto 14px}
-.boot h3{font-family:var(--font-display);font-size:20px;margin:0 0 6px;color:var(--ink)}
+.boot h3{font-family:var(--font-display);font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0 0 6px;color:var(--ink)}
 .boot p{max-width:560px;margin:4px auto;color:var(--muted);font-size:13.5px}
 #tip{position:fixed;left:0;top:0;z-index:80;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12px;line-height:1.5;padding:8px 11px;border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,.2);max-width:320px}
 #tip b{font-weight:600}
@@ -407,6 +411,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 </div>
 
 <main class="wrap" id="main">
+  <div class="notice" id="syncNotice" role="status" hidden></div>
   <div class="boot" id="boot"><div><div class="spin"></div><h3>Đang tải số liệu quảng cáo</h3><p>Trang đọc số liệu đã đồng bộ từ Facebook Ads. Việc này thường mất vài giây.</p></div></div>
   <section data-view="overview" hidden></section>
   <section data-view="trend" hidden></section>
@@ -743,9 +748,21 @@ function renderLive() {
   tx.textContent = 'Đồng bộ ' + hh + ' · ' + dd;
   live.title = 'Số liệu tính đến ngày ' + dlong(m.dataUntil) + '. Đồng bộ tự động mỗi sáng và khi người quản trị bấm Đồng bộ ngay.';
 }
+// Báo khi lần đồng bộ gần nhất chưa lấy đủ số liệu của một tài khoản (lỗi quyền, hết giờ…), để số lead thiếu không bị đọc thành "0 lead".
+function renderSyncNotice() {
+  var m = S.mdl && S.mdl.meta, el = $('#syncNotice'), pa = m && m.perAccount, miss = [];
+  if (pa) Object.keys(pa).forEach(function (id) { var x = pa[id]; if (x && (x.failed || x.skipped)) miss.push([id, x]); });
+  if (!miss.length) { el.hidden = true; return; }
+  var accts = (m.accounts && m.accounts.length ? m.accounts : C.ACCOUNTS);
+  var name = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0] || C.ACCOUNTS.filter(function (x) { return x.id === id; })[0]; return a ? (a.short || a.name) : 'TK ' + id; };
+  var list = miss.map(function (e) { return name(e[0]) + ' (' + [e[1].failed ? e[1].failed + ' phần lỗi' : '', e[1].skipped ? e[1].skipped + ' phần chưa kịp lấy' : ''].filter(Boolean).join(', ') + ')'; }).join('; ');
+  var err = S.editor ? miss.filter(function (e) { return e[1].error; }).map(function (e) { return '<br>' + esc(name(e[0])) + ': <code>' + esc(e[1].error) + '</code>'; }).join('') : '';
+  el.innerHTML = '<b>Chưa lấy đủ số liệu</b><span>Lần đồng bộ gần nhất chưa lấy đủ: ' + esc(list) + '. Chi tiêu và lead của các tài khoản này có thể chưa mới.' + (S.editor ? ' Bấm Đồng bộ ngay để lấy tiếp.' : '') + err + '</span>';
+  el.hidden = false;
+}
 function renderAll() {
   if (!S.mdl) return;
-  renderFilters(); renderLive();
+  renderFilters(); renderLive(); renderSyncNotice();
   $('#boot').hidden = true; $('#foot').hidden = false; $('#filters').hidden = false;
   var m = S.mdl.meta;
   $('#footL').textContent = m ? 'Số liệu từ ' + dlong(m.start || C.START) + ' đến ' + dlong(m.dataUntil) + ' (hôm nay chưa trọn ngày). Tiếp cận cộng giữa các tài khoản có thể đếm trùng.' : '';
@@ -1094,7 +1111,7 @@ function heatAge(rows, met, mFmt) {
       var r = map[a + '|' + g[0]];
       if (!r || !r.spend) return '<td style="background:var(--surface-2);color:var(--muted);font-weight:400">—</td>';
       var v = r[met] || 0, f = met === 'cpl' ? (v ? 1 - Math.min(1, v / max) * 0.85 : 0) : v / max;
-      var bg = 'color-mix(in srgb,var(--c1) ' + Math.round(8 + f * 82) + '%,var(--surface))', fg = f > 0.55 ? '#fff' : 'var(--ink)';
+      var bg = 'color-mix(in srgb,var(--c1) ' + Math.round(8 + f * 67) + '%,var(--surface))', fg = 'var(--ink)';
       return '<td style="background:' + bg + ';color:' + fg + '" data-tip="' + tipRows(g[1] + ' ' + a, [['Chi tiêu', mny(r.spend)], ['Lead', int(r.leads)], ['Chi phí/lead', mny(r.cpl)], ['CTR', pct(r.ctr)]]) + '">' + mFmt(v) + '<small>' + (met === 'spend' ? int(r.leads) + ' lead' : mshort(r.spend)) + '</small></td>';
     }).join('') + '</tr>';
   });
@@ -1448,7 +1465,8 @@ async function webSync() {
     var t = await WEB.user.getIdToken();
     var r = await fetch('/api/sync', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, cache: 'no-store' });
     var j = await r.json().catch(function () { return {}; });
-    toast(r.ok && j.ok ? 'Đã đồng bộ từ Facebook Ads' + (j.failed && j.failed.length ? ', ' + j.failed.length + ' phần chưa lấy được.' : '.') : (j.error || 'Đồng bộ chưa thành công.'), 8000);
+    var nMiss = (j.failed ? j.failed.length : 0) + (j.skipped ? j.skipped.length : 0);
+    toast(r.ok && j.ok ? 'Đã đồng bộ từ Facebook Ads' + (nMiss ? ', còn ' + nMiss + ' phần chưa lấy được. Bấm Đồng bộ ngay lần nữa để lấy tiếp.' : '.') : (j.error || 'Đồng bộ chưa thành công.'), 9000);
   } catch (e) { toast('Không kết nối được máy chủ đồng bộ.'); }
   S.syncing = false; b.disabled = false; b.classList.remove('spin');
   await webLoad(true);
