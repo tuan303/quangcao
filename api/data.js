@@ -16,7 +16,13 @@ export default async function handler(req, res) {
       const { readAll } = await import('../server/store.js');
       cache = { at: Date.now(), docs: await readAll() };
     }
-    send(res, 200, { ok: true, docs: cache.docs, me: { email: who.email, role: who.role }, sync: { meta: !!String(process.env.META_ACCESS_TOKEN || '').trim() } });
+    let docs = cache.docs;
+    // chi tiết lỗi đồng bộ (thông báo thô của Meta) chỉ dành cho quản trị
+    if (who.role !== 'admin' && docs.meta && docs.meta.perAccount) {
+      const perAccount = Object.fromEntries(Object.entries(docs.meta.perAccount).map(([a, x]) => [a, Object.assign({}, x, { error: null })]));
+      docs = Object.assign({}, docs, { meta: Object.assign({}, docs.meta, { perAccount }) });
+    }
+    send(res, 200, { ok: true, docs, me: { email: who.email, role: who.role }, sync: { meta: !!String(process.env.META_ACCESS_TOKEN || '').trim() } });
   } catch (e) {
     console.error('[data]', e);
     send(res, e.status || 500, { ok: false, error: safeError(e) });

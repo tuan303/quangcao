@@ -99,6 +99,8 @@ test('lead types: one value per overlapping family, never summed twice', () => {
   // conversations started are not leads; nothing lead-like → null (not 0)
   assert.deepEqual(L({ 'onsite_conversion.messaging_conversation_started_7d': 9, link_click: 4 }), { lead: null, mlead: null });
   assert.deepEqual(leadsOfRow(undefined), { lead: null, mlead: null });
+  // when 'lead' is below the on-Meta group, keep lead ≥ mlead so multi-day/multi-account totals (max of sums) never undercount
+  assert.deepEqual(L({ lead: 3, 'onsite_conversion.lead_grouped': 5 }), { lead: '5', mlead: '5' });
   // a real zero stays a zero
   assert.deepEqual(L({ lead: 0 }), { lead: '0', mlead: null });
 });

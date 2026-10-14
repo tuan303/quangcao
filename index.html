@@ -23,11 +23,11 @@
   --font-display:var(--font);
   --page:#F3F4F8; --surface:#FFFFFF; --surface-2:#F7F8FB; --surface-3:#ECEEF5;
   --ink:#141831; --ink-2:#4A5070; --muted:#646A84; --line:#E3E6EF; --grid:#ECEEF4; --axis:#C6CBDA;
-  --brand:#D21F36; --brand-soft:rgba(210,31,54,.10); --on-brand:#FFFFFF; --navy:#23328C; --hdr:#23328C; --hdr-2:#1B2873;
+  --brand:#D21F36; --brand-soft:rgba(210,31,54,.10); --navy:#23328C; --hdr:#23328C; --hdr-2:#1B2873;
   --series:#2F44B5; --series-soft:rgba(47,68,181,.09); --lead:var(--brand); --lead-soft:var(--brand-soft);
   --ok:#1F9D55; --warn:#E09B00; --warn-ink:#8A5A00; --bad:#B42318;
   --up:#13784A; --down:#B42318; --ok-bg:#E9F7EF; --warn-bg:#FFF6E5; --crit-bg:#FEF0EE;
-  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#008300; --c7:#6250d6; --c8:#D21F36; --c0:#9AA0B4;
+  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#008300; --c7:#4a3aa7; --c8:#e34948; --c0:#9AA0B4;
   --shadow:0 1px 2px rgba(20,24,49,.05),0 6px 20px rgba(20,24,49,.05);
   --radius:14px;
 }
@@ -35,11 +35,11 @@
   :root:not([data-theme="light"]){
     --page:#0C0F1D; --surface:#151A2E; --surface-2:#1A2036; --surface-3:#222944;
     --ink:#F1F3FA; --ink-2:#B8BDD2; --muted:#8F96B0; --line:#272E4D; --grid:#20263F; --axis:#3A4268;
-    --brand:#F0566A; --brand-soft:rgba(240,86,106,.16); --on-brand:#0C0F1D; --navy:#9AA6F2; --hdr:#141A3D; --hdr-2:#0F1431;
+    --brand:#F0566A; --brand-soft:rgba(240,86,106,.16); --navy:#9AA6F2; --hdr:#141A3D; --hdr-2:#0F1431;
     --series:#7383EA; --series-soft:rgba(115,131,234,.16); --lead:var(--brand); --lead-soft:var(--brand-soft);
     --ok:#2DA35E; --warn:#C58D0A; --warn-ink:#F2C14E; --bad:#FF7A66;
     --up:#3CC27A; --down:#FF7A66; --ok-bg:#15291F; --warn-bg:#2A2414; --crit-bg:#2C1A16;
-    --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#F0566A; --c0:#6B7190;
+    --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#e66767; --c0:#6B7190;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
     color-scheme:dark;
   }
@@ -47,11 +47,11 @@
 :root[data-theme="dark"]{
   --page:#0C0F1D; --surface:#151A2E; --surface-2:#1A2036; --surface-3:#222944;
   --ink:#F1F3FA; --ink-2:#B8BDD2; --muted:#8F96B0; --line:#272E4D; --grid:#20263F; --axis:#3A4268;
-  --brand:#F0566A; --brand-soft:rgba(240,86,106,.16); --on-brand:#0C0F1D; --navy:#9AA6F2; --hdr:#141A3D; --hdr-2:#0F1431;
+  --brand:#F0566A; --brand-soft:rgba(240,86,106,.16); --navy:#9AA6F2; --hdr:#141A3D; --hdr-2:#0F1431;
   --series:#7383EA; --series-soft:rgba(115,131,234,.16); --lead:var(--brand); --lead-soft:var(--brand-soft);
   --ok:#2DA35E; --warn:#C58D0A; --warn-ink:#F2C14E; --bad:#FF7A66;
   --up:#3CC27A; --down:#FF7A66; --ok-bg:#15291F; --warn-bg:#2A2414; --crit-bg:#2C1A16;
-  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#F0566A; --c0:#6B7190;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c7:#9085e9; --c8:#e66767; --c0:#6B7190;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
   color-scheme:dark;
 }
@@ -78,7 +78,7 @@ svg{display:block}
 .brandmark .school{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;opacity:.82;font-weight:500}
 .brandmark h1{font-family:var(--font-display);font-weight:600;font-size:24px;line-height:1.2;margin:2px 0 0;letter-spacing:-.02em;text-wrap:balance}
 .brandmark h1 small{font-family:var(--font);font-weight:400;font-size:13px;opacity:.78;margin-left:8px;letter-spacing:0}
-@media (max-width:640px){.brandmark h1{font-size:21px}.brandmark h1 small{display:block;margin:4px 0 0}.brandmark svg{width:44px;height:44px}}
+@media (max-width:640px){.brandmark h1{font-size:19px}.brandmark h1 small{display:block;margin:4px 0 0}.brandmark svg{width:44px;height:44px}}
 .hdr-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .live{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);padding:6px 12px;border-radius:999px;font-size:12.5px;white-space:nowrap}
 .live .dot{width:8px;height:8px;border-radius:50%;background:#4ADE80;animation:pulse 2s infinite}
@@ -117,8 +117,9 @@ svg{display:block}
 .fsel{cursor:pointer;padding-right:6px;max-width:230px}
 .fsel.on{border-color:var(--series);box-shadow:0 0 0 3px var(--series-soft)}
 .range-note{font-size:12.5px;color:var(--muted);margin-left:auto;white-space:nowrap}
-.notice{display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:10px 14px;border-radius:10px;background:var(--warn-bg);color:var(--warn-ink);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);font-size:13px;line-height:1.5}
-.notice b{font-weight:600;white-space:nowrap}
+.notice{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin:0 0 16px;padding:10px 14px;border-radius:10px;background:var(--warn-bg);color:var(--warn-ink);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);font-size:13px;line-height:1.5}
+.notice b{font-weight:600}
+.notice span{flex:1 1 320px;min-width:0}
 .notice code{font-size:12px;overflow-wrap:anywhere}
 @media (max-width:900px){.range-note{margin-left:0;white-space:normal;flex-basis:100%}}
 
@@ -153,7 +154,7 @@ main{padding-block:20px 40px}
 .tone svg{width:11px;height:11px}
 .tone.good{background:var(--ok-bg);color:var(--up)}
 .tone.warn{background:var(--warn-bg);color:var(--warn-ink)}
-.tone.bad{background:var(--crit-bg);color:var(--down)}
+.tone.bad{background:var(--crit-bg);color:var(--bad)}
 .tone.info{background:var(--series-soft);color:var(--series)}
 .linkbtn{border:0;background:none;color:var(--series);cursor:pointer;font-size:13px;font-weight:500;padding:0}
 
@@ -292,9 +293,9 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 .heat th{border:0;padding:4px 8px;background:none;text-align:center}
 .heat td{border:0;text-align:center;border-radius:6px;padding:9px 6px;font-weight:600;font-variant-numeric:tabular-nums;min-width:64px}
 .heat td.rh{text-align:left;font-weight:500;background:none;white-space:nowrap;padding-left:0}
-.heat td small{display:block;font-weight:400;font-size:10.5px;opacity:.8}
+.heat td small{display:block;font-weight:400;font-size:10.5px}
 .scale{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);margin-top:10px}
-.scale .g{height:8px;width:140px;border-radius:4px;background:linear-gradient(90deg,color-mix(in srgb,var(--c1) 8%,var(--surface)),var(--c1))}
+.scale .g{height:8px;width:140px;border-radius:4px;background:linear-gradient(90deg,color-mix(in srgb,var(--c1) 8%,var(--surface)),color-mix(in srgb,var(--c1) 75%,var(--surface)))}
 
 /* Insights */
 .score-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
@@ -339,8 +340,8 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 
 /* Drawer */
 #scrim{position:fixed;inset:0;background:rgba(10,12,28,.45);z-index:60}
-#panel{position:fixed;top:0;right:0;bottom:0;width:min(760px,100%);background:var(--surface);z-index:61;box-shadow:-20px 0 50px rgba(0,0,0,.2);transform:translateX(105%);transition:transform .25s ease;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
-#panel.open{transform:none}
+#panel{position:fixed;top:0;right:0;bottom:0;width:min(760px,100%);background:var(--surface);z-index:61;box-shadow:none;transform:translateX(105%);transition:transform .25s ease;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
+#panel.open{transform:none;box-shadow:-20px 0 50px rgba(0,0,0,.2)}
 .p-hd{display:flex;align-items:flex-start;gap:12px;padding:18px 22px;border-bottom:1px solid var(--line);background:var(--surface-2)}
 .p-hd .ttl{flex:1;min-width:0}
 .p-hd .k{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--brand);font-weight:600}
@@ -752,12 +753,15 @@ function renderLive() {
 function renderSyncNotice() {
   var m = S.mdl && S.mdl.meta, el = $('#syncNotice'), pa = m && m.perAccount, miss = [];
   if (pa) Object.keys(pa).forEach(function (id) { var x = pa[id]; if (x && (x.failed || x.skipped)) miss.push([id, x]); });
-  if (!miss.length) { el.hidden = true; return; }
+  if (!miss.length) { el.hidden = true; el.innerHTML = ''; return; }
   var accts = (m.accounts && m.accounts.length ? m.accounts : C.ACCOUNTS);
   var name = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0] || C.ACCOUNTS.filter(function (x) { return x.id === id; })[0]; return a ? (a.short || a.name) : 'TK ' + id; };
   var list = miss.map(function (e) { return name(e[0]) + ' (' + [e[1].failed ? e[1].failed + ' phần lỗi' : '', e[1].skipped ? e[1].skipped + ' phần chưa kịp lấy' : ''].filter(Boolean).join(', ') + ')'; }).join('; ');
   var err = S.editor ? miss.filter(function (e) { return e[1].error; }).map(function (e) { return '<br>' + esc(name(e[0])) + ': <code>' + esc(e[1].error) + '</code>'; }).join('') : '';
-  el.innerHTML = '<b>Chưa lấy đủ số liệu</b><span>Lần đồng bộ gần nhất chưa lấy đủ: ' + esc(list) + '. Chi tiêu và lead của các tài khoản này có thể chưa mới.' + (S.editor ? ' Bấm Đồng bộ ngay để lấy tiếp.' : '') + err + '</span>';
+  var canSync = S.editor && !$('#syncBtn').hidden, anySkip = miss.some(function (e) { return e[1].skipped; }), anyFail = miss.some(function (e) { return e[1].failed; });
+  var hint = !S.editor ? '' : (anySkip && canSync ? ' Bấm Đồng bộ ngay để lấy tiếp phần còn thiếu.' : '') + (anyFail ? ' Phần lỗi thường do người dùng hệ thống chưa được chỉ định tài khoản quảng cáo đó (quyền Xem hiệu quả).' : '');
+  var html = '<b>Chưa lấy đủ số liệu</b><span>Lần đồng bộ gần nhất chưa lấy đủ: ' + esc(list) + '. Chi tiêu và lead của các tài khoản này có thể chưa mới.' + hint + err + '</span>';
+  if (el.innerHTML !== html) el.innerHTML = html;
   el.hidden = false;
 }
 function renderAll() {
@@ -788,7 +792,7 @@ function overview(sec) {
   html += '<div class="kpis" style="margin-top:16px">' +
     kpiTile('spend', 'Số tiền đã chi', ICON.wallet, esc(mp[0]) + '<small>' + esc(mp[1]) + '</small>', 'so với ' + esc(p.cmp || 'kỳ trước'), v ? deltaHtml('spend', c.spend, v.spend) : '', sp('spend'), 'var(--series)', 'accent') +
     kpiTile('leads', 'Lead thu được', ICON.user, int(c.leads) + '<small>lead</small>', v ? (v.leads ? 'kỳ trước ' + int(v.leads) + ' lead' : 'kỳ trước chưa có lead') : '', v ? deltaHtml('leads', c.leads, v.leads) : '', sp('leads'), 'var(--lead)', 'lead') +
-    kpiTile('cpl', 'Chi phí trung bình / lead', ICON.tag, cpl == null ? '—' : esc(NF.format(Math.round(cpl))) + '<small>₫</small>', v ? (v.cpl ? 'kỳ trước ' + mny(v.cpl) : 'kỳ trước chưa có lead để so sánh') : '', v && v.cpl ? deltaHtml('cpl', cpl, v.cpl) : '', cplSpark, 'var(--lead)', 'lead') +
+    kpiTile('cpl', 'Chi phí / lead', ICON.tag, cpl == null ? '—' : esc(NF.format(Math.round(cpl))) + '<small>₫</small>', v ? (v.cpl ? 'kỳ trước ' + mny(v.cpl) : 'kỳ trước chưa có lead để so sánh') : '', v && v.cpl ? deltaHtml('cpl', cpl, v.cpl) : '', cplSpark, 'var(--lead)', 'lead') +
     kpiTile('reach', 'Lượt tiếp cận', ICON.eye, reachTxt + '<small>người</small>', c.freq ? 'tần suất ' + dec(c.freq, 2) : '', v ? deltaHtml('reach', c.reach, v.reach) : '', sp('reach'), 'var(--series)') +
     kpiTile('views', 'Lượt xem', ICON.play, cshort(c.views), c.thru ? 'ThruPlay ' + cshort(c.thru) : '', v ? deltaHtml('views', c.views, v.views) : '', sp('views'), 'var(--series)') +
     kpiTile('cpc', 'Chi phí / lượt click', ICON.cursor, c.cpc == null ? '—' : esc(NF.format(Math.round(c.cpc))) + '<small>₫</small>', 'click liên kết ' + (c.cpcLink == null ? '—' : mny(c.cpcLink)), v ? deltaHtml('cpc', c.cpc, v.cpc) : '', rows.map(function (r) { return r.clicks ? r.spend / r.clicks : null; }), 'var(--series)') +
@@ -1206,9 +1210,10 @@ $('#pClose').onclick = closePanel; $('#scrim').onclick = closePanel;
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePanel(); });
 $('#themeBtn').onclick = function () {
   var r = document.documentElement, cur = r.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  var nx = cur === 'dark' ? 'light' : 'dark'; r.setAttribute('data-theme', nx); store('theme', nx); if (S.mdl) renderAll();
+  var nx = cur === 'dark' ? 'light' : 'dark'; r.setAttribute('data-theme', nx); store('theme', nx); themeColor(nx); if (S.mdl) renderAll();
 };
-(function () { var t = store('theme'); if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t); })();
+function themeColor(t) { $$('meta[name="theme-color"]').forEach(function (m) { m.setAttribute('content', t === 'dark' ? '#141A3D' : '#23328C'); m.removeAttribute('media'); }); }
+(function () { var t = store('theme'); if (t === 'dark' || t === 'light') { document.documentElement.setAttribute('data-theme', t); themeColor(t); } })();
 var rsT; window.addEventListener('resize', function () { clearTimeout(rsT); rsT = setTimeout(function () { if (S.mdl) renderAll(); }, 180); });
 
 /* ---------------- data loading ---------------- */
@@ -1221,8 +1226,9 @@ function setDocs(docs) {
   if (!acctOptions().some(function (o) { return o.k === S.acct; })) S.acct = 'adm';
   renderAll();
 }
+function hideSyncNotice() { var n = $('#syncNotice'); n.hidden = true; n.innerHTML = ''; }
 function showEmpty(msg) {
-  var b = $('#boot'); b.hidden = false;
+  var b = $('#boot'); b.hidden = false; hideSyncNotice();
   b.innerHTML = '<div><h3>' + esc(msg ? msg[0] : 'Chưa có số liệu quảng cáo') + '</h3><p>' + esc(msg ? msg[1] : (S.editor ? 'Bấm Đồng bộ ngay ở góc trên để lấy số liệu từ Facebook Ads lần đầu.' : 'Số liệu sẽ xuất hiện sau lần đồng bộ đầu tiên của người quản trị.')) + '</p></div>';
   $('#live').className = 'live stale'; $('#liveTx').textContent = 'Chưa có số liệu';
 }
@@ -1390,7 +1396,7 @@ async function runSync(mode) {
 /* ---------------- Vercel mode: Microsoft 365 sign-in (Firebase Auth) + /api ---------------- */
 var WEB = null;
 function webGate(title, text, actions) {
-  var b = $('#boot'); b.hidden = false;
+  var b = $('#boot'); b.hidden = false; hideSyncNotice();
   $$('section[data-view]').forEach(function (x) { x.hidden = true; }); $('#foot').hidden = true;
   b.innerHTML = '<div><h3>' + esc(title) + '</h3><p>' + esc(text) + '</p>' + (actions || '') + '</div>';
   $('#filters').hidden = true;
@@ -1466,7 +1472,9 @@ async function webSync() {
     var r = await fetch('/api/sync', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, cache: 'no-store' });
     var j = await r.json().catch(function () { return {}; });
     var nMiss = (j.failed ? j.failed.length : 0) + (j.skipped ? j.skipped.length : 0);
-    toast(r.ok && j.ok ? 'Đã đồng bộ từ Facebook Ads' + (nMiss ? ', còn ' + nMiss + ' phần chưa lấy được. Bấm Đồng bộ ngay lần nữa để lấy tiếp.' : '.') : (j.error || 'Đồng bộ chưa thành công.'), 9000);
+    toast(!(r.ok && j.ok) ? (j.error || 'Đồng bộ chưa thành công.')
+      : !j.fresh ? 'Chưa lấy được số liệu mới từ Facebook Ads (' + nMiss + ' phần lỗi hoặc chưa kịp lấy). Xem thông báo phía trên để biết tài khoản nào.'
+      : 'Đã đồng bộ từ Facebook Ads' + (nMiss ? ', còn ' + nMiss + ' phần chưa lấy được.' : '.'), 9000);
   } catch (e) { toast('Không kết nối được máy chủ đồng bộ.'); }
   S.syncing = false; b.disabled = false; b.classList.remove('spin');
   await webLoad(true);

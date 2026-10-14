@@ -97,6 +97,10 @@ Khi có token, trang không còn phụ thuộc máy quản trị phải bật v�
 
    Kết quả cần có `"ok": true`, `checks.mismatches` rỗng và `checks.checkedDays` lớn hơn 0. Máy chủ đối chiếu số liệu mới với số liệu đang lưu; nếu lệch ở nhiều ngày, máy chủ không ghi.
 
+Lần đồng bộ đầu tiên lấy số liệu từ 01/03/2025. Nếu không kịp trong giới hạn 60 giây của Vercel, máy chủ ghi phần đã lấy được (số liệu gần đây được lấy trước) và lần sau lấy tiếp phần lịch sử còn thiếu. Tiến độ lưu ở tài liệu `syncstate`. Khi một tài khoản chưa lấy đủ, trang hiện thông báo màu vàng ghi rõ tài khoản đó. Quản trị còn thấy thêm lỗi chi tiết của Meta.
+
+Phiên bản Meta Graph API mặc định là `v25.0`, vì v23.0 đã hết hạn cho Marketing API từ 09/06/2026. Có thể đổi bằng biến `META_API_VERSION`.
+
 Lịch đồng bộ trong ngày:
 
 | Nhóm số liệu | Nội dung | Khi nào |
@@ -118,7 +122,7 @@ Bộ kiểm thử chạy offline với Meta API giả lập. Nó kiểm tra các
 
 ## Lưu ý số liệu
 
-- **Lead** là lead do Meta ghi nhận, gồm form và Messenger.
+- **Lead** là lead do Meta ghi nhận, gồm form và Messenger. Khi lấy trực tiếp từ Meta API, trang dùng loại `lead` (tổng của Meta). Nếu Meta không trả loại này, trang lấy một giá trị lead trên Meta (`onsite_conversion.lead_grouped`, rồi `leadgen_grouped`, rồi `leadgen.other`) cộng một giá trị lead website (`offsite_conversion.fb_pixel_lead`). Các loại chồng lên nhau không bao giờ được cộng hai lần.
 - **Tiếp cận** khi cộng nhiều tài khoản có thể đếm trùng người.
 - **Dữ liệu** bắt đầu từ 01/03/2025. Số liệu của ngày hôm nay chưa trọn ngày.
 - **Lượt xem**: khi lấy trực tiếp từ Meta API, chỉ số này dùng trường `views`. Nếu Meta không trả trường đó, trang dùng lượt hiển thị thay thế.

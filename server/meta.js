@@ -1,7 +1,7 @@
 // Meta Marketing API (Graph) → payload cùng dạng với connector "Facebook Ads" của Claude ({ad_entities: [...]}),
 // để fbads-core.normalize() xử lý y hệt dữ liệu Claude đã kiểm chứng.
 // Cần META_ACCESS_TOKEN: token System User (quyền ads_read) được gán vào các tài khoản quảng cáo.
-const VERSION = (process.env.META_API_VERSION || 'v23.0').trim();
+const VERSION = (process.env.META_API_VERSION || 'v25.0').trim(); // v23.0 hết hạn cho Marketing API từ 09/06/2026
 const BASE = 'https://graph.facebook.com/' + VERSION + '/';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const RETRY_CODES = new Set([1, 2, 4, 17, 32, 341, 613, 80000, 80003, 80004]);
@@ -19,7 +19,7 @@ async function graph(pathOrUrl, params, token) {
   if (!/^https?:/.test(pathOrUrl)) for (const [k, v] of Object.entries(params || {})) if (v != null && v !== '') url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   url.searchParams.delete('access_token');
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(20000) });
     const j = await res.json().catch(() => ({}));
     if (res.ok && !j.error) return j;
     const e = j.error || {};
@@ -96,7 +96,8 @@ const firstOf = (m, keys) => { for (const k of keys) if (Object.hasOwn(m, k)) re
 /** Lead của một dòng Graph → { lead, mlead } (chuỗi số, hoặc null khi Meta không trả loại lead nào). */
 export function leadsOfRow(actions) {
   const m = actionMap(actions), onMeta = firstOf(m, LEAD_ON_META), web = firstOf(m, LEAD_WEB);
-  const lead = Object.hasOwn(m, 'lead') ? m.lead : onMeta == null && web == null ? null : (onMeta || 0) + (web || 0);
+  // khi có 'lead' vẫn giữ lead ≥ lead trên Meta, để tổng nhiều ngày/tài khoản (max của các tổng) không bị hụt
+  const lead = Object.hasOwn(m, 'lead') ? Math.max(m.lead, onMeta || 0) : onMeta == null && web == null ? null : (onMeta || 0) + (web || 0);
   return { lead: lead == null ? null : String(lead), mlead: onMeta == null ? null : String(onMeta) };
 }
 /** Ghi lại các loại hành động có chữ "lead" mà Meta trả về, để biết ngay khi Meta đổi tên. */
