@@ -144,3 +144,18 @@ test('a response cut off by the timeout is a failure, never an empty success', a
   assert.equal(called, false);
   setDeadline(0);
 });
+
+test('two calls in flight both rejected for the same optional field: both retry without it', async () => {
+  let n = 0;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url); n++;
+    const fields = u.searchParams.get('fields').split(',');
+    await new Promise(r => setTimeout(r, 20)); // both requests are sent before either error comes back
+    const out = fields.includes('views') ? { error: { code: 100, message: '(#100) views is not valid for fields param. please check https://developers.facebook.com/docs/marketing-api/reference/ads-insights/ for all valid values' } }
+      : { data: [{ campaign_id: 'c' + u.pathname.slice(-12, -9), campaign_name: 'X', spend: '1', date_start: '2025-03-01', date_stop: '2026-10-03' }] };
+    return { ok: !out.error, status: out.error ? 400 : 200, text: async () => JSON.stringify(out) };
+  };
+  const plan = C.plan('2026-10-03', { mode: 'quick', accounts: ['444'] });
+  const [a, b] = await Promise.all([runCall(plan.find(c => c.name === 'campd__h1'), 'TEST'), runCall(plan.find(c => c.name === 'campd__h2'), 'TEST')]);
+  assert.equal(a.ad_entities.length, 1); assert.equal(b.ad_entities.length, 1);
+});

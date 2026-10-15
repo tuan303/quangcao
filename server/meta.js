@@ -57,6 +57,7 @@ const INSIGHT_FIELDS = ['date_start', 'date_stop', 'account_id', 'campaign_id', 
 // các trường Graph từ chối (#100) – bỏ đi và thử lại, nhớ cho các lần gọi sau. Nhớ riêng theo cấp (account/campaign/ad):
 // cấp tài khoản thường không trả `results`, nhưng cấp chiến dịch vẫn cần trường này.
 const unsupportedByLevel = {};
+const DROPPABLE = ['results', 'views', 'unique_inline_link_clicks', 'frequency', 'reach', 'objective']; // trường không bắt buộc: Meta từ chối thì bỏ đi và thử lại
 
 async function insights(acct, q, token) {
   const level = q.level === 'ad_account' || q.level === 'account' ? 'account' : q.level;
@@ -75,8 +76,9 @@ async function insights(acct, q, token) {
     try { return await allPages('act_' + acct + '/insights', params, token); }
     catch (e) {
       const msg = String(e.meta && e.meta.message || '');
-      const bad = INSIGHT_FIELDS.find(f => !unsupported.has(f) && e.meta && e.meta.code === 100 && new RegExp('\\b' + f + '\\b').test(msg));
-      if (bad && ['results', 'views', 'unique_inline_link_clicks', 'frequency', 'reach', 'objective'].includes(bad)) { unsupported.add(bad); continue; }
+      // không lọc theo `unsupported`: nhiều lời gọi chạy song song có thể cùng gửi trường đó trước khi một lời gọi kịp ghi nhận nó bị từ chối
+      const bad = e.meta && e.meta.code === 100 && DROPPABLE.find(f => new RegExp('\\b' + f + '\\b').test(msg));
+      if (bad) { unsupported.add(bad); continue; }
       throw e;
     }
   }
