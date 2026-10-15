@@ -148,6 +148,34 @@ main{padding-block:20px 40px}
 .brief .lede{color:var(--ink-2);font-size:14px;margin:0;max-width:68ch}
 .brief .by{font-size:12px;color:var(--muted);margin-top:12px}
 .hl{display:flex;flex-direction:column;gap:8px}
+.daily .eyebrow{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--brand);font-weight:600;margin-bottom:4px}
+.daily h2{font-family:var(--font-display);font-size:20px;letter-spacing:-.01em}
+.dgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:820px){.dgrid{grid-template-columns:1fr}}
+.dstat{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface-2);min-width:0}
+.dstat .l{font-size:13px;font-weight:600;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.dstat .l>span{font-weight:400;color:var(--muted);font-size:12px}
+.dstat .big{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;margin:4px 0 6px;color:var(--lead);display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.dstat .big small{font-size:13px;font-weight:500;color:var(--muted)}
+.dstat .big .delta{font-size:12px}
+.dstat .row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:baseline;font-size:13px;padding:3px 0;border-top:1px solid var(--grid)}
+.dstat .row>span:first-child{color:var(--muted)}
+.dstat .row b{font-weight:600;font-variant-numeric:tabular-nums}
+.dstat .row .delta{font-size:11.5px;min-width:44px;text-align:right}
+.dstat .cmp{font-size:11.5px;color:var(--muted);margin-top:4px}
+.dpoints{margin:14px 0 0;padding-left:18px;font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+.dpoints:empty{display:none}
+.dpoints li+li{margin-top:4px}
+.bmeta{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface-2);margin-bottom:16px}
+.bmeta h3,.bsub{font-size:13.5px;font-weight:600;margin:0 0 4px}
+.bsub{margin-top:4px}
+.mrows{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
+@media (max-width:820px){.mrows{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mrow{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;min-width:0}
+.mrow .l{font-size:12px;color:var(--muted)}
+.btbl{min-width:680px}
+.mrow .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.daily .by{font-size:12px;color:var(--muted);margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)}
 .hl-item{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:13px;line-height:1.45}
 .hl-item b{font-weight:600}
 .tone{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;border-radius:999px;padding:2px 8px;white-space:nowrap}
@@ -437,6 +465,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 
 <script src="config.js"></script>
 <script src="fbads-core.js" charset="utf-8"></script>
+<script src="benchmarks.js" charset="utf-8"></script>
 <script>
 (function () {
 'use strict';
@@ -799,7 +828,8 @@ function overview(sec) {
   var mp = moneyParts(c.spend), cpl = c.cpl;
   var reachTxt = cshort(c.reach) + (c.reachExact ? '' : '<small>≈</small>');
   var html = '';
-  html += briefCard();
+  html += dailyCard();
+  var bc = briefCard(); if (bc) html += '<div style="margin-top:16px">' + bc + '</div>';
   html += '<div class="kpis" style="margin-top:16px">' +
     kpiTile('spend', 'Số tiền đã chi', ICON.wallet, esc(mp[0]) + '<small>' + esc(mp[1]) + '</small>', 'so với ' + esc(p.cmp || 'kỳ trước'), v ? deltaHtml('spend', c.spend, v.spend) : '', sp('spend'), 'var(--series)', 'accent') +
     kpiTile('leads', 'Lead thu được', ICON.user, int(c.leads) + '<small>lead</small>', v ? (v.leads ? 'kỳ trước ' + int(v.leads) + ' lead' : 'kỳ trước chưa có lead') : '', v ? deltaHtml('leads', c.leads, v.leads) : '', sp('leads'), 'var(--lead)', 'lead') +
@@ -818,6 +848,7 @@ function overview(sec) {
   html += '<div class="card s4"><div class="card-hd"><div><h2>Phễu chuyển đổi</h2><p>Từ hiển thị quảng cáo đến lead trong kỳ.</p></div></div>' + funnelHtml(c) + '</div>';
   html += '<div class="card s6"><div class="card-hd"><div><h2>Chi tiêu theo khối tuyển sinh</h2><p>Chi phí/lead ở cột bên phải. Khối được nhận diện từ tên chiến dịch.</p></div><button class="linkbtn" data-goto="segments">Xem chi tiết →</button></div>' + segShareHtml(p) + '</div>';
   html += '<div class="card s6"><div class="card-hd"><div><h2>Điểm cần chú ý</h2><p>Tự động phát hiện từ số liệu mới nhất.</p></div></div><div class="alerts">' + alertsHtml() + '</div></div>';
+  html += benchCard(p);
   html += '</div>';
   sec.innerHTML = html;
   drawMain(p);
@@ -893,11 +924,125 @@ function alertsHtml() {
 }
 function briefCard() {
   var I = S.mdl.insights;
-  if (!I || !I.headline) {
-    return '<div class="card brief"><div><div class="eyebrow">Nhận định tổng quan</div><h2>Phân tích chuyên sâu đang được chuẩn bị</h2><p class="lede">Khi Claude cập nhật phân tích, tóm tắt cho Ban lãnh đạo sẽ hiện ở đây.</p></div><div></div></div>';
-  }
+  if (!I || !I.headline) return ''; // chưa có phân tích của Claude: Báo cáo ngày phía trên đã đủ số cho Ban lãnh đạo
   var hl = (I.highlights || []).slice(0, 4).map(function (h) { return '<div class="hl-item">' + tone(h.tone || 'info', { good: 'Tốt', warn: 'Theo dõi', bad: 'Cần xử lý', info: 'Ghi nhận' }[h.tone] || 'Ghi nhận') + '<div><b>' + esc(h.title) + '</b> ' + esc(h.detail || '') + '</div></div>'; }).join('');
-  return '<div class="card brief"><div><div class="eyebrow">Nhận định cho Ban lãnh đạo · ' + esc(I.periodLabel || '') + '</div><h2>' + esc(I.headline) + '</h2><p class="lede">' + esc(I.summary || '') + '</p><div class="by">Phân tích bởi Claude, cập nhật ' + esc(I.updatedLabel || '') + '. <button class="linkbtn" data-goto="insights">Xem đánh giá và đề xuất đầy đủ →</button></div></div><div class="hl">' + hl + '</div></div>';
+  return '<div class="card brief"><div><div class="eyebrow">Nhận định cho Ban lãnh đạo · ' + esc(I.periodLabel || '') + '</div><h2>' + esc(I.headline) + '</h2><p class="lede">' + esc(I.summary || '') + '</p><div class="by">Phân tích bởi Claude, cập nhật ' + esc(I.updatedLabel || '') + '. <button class="linkbtn" data-goto="insights">Xem đánh giá và đề xuất đầy đủ →</button>' + aiWriteBtn('Viết lại', true) + '</div></div><div class="hl">' + hl + '</div></div>';
+}
+
+/* Báo cáo ngày: tự tính từ số liệu đã đồng bộ nên có ngay sau mỗi lần đồng bộ, không phải chờ Claude.
+   Thay báo cáo gửi Chủ tịch mỗi sáng; nút "Sao chép" cho bản chữ để dán vào Zalo hoặc email. */
+var WDL = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+function mtext(n) { return n == null || !isFinite(n) ? '—' : moneyParts(n).join(' ').trim(); }
+function chgText(cur, prev) {
+  if (cur == null || prev == null || !isFinite(cur) || !isFinite(prev) || prev === 0) return '';
+  var ch = (cur - prev) / Math.abs(prev);
+  return (ch >= 0 ? '+' : '−') + dec(Math.abs(ch) * 100, Math.abs(ch) < 0.1 ? 1 : 0) + '%';
+}
+function dailyReport() {
+  var ids = acctIds(), y = D.addDays(T(), -1), tt = function (s, e) { return C.totals(S.mdl, ids, s, e); };
+  var ms = D.monthStart(y), pms = D.prevMonth(y), pme = D.addDays(pms, D.diffDays(ms, y));
+  if (pme > D.monthEnd(pms)) pme = D.monthEnd(pms);
+  var w0 = D.addDays(y, -6), day = tt(y, y), b7 = tt(D.addDays(y, -7), D.addDays(y, -1)), w = tt(w0, y), pw = tt(D.addDays(y, -13), D.addDays(y, -7)), m = tt(ms, y), pm = tt(pms, pme);
+  var wc = C.campaignsIn(S.mdl, ids, w0, y);
+  var top = wc.filter(function (x) { return x.period.leads > 0; }).sort(function (a, b) { return b.period.leads - a.period.leads || a.period.cpl - b.period.cpl; })[0];
+  var waste = wc.filter(function (x) { return /LEAD/.test(x.c.obj) && x.period.spend > 300000 && !x.period.leads; }).sort(function (a, b) { return b.period.spend - a.period.spend; })[0];
+  var segs = segAgg({ s: w0, e: y }).filter(function (s) { return s.o.leads > 0; }).sort(function (a, b) { return b.o.leads - a.o.leads; }).slice(0, 4);
+  var mN = +y.slice(5, 7), pmN = +pms.slice(5, 7), dayLabel = y === D.addDays(D.todayVN(), -1) ? 'Hôm qua' : 'Ngày gần nhất có số';
+  var pts = [];
+  pts.push(dayLabel + ' (' + WDL[D.parseISO(y).getUTCDay()] + ', ' + dlong(y) + '): chi ' + mtext(day.spend) + ', ' + int(day.leads) + ' lead' + (day.leads ? ', ' + mny(day.cpl) + '/lead' : '') + '. Trung bình 7 ngày trước đó: ' + dec(b7.leads / 7, 1) + ' lead và ' + mtext(b7.spend / 7) + ' mỗi ngày.');
+  pts.push('7 ngày qua (' + dshort(w0) + '–' + dshort(y) + '): ' + int(w.leads) + ' lead, chi ' + mtext(w.spend) + (w.cpl ? ', ' + mny(w.cpl) + '/lead' : '') + '. So với 7 ngày trước: lead ' + (chgText(w.leads, pw.leads) || (pw.leads ? 'không đổi' : 'chưa có số so sánh')) + (w.cpl && pw.cpl ? ', chi phí/lead ' + chgText(w.cpl, pw.cpl) : '') + '.');
+  pts.push('Tháng ' + mN + ' (01–' + dshort(y) + '): ' + int(m.leads) + ' lead, chi ' + mtext(m.spend) + (m.cpl ? ', ' + mny(m.cpl) + '/lead' : '') + '. Cùng kỳ tháng ' + pmN + ' (' + dshort(pms) + '–' + dshort(pme) + '): ' + int(pm.leads) + ' lead, chi ' + mtext(pm.spend) + '.');
+  if (segs.length) pts.push('Lead 7 ngày theo khối: ' + segs.map(function (s) { return C.segLabel(s.k) + ' ' + int(s.o.leads) + (s.o.leads >= MINLEAD ? ' (' + mny(s.o.cpl) + '/lead)' : ''); }).join('; ') + '.');
+  if (top) pts.push('Chiến dịch ra nhiều lead nhất 7 ngày: «' + top.c.n + '», ' + int(top.period.leads) + ' lead, ' + mny(top.period.cpl) + '/lead.');
+  if (waste) pts.push('Cần xem lại: «' + waste.c.n + '» đã chi ' + mtext(waste.period.spend) + ' trong 7 ngày nhưng chưa có lead.');
+  if (window.FBBench && FBBench.ITEMS.length) {
+    var bc = FBBench.compare(C, S.mdl, T(), { since: D.addDays(y, -29), until: y, accts: ids });
+    var br = bc.rows.filter(function (r) { return r.metric === 'cpl' && r.verdict; })[0] || bc.rows.filter(function (r) { return r.verdict; })[0];
+    if (br) {
+      var fv = function (v) { return br.unit === 'VND' ? mny(v) : br.unit === '%' ? dec(v, 2) + '%' : dec(v, 2); };
+      var lab = br.label.replace(/ \(.*\)$/, ''); if (!/^[A-Z]{2}/.test(lab)) lab = lab.charAt(0).toLowerCase() + lab.slice(1);
+      pts.push('So với mặt bằng quảng cáo ngành giáo dục (30 ngày): ' + lab + ' của trường ' + fv(br.school) + ', ' + { better: 'tốt hơn', within: 'nằm trong', worse: 'kém hơn' }[br.verdict] + ' khoảng tham chiếu ' + (br.low != null && br.high != null && br.low !== br.high ? fv(br.low) + '–' + fv(br.high) : fv(br.low != null ? br.low : br.high)) + ' (' + br.source + ').');
+    }
+  }
+  var mt = benchMetaFor(ids), mc = mt && mt.rows.filter(function (r) { return r.metric === 'cpl'; })[0];
+  if (mc && D.diffDays(mt.until, y) <= 45) pts.push('Theo Meta (' + dshort(mt.since) + '–' + dshort(mt.until) + '), nhóm quảng cáo «' + mc.adset + '» có chi phí/lead ' + (mc.rel < 0 ? 'thấp hơn ' : 'cao hơn ') + dec(Math.abs(mc.rel), 1) + '% so với mặt bằng các trường học, mầm non cùng chạy quảng cáo thu lead.');
+  var pa = (S.mdl.meta && S.mdl.meta.perAccount) || {}, miss = ids.filter(function (id) { var x = pa[id]; return x && (x.failed || x.skipped); });
+  if (miss.length) pts.push('Lưu ý: tài khoản ' + miss.map(acctName).join(', ') + ' chưa đồng bộ đủ nên số trên có thể thiếu.');
+  return { y: y, dayLabel: dayLabel, w0: w0, ms: ms, day: day, b7: b7, w: w, pw: pw, m: m, pm: pm, pms: pms, pme: pme, mN: mN, pmN: pmN, pts: pts };
+}
+function dailyCard() {
+  var r = dailyReport(), opt = acctOptions().filter(function (o) { return o.k === S.acct; })[0] || acctOptions()[0];
+  var avg = function (k) { return r.b7[k] / 7; };
+  var stat = function (label, sub, cur, prev, prevLabel) {
+    return '<div class="dstat"><div class="l">' + esc(label) + '<span>' + esc(sub) + '</span></div><div class="big">' + int(cur.leads) + '<small>lead</small> ' + deltaHtml('leads', cur.leads, prev.leads, true) + '</div>' +
+      '<div class="row"><span>Chi tiêu</span><b>' + mtext(cur.spend) + '</b>' + deltaHtml('spend', cur.spend, prev.spend, true) + '</div>' +
+      '<div class="row"><span>Chi phí / lead</span><b>' + (cur.leads ? mny(cur.cpl) : '—') + '</b>' + (cur.leads && prev.cpl ? deltaHtml('cpl', cur.cpl, prev.cpl, true) : '') + '</div>' +
+      '<div class="cmp">' + esc(prevLabel) + '</div></div>';
+  };
+  S.dailyText = 'BÁO CÁO QUẢNG CÁO FACEBOOK NGÀY ' + dlong(r.y) + '\nTrường TH, THCS & THPT Ngôi Sao Hoàng Mai · ' + opt.label + '\n\n• ' + r.pts.join('\n• ') + '\n\nXem chi tiết: ' + location.origin;
+  var I = S.mdl.insights, noAi = !I || !I.headline;
+  return '<div class="card daily"><div class="card-hd"><div><div class="eyebrow">Báo cáo ngày · ' + esc(opt.label) + '</div><h2>Quảng cáo Facebook ngày ' + esc(dlong(r.y)) + '</h2><p>Tự tính từ số liệu Meta sau mỗi lần đồng bộ (mỗi sáng), không cần chờ phân tích. Mũi tên so với mốc ghi dưới mỗi ô; xanh là tốt hơn.</p></div><div class="act"><button class="btn" type="button" data-copy-daily>Sao chép gửi Zalo</button></div></div>' +
+    '<div class="dgrid">' +
+    stat(r.dayLabel, WDL[D.parseISO(r.y).getUTCDay()] + ', ' + dlong(r.y), r.day, { leads: avg('leads'), spend: avg('spend'), cpl: r.b7.cpl }, 'so với trung bình 7 ngày trước đó') +
+    stat('7 ngày qua', dshort(r.w0) + ' – ' + dshort(r.y), r.w, r.pw, 'so với 7 ngày trước đó') +
+    stat('Tháng ' + r.mN + ' đến nay', '01 – ' + dshort(r.y), r.m, r.pm, 'so với cùng kỳ tháng ' + r.pmN + ' (' + dshort(r.pms) + ' – ' + dshort(r.pme) + ')') +
+    '</div><ul class="dpoints">' + r.pts.slice(3).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
+    (noAi ? '<div class="by">' + aiEmptyText() + aiWriteBtn('Viết phân tích chuyên sâu ngay', true) + '</div>' : '') + '</div>';
+}
+async function copyDaily(btn) {
+  var s = S.dailyText || '', ok = false;
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(s); ok = true; } } catch (e) { ok = false; }
+  if (!ok) {
+    var ta = document.createElement('textarea'); ta.value = s; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+  }
+  toast(ok ? 'Đã sao chép báo cáo ngày. Dán vào Zalo hoặc email để gửi.' : 'Trình duyệt không cho sao chép. Hãy bôi đen phần chữ để sao chép.');
+}
+
+// Phân tích tự động: nút cho quản trị và lời giải thích khi chưa có bản phân tích
+function aiEmptyText() {
+  if (S.ai) return 'Phân tích chuyên sâu của Claude (đánh giá, đề xuất, tuyến bài) được viết tự động mỗi sáng sau khi đồng bộ, khoảng 7–8 giờ.' + (S.editor ? ' Quản trị có thể bấm để viết ngay.' : '');
+  return S.editor ? 'Để Claude tự viết phân tích chuyên sâu mỗi sáng, thêm biến ANTHROPIC_API_KEY trên Vercel rồi triển khai lại.' : 'Phân tích chuyên sâu của Claude sẽ hiện ở thẻ “Phân tích & đề xuất” khi sẵn sàng.';
+}
+function aiWriteBtn(label, small) {
+  if (!S.editor || !S.ai) return '';
+  return small ? ' <button class="linkbtn" type="button" data-ai-write>' + esc(label) + '</button>' : '<p style="margin-top:14px"><button class="btn pri" type="button" data-ai-write>' + esc(label) + '</button></p>';
+}
+async function aiWrite(btn) {
+  if (S.aiBusy || !WEB || !WEB.user) return;
+  S.aiBusy = true; var old = btn.textContent; btn.disabled = true; btn.textContent = 'Claude đang viết… (1–3 phút)';
+  try {
+    var t = await WEB.user.getIdToken();
+    var r = await fetch('/api/insights', { method: 'POST', headers: { Authorization: 'Bearer ' + t }, cache: 'no-store' });
+    var j = await r.json().catch(function () { return {}; });
+    toast(r.ok && j.ok ? 'Đã viết xong phân tích mới.' : (j.error || 'Chưa viết được phân tích (máy chủ trả lỗi ' + r.status + ').'), 9000);
+    if (r.ok && j.ok) await webLoad(true);
+  } catch (e) { toast('Không kết nối được máy chủ.'); }
+  S.aiBusy = false; btn.disabled = false; btn.textContent = old;
+}
+
+// So với mặt bằng ngành giáo dục (benchmarks.js): so sánh của chính Meta với các nhà quảng cáo cùng ngành, và số của trường trong kỳ đang xem đặt cạnh khoảng tham chiếu
+function benchTag(r) { return r.verdict === 'better' ? tone('good', 'Tốt hơn mặt bằng') : r.verdict === 'worse' ? tone('bad', 'Kém hơn mặt bằng') : r.verdict === 'within' ? tone('info', 'Trong khoảng') : '<span class="ts">Chưa đủ số</span>'; }
+function benchMetaFor(ids) { var m = window.FBBench && FBBench.compare(C, S.mdl, T(), { accts: ids }).meta; return m && ids.indexOf(m.account) >= 0 ? m : null; }
+function benchCard(p, cls) {
+  if (!window.FBBench) return '';
+  var cmp = FBBench.compare(C, S.mdl, T(), { since: p.s, until: p.e, accts: acctIds() }), mt = benchMetaFor(acctIds());
+  if (!cmp.rows.length && !mt) return '';
+  var fmtV = function (v, unit) { return v == null ? '—' : unit === 'VND' ? mny(v) : unit === '%' ? dec(v, 2) + '%' : dec(v, 2); };
+  var rng = function (r) { return r.low != null && r.high != null && r.low !== r.high ? fmtV(r.low, r.unit) + ' – ' + fmtV(r.high, r.unit) : fmtV(r.low != null ? r.low : r.high, r.unit); };
+  var html = '<div class="card ' + (cls || 's12') + '"><div class="card-hd"><div><h2>So với mặt bằng quảng cáo ngành giáo dục</h2><p>Đối chiếu khách quan bên cạnh việc so với kỳ trước. Đây là mốc tham khảo, không phải chuẩn tuyệt đối: thị trường, mục tiêu chiến dịch và mùa tuyển sinh đều làm số khác đi.</p></div></div>';
+  if (mt) {
+    html += '<div class="bmeta"><h3>Theo Meta: so với các nhà quảng cáo cùng ngành</h3><p class="ts">Ngành ' + esc(mt.vertical) + ', ' + esc(mt.cohort) + '. Nhóm quảng cáo «' + esc(mt.rows[0].adset) + '» của ' + esc(acctName(mt.account)) + ', ' + esc(dlong(mt.since)) + ' – ' + esc(dlong(mt.until)) + ' (Meta chỉ so sánh nhóm quảng cáo đủ số liệu, và chỉ cho biết cao hay thấp hơn mặt bằng bao nhiêu phần trăm).</p><div class="mrows">' +
+      mt.rows.map(function (r) { return '<div class="mrow"><div class="l">' + esc(r.label) + '</div><div class="v">' + (r.rel < 0 ? 'thấp hơn ' : 'cao hơn ') + dec(Math.abs(r.rel), 1) + '%</div>' + benchTag(r) + '</div>'; }).join('') + '</div></div>';
+  }
+  if (cmp.rows.length) {
+    html += (mt ? '<h3 class="bsub">Theo báo cáo công khai về quảng cáo ngành giáo dục</h3>' : '') + '<p class="ts" style="margin:0 0 8px">Số của trường trong kỳ đang xem (' + esc(dlong(cmp.since)) + ' – ' + esc(dlong(cmp.until)) + ').</p><div class="tbl-wrap"><table class="btbl"><thead><tr><th>Chỉ số</th><th class="r">Trường</th><th class="r">Mặt bằng ngành</th><th>Đánh giá</th><th>Nguồn</th></tr></thead><tbody>' + cmp.rows.map(function (r) {
+      return '<tr><td>' + esc(r.label) + '<div class="ts">' + esc(r.basis === 'lead' ? 'Chiến dịch thu lead' : 'Mọi chiến dịch') + (r.better === 'lower' ? ' · thấp hơn là tốt' : ' · cao hơn là tốt') + '</div></td><td class="r"><b>' + fmtV(r.school, r.unit) + '</b></td><td class="r">' + rng(r) + '<div class="ts">' + esc(r.scope || '') + '</div></td><td>' + benchTag(r) + '</td><td class="ts">' + (r.url ? '<a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.source) + '</a>' : esc(r.source || '')) + (r.period ? ' · ' + esc(r.period) : '') + (r.note ? '<div>' + esc(r.note) + '</div>' : '') + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+  return html + '</div>';
 }
 
 /* ---------------- view: trend ---------------- */
@@ -1143,8 +1288,10 @@ function devLabel(k) { return { mobile_app: 'Ứng dụng điện thoại', mobi
 /* ---------------- view: insights ---------------- */
 function insights(sec) {
   var I = S.mdl.insights;
-  if (!I || !I.headline) { sec.innerHTML = '<div class="card"><div class="empty">Phân tích chuyên sâu chưa sẵn sàng. Claude cập nhật phần này mỗi sáng sau khi đồng bộ số liệu.</div></div>' + askCard(); bindAsk(); return; }
-  var html = '<div class="card brief"><div><div class="eyebrow">Phân tích của Claude · ' + esc(I.periodLabel || '') + '</div><h2>' + esc(I.headline) + '</h2><p class="lede">' + esc(I.summary || '') + '</p><div class="by">Cập nhật ' + esc(I.updatedLabel || '') + '. Số liệu đến ngày ' + esc(dlong(I.dataUntil || '')) + '.</div></div><div class="hl">' + (I.highlights || []).map(function (h) { return '<div class="hl-item">' + tone(h.tone || 'info', { good: 'Tốt', warn: 'Theo dõi', bad: 'Cần xử lý', info: 'Ghi nhận' }[h.tone] || 'Ghi nhận') + '<div><b>' + esc(h.title) + '</b> ' + esc(h.detail || '') + '</div></div>'; }).join('') + '</div></div>';
+  if (!I || !I.headline) { sec.innerHTML = dailyCard() + '<div class="card" style="margin-top:16px"><div class="empty">Phân tích chuyên sâu chưa sẵn sàng. ' + aiEmptyText() + aiWriteBtn('Viết phân tích ngay') + '</div></div><div class="grid" style="margin-top:16px">' + benchCard(currentPeriod()) + '</div>' + askCard(); bindAsk(); return; }
+  var html = '<div class="card brief"><div><div class="eyebrow">Phân tích của Claude · ' + esc(I.periodLabel || '') + '</div><h2>' + esc(I.headline) + '</h2><p class="lede">' + esc(I.summary || '') + '</p><div class="by">Cập nhật ' + esc(I.updatedLabel || '') + '. Số liệu đến ngày ' + esc(dlong(I.dataUntil || '')) + '.' + aiWriteBtn('Viết lại phân tích', true) + '</div></div><div class="hl">' + (I.highlights || []).map(function (h) { return '<div class="hl-item">' + tone(h.tone || 'info', { good: 'Tốt', warn: 'Theo dõi', bad: 'Cần xử lý', info: 'Ghi nhận' }[h.tone] || 'Ghi nhận') + '<div><b>' + esc(h.title) + '</b> ' + esc(h.detail || '') + '</div></div>'; }).join('') + '</div></div>';
+  if (I.benchmark && I.benchmark.summary) html += '<div class="card" style="margin-top:22px"><div class="card-hd"><div><h2>Nhận định so với mặt bằng ngành giáo dục</h2><p>' + esc(I.benchmark.summary) + '</p></div></div><div class="prose">' + (I.benchmark.points || []).map(function (x) { return '<p>• ' + esc(x) + '</p>'; }).join('') + '</div></div>';
+  html += '<div class="grid" style="margin-top:16px">' + benchCard(currentPeriod()) + '</div>';
   if (I.evaluations && I.evaluations.length) html += '<div class="sec-title" style="margin-top:22px">Đánh giá theo từng mặt</div><div class="score-grid">' + I.evaluations.map(function (e) { return '<div class="ev"><div class="hd"><b>' + esc(e.area) + '</b>' + tone(e.tone || 'info', e.verdict || '') + '</div><p>' + esc(e.text) + '</p></div>'; }).join('') + '</div>';
   if (I.recommendations && I.recommendations.length) html += '<div class="sec-title" style="margin-top:22px">Việc nên làm, theo thứ tự ưu tiên</div><div class="recs">' + I.recommendations.map(function (r, i) { return '<div class="rec"><div class="n">' + (i + 1) + '</div><div><div class="t">' + esc(r.title) + '</div><div class="x">' + esc(r.detail) + '</div><div class="m">' + (r.owner ? '<span class="chip" style="--c:var(--series)">' + esc(r.owner) + '</span>' : '') + (r.when ? '<span class="chip" style="--c:var(--c4)">' + esc(r.when) + '</span>' : '') + (r.impact ? '<span class="chip" style="--c:var(--ok)">' + esc(r.impact) + '</span>' : '') + '</div></div></div>'; }).join('') + '</div>';
   if (I.pillars && I.pillars.length) html += '<div class="sec-title" style="margin-top:22px">Tuyến bài đề xuất cho Ban Truyền thông</div><p class="sec-sub">Mỗi tuyến gồm lý do dựa trên số liệu, định dạng nên dùng và gợi ý tiêu đề mở bài.</p><div class="pillars">' + I.pillars.map(function (pl) { return '<div class="pl" style="--c:' + (SEGCOL[pl.segment] || 'var(--series)') + '"><h3>' + esc(pl.name) + '</h3><div class="why">' + esc(pl.why) + '</div>' + (pl.audience ? '<div class="lbl">Đối tượng</div><div class="ts" style="font-size:12.5px;color:var(--ink-2)">' + esc(pl.audience) + '</div>' : '') + (pl.formats && pl.formats.length ? '<div class="lbl">Định dạng</div><ul>' + pl.formats.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>' : '') + (pl.hooks && pl.hooks.length ? '<div class="lbl">Gợi ý tiêu đề</div><ul>' + pl.hooks.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>' : '') + (pl.kpi ? '<div class="lbl">Chỉ số theo dõi</div><div class="ts" style="font-size:12.5px;color:var(--ink-2)">' + esc(pl.kpi) + '</div>' : '') + '</div>'; }).join('') + '</div>';
@@ -1201,6 +1348,8 @@ $('#monthSel').addEventListener('change', function (e) { if (!e.target.value) re
 $('#acctSel').addEventListener('change', function (e) { S.acct = e.target.value; store('acct', S.acct); renderAll(); });
 $('#main').addEventListener('click', function (e) {
   var g = e.target.closest('[data-goto]'); if (g) { S.tab = g.dataset.goto; store('tab', S.tab); renderAll(); window.scrollTo({ top: 0 }); return; }
+  var w = e.target.closest('[data-ai-write]'); if (w) { aiWrite(w); return; }
+  var cd = e.target.closest('[data-copy-daily]'); if (cd) { copyDaily(cd); return; }
   var gb = e.target.closest('#grainSeg button'); if (gb) { S.grain = gb.dataset.g; renderAll(); return; }
   var th = e.target.closest('#campTbl th[data-sort]'); if (th) { var k = th.dataset.sort; S.campSort = { k: k, d: S.campSort.k === k ? -S.campSort.d : (['n', 'obj', 'st', 'seg', 's', 'cpl', 'cpc'].indexOf(k) >= 0 ? 1 : -1) }; drawCampTable(C.campaignsIn(S.mdl, acctIds(), currentPeriod().s, currentPeriod().e)); return; }
   var tr = e.target.closest('tr[data-camp]'); if (tr) { campaignPanel(tr.dataset.camp); return; }
@@ -1470,7 +1619,7 @@ async function webLoad(fresh) {
       return;
     }
     if (!r.ok || !j.ok) { if (!S.mdl) webGate('Không tải được số liệu', j.error || ('Máy chủ trả lỗi ' + r.status + '.')); else toast(j.error || 'Không làm mới được số liệu.'); return; }
-    S.editor = !!(j.me && j.me.role === 'admin');
+    S.editor = !!(j.me && j.me.role === 'admin'); S.ai = !!(j.sync && j.sync.ai);
     var b = $('#syncBtn'); b.hidden = !(S.editor && j.sync && j.sync.meta); b.onclick = webSync; b.oncontextmenu = null;
     setDocs(j.docs || {});
   } catch (e) { if (!S.mdl) webGate('Không kết nối được máy chủ', 'Kiểm tra kết nối mạng rồi tải lại trang.'); }

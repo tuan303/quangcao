@@ -21,6 +21,8 @@ Số liệu được cập nhật mỗi sáng.
 | `api/data.js` | Trả số liệu cho người đã đăng nhập và có tên trong danh sách được xem. |
 | `api/ingest.js` | Nhận số liệu do tác vụ Claude đẩy lên mỗi sáng (đã đối chiếu với tổng của Meta). |
 | `api/sync.js` | Tuỳ chọn. Khi có `META_ACCESS_TOKEN`, Vercel Cron tự lấy số liệu từ Meta mỗi sáng (gói Hobby chạy trong khoảng 06:00–07:00) và nút “Đồng bộ ngay” hiện cho quản trị. |
+| `api/insights.js` | Tuỳ chọn. Khi có `ANTHROPIC_API_KEY`, Claude tự viết phần “Phân tích & đề xuất” mỗi sáng sau đồng bộ (gói Hobby chạy trong khoảng 07:00–08:00) và quản trị bấm được “Viết phân tích ngay”. |
+| `benchmarks.js` | Khoảng tham chiếu của quảng cáo ngành giáo dục, kèm nguồn và thời điểm, để so sánh khách quan ngoài so với kỳ trước. |
 
 Dự án Firebase **quangcao-9a705** chỉ phục vụ dashboard này, không dùng chung với dự án nào khác. Collection `fbads` chỉ do máy chủ đọc và ghi (firebase-admin). File `firestore.rules` chặn mọi truy cập trực tiếp từ trình duyệt.
 
@@ -64,6 +66,7 @@ Dự án Firebase **quangcao-9a705** chỉ phục vụ dashboard này, không d�
    - `FBADS_VIEWERS`: email được xem, ví dụ cô Ngà và Ban Truyền thông.
    - `CRON_SECRET` và `INGEST_SECRET`: hai chuỗi ngẫu nhiên khác nhau, tạo bằng lệnh `openssl rand -hex 32`.
    - `META_ACCESS_TOKEN`: tuỳ chọn, xem mục bên dưới.
+   - `ANTHROPIC_API_KEY`: tuỳ chọn, để Claude tự viết phân tích mỗi sáng. Xem mục “Phân tích tự động”.
 3. **Thêm tên miền của trang** vào Firebase console → Security → Authentication → Settings → Authorized domains: thêm `<tên-miền-Vercel>`. Dự án mới không có sẵn `localhost`; chỉ thêm nếu cần chạy thử trên máy.
 4. **Trên máy quản trị** (máy chạy tác vụ Claude), tạo file `~/.claude/scheduled-tasks/fbads-nshm-daily-sync/tools/vercel.env` gồm hai dòng sau rồi chạy `chmod 600` cho file đó:
 
@@ -109,7 +112,39 @@ Lịch đồng bộ trong ngày:
 | `ads` | mẫu quảng cáo và nội dung bài | thứ 2 và thứ 5 |
 | `bd` | độ tuổi, giới tính, tỉnh, nền tảng, thiết bị | thứ 3 và thứ 6 |
 
-Phần **Phân tích & đề xuất** (nhận định, tuyến bài, lịch nội dung) vẫn do tác vụ Claude viết mỗi sáng. Phần này cần mô hình ngôn ngữ nên Vercel không tự làm.
+## Báo cáo ngày (có ngay, không cần cấu hình thêm)
+
+Đầu thẻ **Tổng quan** có khối **Báo cáo ngày**. Khối này tự tính từ số liệu đã đồng bộ, nên có ngay sau mỗi lần đồng bộ:
+
+- hôm qua so với trung bình 7 ngày trước đó;
+- 7 ngày qua so với 7 ngày trước;
+- tháng này đến nay so với cùng kỳ tháng trước;
+- lead theo khối, chiến dịch ra nhiều lead nhất, chiến dịch tốn tiền mà chưa ra lead;
+- so với mặt bằng ngành và tài khoản chưa đồng bộ đủ (nếu có).
+
+Nút **Sao chép gửi Zalo** chép bản chữ để dán vào Zalo hoặc email gửi Chủ tịch.
+
+## Tuỳ chọn: Phân tích tự động bằng Claude
+
+Phần **Phân tích & đề xuất** (nhận định, đánh giá, việc nên làm, tuyến bài, lịch nội dung, so với mặt bằng ngành) do Claude viết từ số liệu đang lưu.
+
+1. Tạo khóa API ở [console.anthropic.com](https://console.anthropic.com) → API Keys. Nạp một ít tiền vào Billing; mỗi lần viết tốn khoảng vài nghìn đồng.
+2. Dán khóa vào biến `ANTHROPIC_API_KEY` trên Vercel (môi trường Production), rồi **Redeploy**.
+3. Quản trị mở trang và bấm **Viết phân tích chuyên sâu ngay** (mất 1–3 phút). Từ hôm sau, Vercel Cron tự viết lại mỗi sáng sau khi đồng bộ.
+
+Chạy thử, không ghi:
+
+```bash
+curl -H "Authorization: Bearer <CRON_SECRET>" "https://<tên-miền-Vercel>/api/insights?dry=1"
+```
+
+Mô hình mặc định là `claude-opus-5-5`; đổi bằng biến `INSIGHTS_MODEL` nếu cần. Nếu tác vụ Claude trên máy quản trị cũng đẩy phần nhận định lên, bản ghi sau cùng sẽ được hiển thị.
+
+## So với mặt bằng ngành giáo dục
+
+`benchmarks.js` ghi khoảng tham chiếu của từng chỉ số (CPM, CTR, CPC, chi phí/lead…), kèm phạm vi, nguồn, đường dẫn và thời điểm. Trang đặt số của trường trong kỳ đang xem cạnh các khoảng đó. Chỉ số về lead chỉ tính các chiến dịch có mục tiêu thu lead.
+
+Đây là mốc tham khảo, không phải chuẩn tuyệt đối: thị trường, mục tiêu chiến dịch và mùa tuyển sinh đều làm số khác đi. Cập nhật tệp khi có báo cáo mới, rồi chạy `npm test`.
 
 ## Kiểm thử
 
@@ -118,7 +153,12 @@ npm install
 npm test
 ```
 
-Bộ kiểm thử chạy offline với Meta API giả lập. Nó kiểm tra cách đọc trường `actions` (lead, click, tương tác, lưu, chia sẻ), cách chuyển bộ lọc trạng thái, cách tự bỏ trường Meta không hỗ trợ, và quyền xem.
+Bộ kiểm thử chạy offline với Meta API giả lập. Nó kiểm tra:
+
+- cách đọc trường `actions` (lead, click, tương tác, lưu, chia sẻ);
+- cách chuyển bộ lọc trạng thái và cách tự bỏ trường Meta không hỗ trợ;
+- quyền xem;
+- gói số liệu cho phân tích, cấu trúc đầu ra của Claude và phép so với mặt bằng ngành.
 
 ## Lưu ý số liệu
 

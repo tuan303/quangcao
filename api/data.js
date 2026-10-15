@@ -22,7 +22,7 @@ export default async function handler(req, res) {
       const perAccount = Object.fromEntries(Object.entries(docs.meta.perAccount).map(([a, x]) => [a, Object.assign({}, x, { error: null })]));
       docs = Object.assign({}, docs, { meta: Object.assign({}, docs.meta, { perAccount }) });
     }
-    send(res, 200, { ok: true, docs, me: { email: who.email, role: who.role }, sync: { meta: !!String(process.env.META_ACCESS_TOKEN || '').trim() } });
+    send(res, 200, { ok: true, docs, me: { email: who.email, role: who.role }, sync: { meta: !!String(process.env.META_ACCESS_TOKEN || '').trim(), ai: !!String(process.env.ANTHROPIC_API_KEY || '').trim() } });
   } catch (e) {
     console.error('[data]', e);
     send(res, e.status || 500, { ok: false, error: safeError(e) });
