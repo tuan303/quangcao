@@ -15,20 +15,29 @@ export function metaError(e, status) {
 }
 
 // Hạn chót chung của cả lần đồng bộ (api/sync.js đặt): mọi yêu cầu, kể cả đang chạy dở, dừng trước mốc này để còn thời gian ghi.
+// Fluid compute có thể chạy hai lần đồng bộ cùng lúc trong một instance, nên hạn chót gắn với từng lần gọi (AsyncLocalStorage);
+// ngoài withDeadline() (kiểm thử) thì dùng biến chung.
+import { AsyncLocalStorage } from 'node:async_hooks';
+const runCtx = new AsyncLocalStorage();
 let deadlineAt = 0;
-export function setDeadline(ts) { deadlineAt = ts || 0; }
+export function withDeadline(fn) { return runCtx.run({ deadlineAt: 0 }, fn); }
+export function setDeadline(ts) { const s = runCtx.getStore(); if (s) s.deadlineAt = ts || 0; else deadlineAt = ts || 0; }
+const currentDeadline = () => { const s = runCtx.getStore(); return s ? s.deadlineAt : deadlineAt; };
+// mỗi yêu cầu chờ tối đa 45 giây (truy vấn mẫu quảng cáo, khán giả trên khoảng dài có thể chậm), không vượt hạn chung của lần đồng bộ
+const REQUEST_TIMEOUT_MS = 45000;
 const timeoutError = why => Object.assign(new Error('Meta API: ' + why), { status: 504, expose: true, meta: { code: 'timeout' } });
 
 async function graph(pathOrUrl, params, token) {
   const url = /^https?:/.test(pathOrUrl) ? new URL(pathOrUrl) : new URL(BASE + pathOrUrl);
   if (!/^https?:/.test(pathOrUrl)) for (const [k, v] of Object.entries(params || {})) if (v != null && v !== '') url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   url.searchParams.delete('access_token');
+  const deadlineAt = currentDeadline();
   for (let attempt = 0; ; attempt++) {
-    const left = deadlineAt ? deadlineAt - Date.now() : 20000;
+    const left = deadlineAt ? deadlineAt - Date.now() : REQUEST_TIMEOUT_MS;
     if (left < 1500) throw timeoutError('hết thời gian của lần đồng bộ này');
     let res, j;
     try {
-      res = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(Math.min(20000, left)) });
+      res = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, left)) });
       const text = await res.text(); // đọc hết thân phản hồi trong cùng giới hạn thời gian
       try { j = text ? JSON.parse(text) : {}; } catch { j = null; }
     } catch (e) {

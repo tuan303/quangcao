@@ -3,29 +3,24 @@
  * Mỗi mục ghi rõ phạm vi, nguồn và thời điểm. Đây là khoảng tham chiếu từ báo cáo công khai, không phải chuẩn tuyệt đối:
  * khác thị trường, mục tiêu chiến dịch, mùa tuyển sinh thì số khác nhau. Cập nhật tệp này khi có báo cáo mới.
  * Đợt 15/10/2026: số được đối chiếu qua kết quả tìm kiếm của từng nguồn (chưa mở được trang gốc); nên mở đường dẫn để kiểm tra trước khi trích dẫn chính thức.
+ * Chỉ giữ mặt bằng ngành giáo dục tại Việt Nam; số toàn cầu và Mỹ đã bỏ vì chi phí quảng cáo ở đó cao hơn nhiều, không so được.
  * Quy đổi USD → VND theo 25.900 ₫/USD (giữa giá mua chuyển khoản và giá bán Vietcombank ngày 10/10/2026).
  */
 (function (root) {
   'use strict';
   var AS_OF = '2026-10-15';
   // better: 'lower' | 'higher' – chiều nào là tốt hơn cho trường. basis: 'all' (mọi chiến dịch) | 'lead' (chiến dịch thu lead).
+  // market: 'vn' (thị trường Việt Nam: có đánh giá tốt/kém) | 'global' (thị trường khác, chi phí cao hơn nhiều: chỉ để tham khảo, không gắn nhãn).
+  // kind: 'range' (khoảng mặt bằng, mặc định) | 'case' (một trường hợp cụ thể) | 'mixed' (gộp nhiều ngành): hai loại sau chỉ để tham khảo, không đánh giá tốt/kém.
   var ITEMS = [
-    // Việt Nam
-    { metric: 'cpm', low: 38900, high: 72500, scope: 'Facebook tại Việt Nam, mọi ngành', source: 'Adligator – Meta Ads CPM by Country', url: 'https://adligator.com/blog/meta-ads-cpm-by-country-benchmarks', period: '2026',
-      note: '1,50–2,80 USD. Instagram cao hơn (2,00–3,80 USD). Chưa có số riêng cho ngành giáo dục tại Việt Nam.' },
-    { metric: 'cpcLink', low: 5000, high: 15000, scope: 'Giáo dục (cùng nhóm spa, nha khoa) tại Việt Nam', source: 'GK Digital – Chi phí quảng cáo Facebook', url: 'https://gkdigital.vn/chia-se/facebook/chi-phi-quang-cao-facebook-la-bao-nhieu', period: '2025–2026',
-      note: 'Blog của agency, không nêu phương pháp và không nói rõ loại lượt nhấp; độ tin cậy thấp.' },
-    { metric: 'cpl', low: 38900, high: 181300, scope: 'Form thu lead của Meta tại Việt Nam (bất động sản, giáo dục, bán lẻ)', source: 'Sotros Infotech – Facebook Ads CPL benchmarks', url: 'https://sotrosinfotech.com/blog/average-cost-per-lead-facebook-ads-benchmarks/', period: '2026',
-      note: '1,50–7 USD. Blog của agency, không nêu phương pháp; độ tin cậy thấp. Agency trong nước nêu 100.000–300.000 ₫/lead tuỳ ngành.' },
-    // Toàn cầu
-    { metric: 'cpl', low: 381200, high: 766900, scope: 'Ngành giáo dục, mọi quốc gia (chủ yếu Mỹ, châu Âu)', source: 'Superads – Education cost per lead', url: 'https://www.superads.ai/facebook-ads-costs/cost-per-lead/education', period: '07/2025–07/2026',
-      note: 'Theo tháng: 14,72 USD (07/2026) đến đỉnh 29,61 USD (02/2026); bình quân 21,31 USD (≈ 552.000 ₫), khoảng một nửa mức mọi ngành. Mỹ (WordStream 2026): 26,31 USD.' },
-    { metric: 'ctr', low: 1.38, high: 2.39, scope: 'Ngành giáo dục, mọi quốc gia', source: 'Superads – Education CTR', url: 'https://www.superads.ai/facebook-ads-costs/ctr-click-through-rate/education', period: '07/2025–07/2026',
-      note: 'Trung vị theo tháng; bình quân 1,80% (mọi ngành 2,04%). Nguồn không nói rõ tính mọi lượt nhấp hay chỉ lượt nhấp liên kết.' },
-    { metric: 'lctr', low: 1.18, high: 1.18, scope: 'Mọi ngành, hơn 2.800 doanh nghiệp', source: 'Databox – Facebook Ads benchmarks', url: 'https://databox.com/fb-ads-benchmarks-by-industry', period: 'cập nhật 08/2026',
-      note: 'Trung vị CTR liên kết (CTR mọi lượt nhấp: 1,9%).' },
-    { metric: 'lcr', low: 10.08, high: 15.87, scope: 'Ngành giáo dục tại Mỹ, chiến dịch thu lead', source: 'WordStream/LocaliQ – Facebook Ads Benchmarks', url: 'https://www.wordstream.com/blog/facebook-ads-benchmarks-2026', period: '2025–2026',
-      note: '10,08% (bản 2025) đến 15,87% (bản 2026, mới thấy ở nguồn thứ cấp). Cao nhất trong các ngành. WordStream tính trên lượt nhấp, không riêng lượt nhấp liên kết.' }
+    // Chỉ mặt bằng quảng cáo ngành giáo dục tại Việt Nam (theo yêu cầu của nhà trường). Chưa có báo cáo nào có phương pháp rõ ràng
+    // cho riêng giáo dục ở Việt Nam, nên các khoảng dưới đây lấy từ blog agency trong nước: độ tin cậy thấp, chỉ là mốc tham khảo.
+    { metric: 'cpl', market: 'vn', kind: 'mixed', low: 38900, high: 181300, scope: 'Form thu lead của Meta tại Việt Nam, gộp giáo dục, bất động sản, bán lẻ (không riêng giáo dục)', source: 'Sotros Infotech – Facebook Ads CPL benchmarks', url: 'https://sotrosinfotech.com/blog/average-cost-per-lead-facebook-ads-benchmarks/', period: '2026',
+      note: '1,50–7 USD. Blog của agency, không nêu phương pháp; độ tin cậy thấp. Gộp nhiều ngành nên chỉ để tham khảo, không đánh giá tốt/kém.' },
+    { metric: 'cpl', market: 'vn', kind: 'case', low: 90000, high: 150000, scope: 'Một trung tâm tiếng Anh tại Việt Nam (một trường hợp cụ thể)', source: 'Fchat – Chi phí chạy quảng cáo Facebook', url: 'https://fchat.vn/blog/chi-phi-chay-quang-cao-facebook.html', period: '2025–2026',
+      note: 'Chi phí/lead Facebook tới 150.000 ₫, giảm còn 90.000 ₫ sau khi tối ưu. Chỉ là một ví dụ, không phải số bình quân ngành.' },
+    { metric: 'cpcLink', market: 'vn', low: 5000, high: 25000, scope: 'Giáo dục và đào tạo tại Việt Nam', source: 'GK Digital (5.000–15.000 ₫); Fchat (5.000–25.000 ₫)', url: 'https://gkdigital.vn/chia-se/facebook/chi-phi-quang-cao-facebook-la-bao-nhieu', period: '2025–2026',
+      note: 'Gộp hai blog agency trong nước (Fchat: fchat.vn/blog/chi-phi-chay-quang-cao-facebook.html); không nêu phương pháp và không nói rõ loại lượt nhấp; độ tin cậy thấp.' }
   ];
 
   var METRICS = {
@@ -83,12 +78,13 @@
       var v = src ? src[b.metric] : null;
       if (v != null && m.unit === '%') v = v * 100;
       var verdict = null;
-      if (v != null && (b.low != null || b.high != null)) {
+      var fewLeads = (b.basis || m.basis) === 'lead' && (!src || (src.leads || 0) < 5); // dưới 5 lead thì chi phí/lead chưa đủ tin cậy
+      if (v != null && !fewLeads && (!b.kind || b.kind === 'range') && (b.low != null || b.high != null)) { // ví dụ hoặc số gộp nhiều ngành: không đánh giá
         var lo = b.low != null ? b.low : b.high, hi = b.high != null ? b.high : b.low;
         var good = m.better === 'lower' ? v < lo : v > hi, bad = m.better === 'lower' ? v > hi : v < lo;
         verdict = good ? 'better' : bad ? 'worse' : 'within';
       }
-      return { metric: b.metric, label: m.label, unit: m.unit, better: m.better, basis: b.basis || m.basis, school: v == null ? null : Math.round(v * 100) / 100,
+      return { metric: b.metric, market: b.market || 'global', kind: b.kind || 'range', label: m.label, unit: m.unit, better: m.better, basis: b.basis || m.basis, school: v == null ? null : Math.round(v * 100) / 100,
         low: b.low, high: b.high, scope: b.scope, source: b.source, url: b.url, period: b.period, note: b.note || '', verdict: verdict };
     }).filter(Boolean);
     return { asOf: AS_OF, since: since, until: until, leadCampaigns: f.leadCampaigns, rows: rows,

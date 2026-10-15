@@ -1,8 +1,9 @@
 # Dashboard Quảng cáo Facebook – Trường Ngôi Sao Hoàng Mai
 
-Báo cáo quảng cáo Facebook cho Chủ tịch HĐQT và Ban Truyền thông. Trang gồm 7 thẻ:
+Báo cáo quảng cáo Facebook cho Chủ tịch HĐQT và Ban Truyền thông. Trang gồm 8 thẻ:
 
 - Tổng quan
+- Báo cáo tổng thể
 - Xu hướng
 - Khối tuyển sinh
 - Chiến dịch
@@ -20,7 +21,7 @@ Số liệu được cập nhật mỗi sáng.
 | Firebase dự án riêng **quangcao-9a705** | Đăng nhập bằng tài khoản Microsoft 365 của trường. Số liệu nằm trong collection Firestore `fbads`. |
 | `api/data.js` | Trả số liệu cho người đã đăng nhập và có tên trong danh sách được xem. |
 | `api/ingest.js` | Nhận số liệu do tác vụ Claude đẩy lên mỗi sáng (đã đối chiếu với tổng của Meta). |
-| `api/sync.js` | Tuỳ chọn. Khi có `META_ACCESS_TOKEN`, Vercel Cron tự lấy số liệu từ Meta mỗi sáng (gói Hobby chạy trong khoảng 06:00–07:00) và nút “Đồng bộ ngay” hiện cho quản trị. |
+| `api/sync.js` | Tuỳ chọn. Khi có `META_ACCESS_TOKEN`, Vercel Cron tự lấy số liệu từ Meta mỗi sáng (gói Hobby chạy trong khoảng 05:00–06:00) và nút “Đồng bộ ngay” hiện cho quản trị. |
 | `api/insights.js` | Tuỳ chọn. Khi có `ANTHROPIC_API_KEY`, Claude tự viết phần “Phân tích & đề xuất” mỗi sáng sau đồng bộ (gói Hobby chạy trong khoảng 07:00–08:00) và quản trị bấm được “Viết phân tích ngay”. |
 | `benchmarks.js` | Khoảng tham chiếu của quảng cáo ngành giáo dục, kèm nguồn và thời điểm, để so sánh khách quan ngoài so với kỳ trước. |
 
@@ -100,7 +101,7 @@ Khi có token, trang không còn phụ thuộc máy quản trị phải bật v�
 
    Kết quả cần có `"ok": true`, `checks.mismatches` rỗng và `checks.checkedDays` lớn hơn 0. Máy chủ đối chiếu số liệu mới với số liệu đang lưu; nếu lệch ở nhiều ngày, máy chủ không ghi.
 
-Lần đồng bộ đầu tiên lấy số liệu từ 01/03/2025. Nếu không kịp trong giới hạn 60 giây của Vercel, máy chủ ghi phần đã lấy được (số liệu gần đây được lấy trước) và lần sau lấy tiếp phần lịch sử còn thiếu. Tiến độ lưu ở tài liệu `syncstate`. Khi một tài khoản chưa lấy đủ, trang hiện thông báo màu vàng ghi rõ tài khoản đó. Quản trị còn thấy thêm lỗi chi tiết của Meta.
+Lần đồng bộ đầu tiên lấy số liệu từ 01/03/2025. Mỗi lần đồng bộ được chạy tối đa 300 giây (Fluid compute, bật trong `vercel.json`). Nếu không kịp, máy chủ ghi phần đã lấy được (số liệu gần đây được lấy trước) và lần sau lấy tiếp phần lịch sử còn thiếu. Nhóm mẫu quảng cáo hoặc khán giả chưa lấy xong cũng được lấy tiếp ở lần đồng bộ sau, không phải chờ tới ngày theo lịch; thử tối đa 3 lần liên tiếp, sau đó quay về lịch hằng tuần. Hai lần đồng bộ không chạy chồng lên nhau: lần sau được báo “đang có lần đồng bộ khác chạy” và trang tự cập nhật khi xong. Tiến độ lưu ở tài liệu `syncstate`. Khi một tài khoản chưa lấy đủ, trang hiện thông báo màu vàng ghi rõ tài khoản đó. Quản trị còn thấy thêm lỗi chi tiết của Meta.
 
 Phiên bản Meta Graph API mặc định là `v25.0`, vì v23.0 đã hết hạn cho Marketing API từ 09/06/2026. Có thể đổi bằng biến `META_API_VERSION`.
 
@@ -124,6 +125,38 @@ Lịch đồng bộ trong ngày:
 
 Nút **Sao chép gửi Zalo** chép bản chữ để dán vào Zalo hoặc email gửi Chủ tịch.
 
+## Báo cáo tổng thể (thẻ thứ hai)
+
+Bản báo cáo cho Ban lãnh đạo, đọc từ trên xuống hoặc bấm **In / Lưu PDF** (khổ A4, luôn nền trắng). Báo cáo theo kỳ và tài khoản ở thanh lọc, kỳ dừng ở hết hôm qua vì hôm nay chưa trọn ngày; ba nút chọn nhanh là 7 ngày qua, Tháng trước và Năm học. Các phần, theo đúng thứ tự trên trang:
+
+1. Đầu báo cáo:
+   - kỳ, kỳ so sánh, tài khoản, giờ đồng bộ;
+   - cảnh báo nếu thiếu số liệu;
+   - bốn con số chính, so với kỳ trước và cùng kỳ năm trước.
+2. Kết luận chính.
+3. Việc cần làm tiếp theo: của Claude nếu bản phân tích còn mới, nếu không thì gợi ý tự động; kèm cảnh báo 7 ngày gần nhất.
+4. Theo khối tuyển sinh.
+5. Mùa tuyển sinh: từng tháng so với năm học trước.
+6. Nhịp chi ngân sách tháng này.
+7. Chiến dịch và vận hành: tiền chưa ra lead, chiến dịch nổi bật, chiến dịch cần xem lại, mẫu quảng cáo ra lead rẻ.
+8. Theo tài khoản và mục tiêu quảng cáo.
+9. So với mặt bằng ngành giáo dục tại Việt Nam (30 ngày trọn gần nhất).
+10. Cách đọc số liệu.
+
+Nút **Sao chép tóm tắt** chép kết luận, việc cần làm và cảnh báo để gửi qua Zalo hoặc email. Đường link kèm theo (`#bao-cao?p=<kỳ>&a=<tài khoản>`) mở đúng kỳ và tài khoản của bản báo cáo đó.
+
+Các ngưỡng tự động là quy ước của trang, dùng để gợi ý:
+
+| Ngưỡng | Dùng để |
+|---|---|
+| 5 lead | Mới tính chi phí/lead cho một khối, chiến dịch hay mẫu quảng cáo |
+| 20 lead mỗi kỳ | Mới so phần trăm; dưới mức này chỉ ghi số lead hai kỳ |
+| Chi phí/lead thay đổi quá 10% | Đánh giá tự động tốt hơn hay kém hơn kỳ trước. Lead rẻ hơn nhưng giảm quá 20% thì ghi riêng |
+| 300.000 ₫ chưa ra lead | Đưa chiến dịch thu lead vào danh sách cần xem lại |
+| Chi phí/lead từ 1,5 lần bình quân | Đưa chiến dịch thu lead vào danh sách cần xem lại |
+| Từ 10 lead và chi phí/lead ≤ 0,8 lần bình quân | Gợi ý cân nhắc tăng ngân sách (chỉ chiến dịch đang chạy) |
+| 3% và 10% chi tiêu | Mức "theo dõi" và "cần xử lý" của tiền chưa ra lead |
+
 ## Tuỳ chọn: Phân tích tự động bằng Claude
 
 Phần **Phân tích & đề xuất** (nhận định, đánh giá, việc nên làm, tuyến bài, lịch nội dung, so với mặt bằng ngành) do Claude viết từ số liệu đang lưu.
@@ -142,7 +175,7 @@ Mô hình mặc định là `claude-opus-5-5`; đổi bằng biến `INSIGHTS_MO
 
 ## So với mặt bằng ngành giáo dục
 
-`benchmarks.js` ghi khoảng tham chiếu của từng chỉ số (CPM, CTR, CPC, chi phí/lead…), kèm phạm vi, nguồn, đường dẫn và thời điểm. Trang đặt số của trường trong kỳ đang xem cạnh các khoảng đó. Chỉ số về lead chỉ tính các chiến dịch có mục tiêu thu lead.
+`benchmarks.js` chỉ ghi mặt bằng quảng cáo ngành giáo dục tại Việt Nam (chi phí/lead, chi phí/lượt nhấp), kèm phạm vi, nguồn, đường dẫn và thời điểm, cùng phần so sánh của Meta với các trường học, mầm non cùng chạy quảng cáo thu lead. Trang đặt số của trường cạnh các khoảng đó. Chỉ số về lead chỉ tính các chiến dịch có mục tiêu thu lead. Chưa có báo cáo có phương pháp cho riêng giáo dục tại Việt Nam, nên các khoảng lấy từ blog agency trong nước, độ tin cậy thấp.
 
 Đây là mốc tham khảo, không phải chuẩn tuyệt đối: thị trường, mục tiêu chiến dịch và mùa tuyển sinh đều làm số khác đi. Cập nhật tệp khi có báo cáo mới, rồi chạy `npm test`.
 

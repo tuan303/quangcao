@@ -1,18 +1,21 @@
 // /api/sync – lấy số liệu mới nhất trực tiếp từ Meta Marketing API rồi ghi vào Firestore.
-//   GET  – Vercel Cron (Authorization: Bearer <CRON_SECRET>), lịch 06:30 giờ Hà Nội (gói Hobby: chạy trong khoảng 06:00–07:00)
+//   GET  – Vercel Cron (Authorization: Bearer <CRON_SECRET>), lịch 05:30 giờ Hà Nội (gói Hobby: chạy trong khoảng 05:00–06:00, xong trước khi viết phân tích lúc 07:00–08:00)
 //   POST – quản trị bấm "Đồng bộ ngay" (Bearer <Firebase ID token>, email trong FBADS_ADMINS)
-//   ?groups=base,ads,bd  chọn nhóm số liệu (mặc định: base mỗi ngày; ads thứ 2 và thứ 5; bd thứ 3 và thứ 6)
+//   ?groups=base,ads,bd  chọn nhóm số liệu (mặc định: base mỗi ngày; ads thứ 2 và thứ 5; bd thứ 3 và thứ 6;
+//                        cộng nhóm ads/bd lần trước chưa lấy xong – lưu ở syncstate.pending)
 //   ?dry=1               chạy thử: lấy và kiểm tra số liệu nhưng KHÔNG ghi (dùng để kiểm tra token lần đầu)
 // Chỉ hoạt động khi có META_ACCESS_TOKEN. Không có token thì số liệu do tác vụ Claude hằng ngày đẩy lên qua /api/ingest.
 // Tiến độ lấy lịch sử của từng tài khoản lưu ở tài liệu `syncstate` (tác vụ Claude không ghi đè tài liệu này).
 import { authorize } from '../server/auth.js';
 import { send, safeError } from '../server/http.js';
 
-// Vercel Hobby cho tối đa 60 giây mỗi lần gọi: không bắt đầu lời gọi mới sau 40 giây (nhóm nặng: 28 giây),
-// và mọi yêu cầu đang chạy dở bị cắt ở giây 52 (server/meta.js setDeadline) để luôn còn thời gian ghi.
-const DEADLINE_MS = 40000;
-const HEAVY_DEADLINE_MS = 28000;
-const HARD_DEADLINE_MS = 52000;
+// vercel.json cho hàm này 300 giây (Fluid compute): không bắt đầu lời gọi mới sau 230 giây (nhóm nặng: 210 giây),
+// và mọi yêu cầu đang chạy dở bị cắt ở giây 270 (server/meta.js setDeadline) để luôn còn thời gian ghi.
+const DEADLINE_MS = 230000;
+const HEAVY_DEADLINE_MS = 210000;
+const HARD_DEADLINE_MS = 270000;
+const HEAVY_GROUPS = ['ads', 'bd'];
+const groupOfCall = name => /^(ads|adm|creatives)/.test(name) ? 'ads' : /^bd_/.test(name) ? 'bd' : null;
 
 /** Bảo vệ số liệu đã có ở các ngày cũ (trước hôm kia): chi tiêu lệch ở nhiều ngày → không ghi (409). */
 function compareStored(stored, merged, today, C) {
@@ -49,6 +52,12 @@ function leadLossAccounts(stored, fresh, perAccount, C) {
 }
 
 export default async function handler(req, res) {
+  const { withDeadline } = await import('../server/meta.js');
+  return withDeadline(() => run(req, res)); // hạn chót riêng cho lần gọi này
+}
+
+async function run(req, res) {
+  let releaseLock = null;
   try {
     const { verifyIdToken } = await import('../server/firebase.js');
     const who = await authorize({ authorization: req.headers.authorization, verifyIdToken, allowSecrets: ['cron'] });
@@ -67,7 +76,7 @@ export default async function handler(req, res) {
     const dry = /^(1|true)$/.test(String(q.dry || ''));
     const today = C.dates.todayVN(), dow = C.dates.parseISO(today).getUTCDay();
     let groups = String(q.groups || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!groups.length) groups = ['base'].concat(dow === 1 || dow === 4 ? ['ads'] : [], dow === 2 || dow === 5 ? ['bd'] : []);
+    const askedGroups = groups.length > 0;
     const accounts = [...new Set(String(process.env.META_AD_ACCOUNTS || '').split(/[\s,;]+/).map(s => s.replace(/^act_/i, '')).filter(Boolean))];
     const accts = accounts.length ? accounts : C.ACCOUNTS.map(a => a.id);
 
@@ -75,6 +84,18 @@ export default async function handler(req, res) {
     const prevMeta = stored.meta || {};
     // hist[acct] = ngày đã lấy đủ lịch sử; win[acct] = các khung ngày cũ (since|until) đã lấy xong, để lần sau lấy tiếp phần còn thiếu
     const state = Object.assign({ hist: {}, win: {} }, stored.syncstate);
+    const by = who.kind === 'cron' ? 'vercel-cron' : 'vercel:' + who.email;
+    // khoá: không chạy hai lần đồng bộ cùng lúc (cron và nút "Đồng bộ ngay"); khoá tự hết hạn sau 300 giây nếu lần trước bị cắt
+    const busyUntil = state.runningUntil ? Date.parse(state.runningUntil) : 0;
+    if (!dry && busyUntil > Date.now()) return send(res, 409, { ok: false, busy: true, error: 'Đang có một lần đồng bộ khác chạy. Đợi vài phút, trang sẽ tự cập nhật.' });
+    if (!dry) {
+      await writeDocs({ syncstate: Object.assign({}, stored.syncstate || {}, { runningUntil: new Date(started + 300000).toISOString() }) }, { by });
+      releaseLock = () => writeDocs({ syncstate: Object.assign({}, stored.syncstate || {}, { runningUntil: null }) }, { by });
+    }
+    // nhóm nặng lần trước chưa lấy xong: { g: 'ads' | 'bd', n: số lần đã thử } (bản cũ lưu mảng tên nhóm)
+    const prevPending = (state.pending || []).map(x => typeof x === 'string' ? { g: x, n: 1 } : x).filter(x => x && HEAVY_GROUPS.includes(x.g));
+    // mặc định theo thứ trong tuần, cộng các nhóm nặng lần trước chưa lấy xong (để không phải chờ tới tuần sau)
+    if (!askedGroups) groups = [...new Set(['base'].concat(dow === 1 || dow === 4 ? ['ads'] : [], dow === 2 || dow === 5 ? ['bd'] : [], prevPending.map(x => x.g)))];
     const hist = Object.assign({}, state.hist), win = Object.assign({}, state.win);
     const recentFrom = C.dates.addDays(today, -45);
     const rangeOf = c => { const tr = JSON.parse(c.args.time_range); return tr.since + '|' + tr.until; };
@@ -122,9 +143,19 @@ export default async function handler(req, res) {
     async function worker() {
       while (queue.length) {
         const c = queue.shift();
+        if (c.creatives) { // nội dung bài của mẫu quảng cáo: chạy ngay sau lời gọi ads của tài khoản đó, trong cùng nhóm worker
+          const ids = [...new Set((raw[c.acct].ads || []).flatMap(p => C.rowsOf(p)).map(r => String(r.creative_id || '')).filter(Boolean))];
+          if (!ids.length) continue;
+          pa(c.acct).calls++;
+          if (Date.now() - started > HEAVY_DEADLINE_MS) { skip(c.acct, 'creatives'); continue; }
+          try { raw[c.acct].creatives_c1 = [await runCreatives(ids, token)]; pa(c.acct).ok++; }
+          catch (e) { if (e && e.meta && e.meta.code === 190) throw e; fail(c.acct, 'creatives', e); }
+          continue;
+        }
         if (Date.now() - started > (prio(c) >= 3 ? HEAVY_DEADLINE_MS : DEADLINE_MS)) { skip(c.acct, c.name); continue; }
         try {
           const p = await runCall(c, token, cache), A = pa(c.acct);
+          if (c.name === 'ads') queue.unshift({ acct: c.acct, name: 'creatives', creatives: true });
           ((raw[c.acct] ||= {})[c.name] = []).push(p);
           A.ok++; A.rows += p.diag.rows; A.noActions += p.diag.noActions;
           // chỉ cộng từ các dòng theo ngày (không chồng nhau), để số chẩn đoán so được với Trình quản lý quảng cáo
@@ -136,14 +167,6 @@ export default async function handler(req, res) {
       }
     }
     await Promise.all([worker(), worker(), worker(), worker()]);
-    if (groups.includes('ads')) for (const acct of Object.keys(raw)) {
-      const ids = [...new Set((raw[acct].ads || []).flatMap(p => C.rowsOf(p)).map(r => String(r.creative_id || '')).filter(Boolean))];
-      if (!ids.length) continue;
-      pa(acct).calls++;
-      if (Date.now() - started > HEAVY_DEADLINE_MS) { skip(acct, 'creatives'); continue; }
-      try { raw[acct].creatives_c1 = [await runCreatives(ids, token)]; pa(acct).ok++; }
-      catch (e) { fail(acct, 'creatives', e); }
-    }
     // bỏ cả nhóm số liệu nếu một phần của nó lỗi/bỏ dở, để bản đang lưu được giữ nguyên
     const groupKey = k => { const [a, n] = k.split('|'); return a + '|' + n.replace(/__.*$/, ''); };
     const bad = new Set(failed.map(f => f.call).concat(skipped).map(groupKey));
@@ -173,30 +196,39 @@ export default async function handler(req, res) {
     }
     for (const acct of Object.keys(hist)) { const d = merged['acct-' + acct] || stored['acct-' + acct]; if (d) covered[acct] = oldRowsOf(d); }
     for (const acct of Object.keys(covered)) if (!hist[acct]) delete covered[acct];
-    const syncstate = { hist, win, covered, at: new Date().toISOString() };
-    const gotFresh = Object.keys(fresh).length > 0, by = who.kind === 'cron' ? 'vercel-cron' : 'vercel:' + who.email;
+    // nhóm nặng còn dở (có phần lỗi hoặc chưa kịp lấy) → lần đồng bộ sau lấy tiếp; nhóm không chạy lần này thì giữ nguyên trạng thái cũ
+    // tài khoản mất lead: số mẫu quảng cáo/khán giả vừa lấy bị bỏ, nên cũng tính là chưa lấy xong
+    const incomplete = new Set(failed.map(f => f.call).concat(skipped).map(k => groupOfCall(k.split('|')[1])).filter(Boolean).concat(leadLoss.length ? groups.filter(g => HEAVY_GROUPS.includes(g)) : []));
+    // thử lại tối đa 3 lần liên tiếp rồi quay về lịch hằng tuần (lỗi kéo dài thì quản trị thấy ở thông báo)
+    const pending = prevPending.filter(x => !groups.includes(x.g))
+      .concat(groups.filter(g => HEAVY_GROUPS.includes(g) && incomplete.has(g)).map(g => ({ g, n: ((prevPending.find(x => x.g === g) || {}).n || 0) + 1 })).filter(x => x.n < 3));
+    const syncstate = { hist, win, covered, pending, at: new Date().toISOString() };
+    const gotFresh = Object.keys(fresh).length > 0;
     const meta = Object.assign({}, prevMeta, gotFresh ? {
       v: C.VERSION, syncedAt: new Date().toISOString(), syncedBy: by, dataUntil: today, start: C.START,
       accounts: prevMeta.accounts && prevMeta.accounts.length ? prevMeta.accounts : C.ACCOUNTS, source: 'meta-api',
-      fullAt: groups.includes('ads') && groups.includes('bd') && !failed.length && !skipped.length ? new Date().toISOString() : (prevMeta.fullAt || null)
+      fullAt: groups.includes('ads') && groups.includes('bd') && !failed.length && !skipped.length && !leadLoss.length ? new Date().toISOString() : (prevMeta.fullAt || null)
     } : {}, {
       // không lấy được gì: giữ nguyên ngày đồng bộ và ngày số liệu, chỉ ghi lại lần thử và tài khoản nào đang lỗi
       lastAttemptAt: new Date().toISOString(),
       failed: failed.map(f => f.call).concat(skipped),
       leadLoss,
+      pending: pending.map(x => x.g), // nhóm nặng sẽ được lấy tiếp ở lần đồng bộ sau (đã thử dưới 3 lần)
       perAccount: Object.fromEntries(Object.entries(perAccount).map(([a, x]) => [a, { ok: x.ok, failed: x.failed, skipped: x.skipped, heavy: x.heavy, error: x.error || null, history: hist[a] ? 'done' : 'partial' }]))
     });
     const mdl = C.model(Object.assign({}, stored, merged, { meta }));
     const t30 = C.totals(mdl, accts.filter(a => (C.ACCOUNTS.find(x => x.id === a) || {}).role !== 'recruit'), C.dates.addDays(today, -30), C.dates.addDays(today, -1));
     const summary = { last30d: { spend: Math.round(t30.spend), leads: t30.leads, cpl: t30.cpl && Math.round(t30.cpl) } };
     const checkOut = { checkedDays: checks.checkedDays, mismatches: checks.mismatches.slice(0, 5), leadLoss };
-    if (checks.blocked) return send(res, 409, { ok: false, error: 'Số liệu mới lệch với số liệu đang lưu ở nhiều ngày cũ nên không ghi. Kiểm tra token/tài khoản rồi chạy lại với ?dry=1.', checks: checkOut, failed, skipped, summary, perAccount });
+    if (checks.blocked) { if (releaseLock) await releaseLock(); return send(res, 409, { ok: false, error: 'Số liệu mới lệch với số liệu đang lưu ở nhiều ngày cũ nên không ghi. Kiểm tra token/tài khoản rồi chạy lại với ?dry=1.', checks: checkOut, failed, skipped, summary, perAccount }); }
     let written = 0;
     // luôn lưu kết quả đồng bộ (kể cả khi không lấy được gì) để trang báo đúng tài khoản nào đang thiếu số liệu
     if (!dry) written = await writeDocs(gotFresh ? Object.assign({}, merged, { meta, syncstate }) : { meta, syncstate }, { by });
-    send(res, 200, { ok: true, dry, groups, calls: calls.length, written, fresh: Object.keys(fresh).length, failed, skipped, checks: checkOut, summary, perAccount, ms: Date.now() - started });
+    releaseLock = null; // syncstate vừa ghi không còn runningUntil
+    send(res, 200, { ok: true, dry, groups, pending: pending.map(x => x.g), calls: calls.length, written, fresh: Object.keys(fresh).length, failed, skipped, checks: checkOut, summary, perAccount, ms: Date.now() - started });
   } catch (e) {
     console.error('[sync]', e);
+    if (releaseLock) await releaseLock().catch(() => {});
     send(res, e.status && e.status < 600 ? (e.status === 400 && e.meta ? 502 : e.status) : 500, { ok: false, error: safeError(e) });
   }
 }

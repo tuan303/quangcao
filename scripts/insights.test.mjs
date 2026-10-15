@@ -95,6 +95,7 @@ test('benchmarks.js: every reference range is complete, sourced and in the right
     assert.ok(B.METRICS[b.metric], b.metric);
     assert.ok(b.scope && b.source && /^https:\/\//.test(b.url) && b.period, b.metric + ' ' + b.source);
     assert.ok(b.low != null && b.high != null && b.low <= b.high, b.metric + ' range');
+    assert.equal(b.market, 'vn', b.metric + ': nhà trường chỉ so với ngành giáo dục tại Việt Nam');
     if (B.METRICS[b.metric].unit === '%') assert.ok(b.high < 100, b.metric + ' is in percent, not a fraction');
   }
   const m = B.META;

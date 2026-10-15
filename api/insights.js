@@ -26,7 +26,10 @@ export default async function handler(req, res) {
     const dry = /^(1|true)$/.test(String((req.query || {}).dry || ''));
     const started = Date.now(), today = C.dates.todayVN();
 
-    const docs = await readAll();
+    let docs = await readAll();
+    // đang có lần đồng bộ chạy (khoá syncstate.runningUntil): chờ tối đa khoảng 50 giây để không phân tích số liệu cũ
+    for (let i = 0; i < 5 && docs.syncstate && docs.syncstate.runningUntil && Date.parse(docs.syncstate.runningUntil) > Date.now(); i++) { await new Promise(r => setTimeout(r, 10000)); docs = await readAll(); }
+    if (docs.syncstate && docs.syncstate.runningUntil && Date.parse(docs.syncstate.runningUntil) > Date.now()) return send(res, 409, { ok: false, error: 'Đang đồng bộ số liệu. Thử viết phân tích lại sau ít phút.' });
     if (!Object.keys(docs).some(k => k.indexOf('acct-') === 0)) return send(res, 409, { ok: false, error: 'Chưa có số liệu quảng cáo để phân tích. Hãy đồng bộ trước.' });
     const pack = buildPack(C, docs, today);
     pack.benchmark_comparison = B.compare(C, C.model(docs), today);
@@ -34,6 +37,7 @@ export default async function handler(req, res) {
 
     const { insights, usage, model } = await writeInsights(pack, { timeoutMs: TIMEOUT_MS });
     const problems = validate(insights);
+    if (pack.data_until !== today) problems.push('Số liệu chưa được đồng bộ hôm nay (đến ' + pack.data_until + ').');
     const now = new Date();
     const label = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }) + ' ' + now.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
     const doc = Object.assign({ v: 1, updatedAt: now.toISOString(), updatedLabel: label, dataUntil: pack.data_until }, insights,

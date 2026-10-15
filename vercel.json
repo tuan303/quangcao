@@ -3,13 +3,13 @@
   "cleanUrls": true,
   "fluid": true,
   "functions": {
-    "api/sync.js": { "maxDuration": 60 },
+    "api/sync.js": { "maxDuration": 300 },
     "api/insights.js": { "maxDuration": 300 },
     "api/data.js": { "maxDuration": 20 },
     "api/ingest.js": { "maxDuration": 30 }
   },
   "crons": [
-    { "path": "/api/sync", "schedule": "30 23 * * *" },
+    { "path": "/api/sync", "schedule": "30 22 * * *" },
     { "path": "/api/insights", "schedule": "15 0 * * *" }
   ],
   "headers": [
