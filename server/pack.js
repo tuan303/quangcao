@@ -16,7 +16,7 @@ export function buildPack(C, docs, today) {
   const r2 = x => x == null || !isFinite(x) ? null : Math.round(x * 10000) / 100; // tỉ lệ → % (2 chữ số)
   const r1 = x => x == null || !isFinite(x) ? null : Math.round(x * 100) / 100;
   // cpl = chi tiêu chiến dịch thu lead ÷ lead của chính các chiến dịch đó; spend_other = chi thương hiệu, tương tác… (không tính vào cpl)
-  const K = o => o && { spend: r0(o.spend), leads: o.leads, cpl: r0(o.cpl), spend_lead_campaigns: o.lcSpend == null ? undefined : r0(o.lcSpend), leads_lead_campaigns: o.lcLeads == null ? undefined : r0(o.lcLeads),
+  const K = o => o && { spend: r0(o.spend), leads: r0(o.leads), cpl: r0(o.cpl), spend_lead_campaigns: o.lcSpend == null ? undefined : r0(o.lcSpend), leads_lead_campaigns: o.lcLeads == null ? undefined : r0(o.lcLeads),
     spend_other: o.otherSpend == null ? undefined : r0(o.otherSpend), cpl_all_spend: o.cplAll == null ? undefined : r0(o.cplAll), cpl_basis: o.cplBasis, cpl_estimated: o.cplApprox ? true : undefined, reach: r0(o.reach), impr: r0(o.impr), cpm: r0(o.cpm), clicks: r0(o.clicks), ctr_pct: r2(o.ctr), cpc: r0(o.cpc),
     link_clicks: r0(o.link), cpc_link: r0(o.cpcLink), link_ctr_pct: r2(o.lctr), thruplay: r0(o.thru), engagements: r0(o.eng), eng_rate_pct: r2(o.engRate), freq: r1(o.freq), lpv: r0(o.lpv) };
 
@@ -41,7 +41,7 @@ export function buildPack(C, docs, today) {
   }).filter(c => c.spend > 0).sort((a, b) => b.spend - a.spend);
 
   const recent = [];
-  for (const cd of Object.values(mdl.campd)) for (const [cid, byDay] of Object.entries(cd.rows)) {
+  for (const [acct, cd] of Object.entries(mdl.campd)) { if (!ADM.includes(acct) && !RECRUIT.includes(acct)) continue; for (const [cid, byDay] of Object.entries(cd.rows)) {
     const c = mdl.campaigns[cid], days = Object.keys(byDay).filter(d => d >= P.last30d[0]).sort();
     if (!days.length) continue;
     const t = C.zero(); days.forEach(d => C.addInto(t, byDay[d]));
@@ -50,21 +50,20 @@ export function buildPack(C, docs, today) {
     days.filter(d => d >= P.prev7d[0] && d <= P.prev7d[1]).forEach(d => C.addInto(w7p, byDay[d]));
     recent.push({ campaign: c ? c.n : cid, segment: c && c.seg, objective: c && c.obj, status: c && c.st, active_days: days.length, first_day: days[0], last_day: days[days.length - 1],
       ...K(o), reach: undefined, freq: undefined, last7d: K(C.vecObj(w7)), prev7d: K(C.vecObj(w7p)) });
-  }
+  } }
   recent.sort((a, b) => b.spend - a.spend);
 
   function segAgg(s, e) {
-    const out = {};
-    const lead = {};
+    const out = {}, lead = {}, est = {}, basis = C.totals(mdl, ADM, s, e).cplBasis; // chưa đủ số theo chiến dịch của kỳ thì không công bố chi phí/lead theo khối
     for (const x of C.campaignsIn(mdl, ADM, s, e)) {
-      const k = x.c.seg, vec = C.M.map(m => x.period[m] || 0);
+      const k = x.c.seg, vec = C.M.map(m => x.period[m] || 0); if (x.approx) est[k] = true;
       out[k] ||= C.zero(); C.addInto(out[k], vec);
       if (C.isLeadCampaign(x.c)) { lead[k] ||= C.zero(); C.addInto(lead[k], vec); }
     }
     return Object.fromEntries(Object.entries(out).map(([k, v]) => {
       const o = C.vecObj(v), L = C.vecObj(lead[k] || C.zero());
-      o.cpl = L.leads ? L.spend / L.leads : null; // chi phí/lead của khối: chỉ chiến dịch thu lead
-      return [k, { label: C.segLabel(k), ...K(o), spend_lead_campaigns: r0(L.spend), leads_lead_campaigns: r0(L.leads), reach: undefined, freq: undefined }];
+      o.cpl = basis === 'lead' && L.leads ? L.spend / L.leads : null; // chi phí/lead của khối: chỉ chiến dịch thu lead
+      return [k, { label: C.segLabel(k), ...K(o), spend_lead_campaigns: r0(L.spend), leads_lead_campaigns: r0(L.leads), cpl_basis: basis, cpl_estimated: est[k] ? true : undefined, reach: undefined, freq: undefined }];
     }));
   }
   const segments = { last30d: segAgg(...P.last30d), school_year_to_date: segAgg(sy, today), prev_school_year: segAgg(psy, D.addDays(sy, -1)) };
@@ -97,12 +96,12 @@ export function buildPack(C, docs, today) {
   const meta = docs.meta || {};
   return {
     school: 'Trường Tiểu học, THCS & THPT Ngôi Sao Hoàng Mai (Hà Nội)', today, data_start: C.START, data_until: meta.dataUntil || today,
-    sync: { syncedAt: meta.syncedAt || null, accounts_missing: Object.entries(meta.perAccount || {}).filter(([, x]) => x && (x.failed || x.skipped)).map(([a]) => a), lead_loss: meta.leadLoss || [] },
+    sync: { syncedAt: meta.syncedAt || null, accounts_missing: Object.entries(meta.perAccount || {}).filter(([a, x]) => connected.has(a) && x && (x.failed || x.skipped)).map(([a]) => a), lead_loss: (meta.leadLoss || []).filter(a => connected.has(String(a))) },
     notes: [
       'Tiền tệ VND. Lead = max(lead, lead trên Meta) theo từng dòng (form + Messenger), không cộng trùng.',
-      'cpl (chi phí/lead) = chi tiêu của chiến dịch thu lead ÷ lead của chính các chiến dịch đó (chiến dịch thu lead = mục tiêu thu lead, hoặc chiến dịch khác đã thu được lead như tin nhắn Messenger); spend_other là chi cho thương hiệu, tương tác… không tính vào cpl; cpl_all_spend = tổng chi tiêu ÷ tổng lead, chỉ để đối chiếu, không dùng làm chi phí/lead. Cpl theo khối, theo khán giả (breakdowns) cũng chỉ tính chiến dịch thu lead.',
-      'cpl_basis = "all": kỳ đó chưa đủ số theo chiến dịch nên cpl tạm tính bằng tổng chi tiêu ÷ tổng lead; không so cpl giữa hai kỳ khác cpl_basis. cpl_estimated = true: một phần số theo chiến dịch được ước tính từ số theo tháng.',
-      'Chỉ có hai tài khoản đang kết nối: TK Fanpage Trường (895057262833914) và TK Facebook cô Ngà (1870132100153072).',
+      'cpl (chi phí/lead) = chi tiêu của chiến dịch thu lead (mục tiêu "Khách hàng tiềm năng") ÷ lead của chính các chiến dịch đó. leads là tổng lead của tài khoản (gồm cả lead lẻ của chiến dịch thương hiệu, tương tác, tin nhắn); leads_lead_campaigns là phần của chiến dịch thu lead, đúng mẫu số của cpl. spend_other là chi cho thương hiệu, tương tác… không tính vào cpl; cpl_all_spend = tổng chi tiêu ÷ tổng lead, chỉ để đối chiếu, không dùng làm chi phí/lead. Cpl theo khối và theo khán giả (breakdowns) cũng chỉ tính chiến dịch thu lead. Ở danh sách chiến dịch, mẫu quảng cáo và objectives, cpl là chi tiêu ÷ lead của chính dòng đó: với chiến dịch không phải thu lead, đó không phải chi phí/lead của trường.',
+      'cpl_basis = "all": kỳ đó chưa đủ số theo chiến dịch nên cpl tạm tính bằng tổng chi tiêu ÷ tổng lead; không so cpl giữa hai kỳ khác cpl_basis. cpl_estimated = true: một phần số theo chiến dịch được ước tính từ số theo tháng, chia theo ngày chiến dịch chạy.',
+      'Chỉ có ' + accounts.length + ' tài khoản đang kết nối: ' + accounts.map(a => a.name + ' ' + a.id).join(' và ') + '; số liệu của tài khoản khác bị bỏ qua.',
       'Số của hôm nay chưa trọn ngày. Tiếp cận cộng nhiều tài khoản có thể đếm trùng người.',
       'Phân khúc theo tên chiến dịch: l1=Lớp 1/Tiểu học, l6=Lớp 6/THCS, l10=Lớp 10/THPT, js=Jolly Steps (cầu nối mầm non–tiểu học), camp=Trại hè, brand=thương hiệu/thành tích (bài đẩy), mix=tuyển sinh chung, hr=tuyển dụng.'
     ],

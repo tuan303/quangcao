@@ -88,7 +88,7 @@
         low: b.low, high: b.high, scope: b.scope, source: b.source, url: b.url, period: b.period, note: b.note || '', verdict: verdict };
     }).filter(Boolean);
     return { asOf: AS_OF, since: since, until: until, leadCampaigns: f.leadCampaigns, rows: rows,
-      meta: META.rows.length ? { asOf: META.asOf, since: META.since, until: META.until, account: META.account, vertical: META.vertical, cohort: META.cohort, rows: metaRows() } : null };
+      meta: META.rows.length && accts.indexOf(META.account) >= 0 ? { asOf: META.asOf, since: META.since, until: META.until, account: META.account, vertical: META.vertical, cohort: META.cohort, rows: metaRows() } : null };
   }
   function sources() { return ITEMS.map(function (b) { return { metric: b.metric, scope: b.scope, source: b.source, url: b.url, period: b.period }; }); }
 

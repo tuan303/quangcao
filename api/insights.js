@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     docs = scopeDocs(C, docs, process.env); // chỉ hai tài khoản đang kết nối
     if (!Object.keys(docs).some(k => k.indexOf('acct-') === 0)) return send(res, 409, { ok: false, error: 'Chưa có số liệu quảng cáo để phân tích. Hãy đồng bộ trước.' });
     const pack = buildPack(C, docs, today);
-    pack.benchmark_comparison = B.compare(C, C.model(docs), today);
+    pack.benchmark_comparison = B.compare(C, C.model(docs), today, { accts: pack.accounts.filter(a => a.role !== 'recruit').map(a => a.id) });
     pack.benchmark_sources = B.sources();
 
     const { insights, usage, model } = await writeInsights(pack, { timeoutMs: TIMEOUT_MS });

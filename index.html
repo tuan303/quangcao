@@ -625,6 +625,21 @@ function cplLeads(o) { return !o ? 0 : o.lcLeads != null ? o.lcLeads : (o.leads 
 function cplOk(o, n) { return !!o && o.cpl != null && cplLeads(o) >= (n || MINLEAD); }
 /* Hai kỳ chỉ so chi phí/lead khi cùng cách tính (cùng chỉ tính chiến dịch thu lead, hoặc cùng tính trên tổng chi tiêu) */
 function cplComparable(a, b) { return !!a && !!b && a.cpl != null && b.cpl != null && (a.cplBasis || 'lead') === (b.cplBasis || 'lead'); }
+/* Nhắc cách tính khi hai kỳ không cùng cơ sở hoặc kỳ trước là số ước tính */
+function cplPrevNote(c, v) {
+  if (!c || !v || c.cpl == null || v.cpl == null) return '';
+  if ((c.cplBasis || 'lead') !== (v.cplBasis || 'lead')) return v.cplBasis === 'all' ? ' (kỳ trước tính trên tổng chi tiêu, không so được)' : ' (kỳ này tính trên tổng chi tiêu, không so được)';
+  return v.cplApprox ? ' (ước tính)' : '';
+}
+/* Câu định nghĩa chi phí/lead theo cách tính thực tế của các kỳ đang hiển thị */
+function cplDef(list) {
+  var all = list.filter(function (c) { return c && c.cplBasis !== 'lead'; }).length;
+  if (!all) return 'Chi phí/lead chỉ tính chiến dịch thu lead.';
+  return all === list.length ? 'Chi phí/lead tạm tính bằng tổng chi tiêu ÷ tổng lead vì chưa đủ số theo chiến dịch.' : 'Chi phí/lead chỉ tính chiến dịch thu lead; kỳ nào chưa đủ số theo chiến dịch thì tạm tính bằng tổng chi tiêu ÷ tổng lead.';
+}
+/* Điểm chi phí/lead của một cột biểu đồ: chỉ vẽ khi cột cùng cách tính với cả kỳ (không trộn hai cách tính trong một đường) */
+function domBasis(rows) { var n = 0; rows.forEach(function (r) { if ((r.cplBasis || 'lead') === 'lead') n++; }); return n * 2 >= rows.length ? 'lead' : 'all'; }
+function cplPoint(r, dom) { return (r.cplBasis || 'lead') === dom ? r.cpl : null; }
 function cplBig(a, b) { return cplComparable(a, b) && bigN(cplLeads(a), cplLeads(b)); }
 // đường link #bao-cao?p=<kỳ>&a=<tài khoản> (từ nút "Sao chép tóm tắt") mở đúng báo cáo đã gửi
 (function () {
@@ -679,13 +694,14 @@ function accountsMeta() { // chỉ các tài khoản đang kết nối (tên l�
 function hasRecruit() { return accountsMeta().some(function (a) { return a.role === 'recruit'; }); }
 function acctOptions() {
   var acc = accountsMeta(), adm = acc.filter(function (a) { return a.role !== 'recruit'; });
+  if (adm.length === 1 && !hasRecruit()) return [{ k: 'adm', label: adm[0].short || adm[0].name, ids: [adm[0].id] }];
   var opts = [{ k: 'adm', label: hasRecruit() ? 'Tuyển sinh · ' + adm.length + ' tài khoản' : 'Cả ' + adm.length + ' tài khoản', ids: adm.map(function (a) { return a.id; }) }];
   acc.forEach(function (a) { opts.push({ k: a.id, label: a.short || a.name, ids: [a.id] }); });
   if (hasRecruit()) opts.push({ k: 'all', label: 'Tất cả tài khoản', ids: acc.map(function (a) { return a.id; }) });
   return opts;
 }
 function acctIds() { var o = acctOptions(); for (var i = 0; i < o.length; i++) if (o[i].k === S.acct) return o[i].ids; return o[0].ids; }
-function acctName(id) { var a = accountsMeta().filter(function (x) { return x.id === id; })[0]; return a ? (a.short || a.name) : id; }
+function acctName(id) { var a = C.ACCOUNTS.filter(function (x) { return x.id === id; })[0]; return a ? (a.short || a.name) : id; }
 
 /* ---------------- tooltip ---------------- */
 var tip = $('#tip');
@@ -945,7 +961,7 @@ function overview(sec) {
   var grain = D.diffDays(p.s, p.e) > 62 ? (D.diffDays(p.s, p.e) > 200 ? 'month' : 'week') : 'day';
   var rows = C.series(S.mdl, acctIds(), p.s, p.e, grain);
   var sp = function (k) { return rows.map(function (r) { return r[k]; }); };
-  var cplSpark = rows.map(function (r) { return r.cpl; }); // chi phí/lead của chiến dịch thu lead
+  var dom = domBasis(rows), cplSpark = rows.map(function (r) { return cplPoint(r, dom); }); // chi phí/lead cùng một cách tính
   var mp = moneyParts(c.spend), cpl = c.cpl;
   var reachTxt = cshort(c.reach) + (c.reachExact ? '' : '<small>≈</small>');
   var html = '';
@@ -954,7 +970,7 @@ function overview(sec) {
   html += '<div class="kpis" style="margin-top:16px">' +
     kpiTile('spend', 'Số tiền đã chi', ICON.wallet, esc(mp[0]) + '<small>' + esc(mp[1]) + '</small>', 'so với ' + esc(p.cmp || 'kỳ trước'), v ? deltaHtml('spend', c.spend, v.spend) : '', sp('spend'), 'var(--series)', 'accent') +
     kpiTile('leads', 'Lead thu được', ICON.user, int(c.leads) + '<small>lead</small>', v ? (v.leads ? 'kỳ trước ' + int(v.leads) + ' lead' : 'kỳ trước chưa có lead') : '', v ? deltaHtml('leads', c.leads, v.leads) : '', sp('leads'), 'var(--lead)', 'lead') +
-    kpiTile('cpl', 'Chi phí / lead', ICON.tag, cpl == null ? '—' : esc(NF.format(Math.round(cpl))) + '<small>₫</small>', cplSub(c) + (v ? ' · ' + (v.cpl ? 'kỳ trước ' + mny(v.cpl) + (cplComparable(c, v) ? (v.cplApprox ? ' (ước tính)' : '') : ' (tính trên tổng chi tiêu)') : 'kỳ trước chưa có lead để so sánh') : ''), cplComparable(c, v) ? deltaHtml('cpl', cpl, v.cpl) : '', cplSpark, 'var(--lead)', 'lead') +
+    kpiTile('cpl', 'Chi phí / lead', ICON.tag, cpl == null ? '—' : esc(NF.format(Math.round(cpl))) + '<small>₫</small>', cplSub(c) + (v ? ' · ' + (v.cpl != null ? 'kỳ trước ' + mny(v.cpl) + cplPrevNote(c, v) : v.leads ? 'kỳ trước chưa có lead từ chiến dịch thu lead' : 'kỳ trước chưa có lead để so sánh') : ''), cplComparable(c, v) ? deltaHtml('cpl', cpl, v.cpl) : '', cplSpark, 'var(--lead)', 'lead') +
     kpiTile('reach', 'Lượt tiếp cận', ICON.eye, reachTxt + '<small>người</small>', c.freq ? 'tần suất ' + dec(c.freq, 2) : '', v ? deltaHtml('reach', c.reach, v.reach) : '', sp('reach'), 'var(--series)') +
     kpiTile('views', 'Lượt xem', ICON.play, cshort(c.views), c.thru ? 'ThruPlay ' + cshort(c.thru) : '', v ? deltaHtml('views', c.views, v.views) : '', sp('views'), 'var(--series)') +
     kpiTile('cpc', 'Chi phí / lượt click', ICON.cursor, c.cpc == null ? '—' : esc(NF.format(Math.round(c.cpc))) + '<small>₫</small>', 'click liên kết ' + (c.cpcLink == null ? '—' : mny(c.cpcLink)), v ? deltaHtml('cpc', c.cpc, v.cpc) : '', rows.map(function (r) { return r.clicks ? r.spend / r.clicks : null; }), 'var(--series)') +
@@ -977,11 +993,12 @@ function overview(sec) {
 function drawMain(p) {
   var el = $('#chMain'); if (!el) return;
   var g = grainFor(p), rows = seriesRows(p, g);
-  rows.forEach(function (r) { r.vals = { spend: r.r.spend, leads: r.r.leads, cpl: r.r.cpl }; r.extra = [['Tiếp cận', cshort(r.r.reach)], ['Lượt click', int(r.r.clicks)]]; });
+  var dom = domBasis(rows.map(function (r) { return r.r; }));
+  rows.forEach(function (r) { r.vals = { spend: r.r.spend, leads: r.r.leads, cpl: cplPoint(r.r, dom) }; r.extra = [['Tiếp cận', cshort(r.r.reach)], ['Lượt click', int(r.r.clicks)]]; });
   panelChart(el, rows, [
     { key: 'spend', label: 'Chi tiêu', fmt: 'money', color: 'var(--series)', type: 'bar', h: 120 },
     { key: 'leads', label: 'Lead', fmt: 'int', color: 'var(--lead)', type: 'bar', h: 90 },
-    { key: 'cpl', label: 'Chi phí / lead', sub: 'chỉ chiến dịch thu lead', fmt: 'money', color: 'var(--ink-2)', type: 'line', h: 80 }
+    { key: 'cpl', label: 'Chi phí / lead', sub: dom === 'lead' ? 'chỉ chiến dịch thu lead' : 'tổng chi tiêu ÷ tổng lead', fmt: 'money', color: 'var(--ink-2)', type: 'line', h: 80 }
   ], { aria: 'Chi tiêu, lead và chi phí trên lead theo thời gian' });
 }
 function funnelHtml(c) {
@@ -1005,7 +1022,9 @@ function segAgg(p) {
     C.addInto(a.v, vec); if (C.isLeadCampaign(x.c)) C.addInto(a.lv, vec); a.n++; a.camps.push(x);
   });
   // chi phí/lead của khối: chỉ chiến dịch thu lead của khối đó (chi thương hiệu, tương tác không tính)
-  var out = Object.keys(agg).map(function (k) { var a = agg[k], L = C.vecObj(a.lv); a.o = C.vecObj(a.v); a.o.cpl = L.leads ? L.spend / L.leads : null; a.o.lcLeads = L.leads; a.o.lcSpend = L.spend; return a; });
+  // kỳ chưa đủ số theo chiến dịch (cplBasis 'all'): số theo khối chỉ là một phần nên không công bố chi phí/lead theo khối
+  var noCover = C.totals(S.mdl, acctIds(), p.s, p.e).cplBasis !== 'lead';
+  var out = Object.keys(agg).map(function (k) { var a = agg[k], L = C.vecObj(a.lv); a.o = C.vecObj(a.v); a.o.cpl = !noCover && L.leads ? L.spend / L.leads : null; a.o.lcLeads = noCover ? 0 : L.leads; a.o.lcSpend = noCover ? 0 : L.spend; a.o.noCover = noCover; return a; });
   out.approx = list.approx;
   return out;
 }
@@ -1042,7 +1061,7 @@ function alertsList() {
   act.filter(function (x) { return x.c.st === 'ACTIVE' && x.life.freq > 4; }).slice(0, 2).forEach(function (x) {
     out.push(['warn', 'Tần suất cao: ' + dec(x.life.freq, 1) + ' lần/người', '«' + x.c.n + '» đang hiển thị lặp lại nhiều cho cùng một nhóm. Nên làm mới nội dung hoặc mở rộng tệp.', 'freq']);
   });
-  var best = C.campaignsIn(S.mdl, ids, D.addDays(t, -30), y1).filter(function (x) { return x.period.leads >= 10; }).sort(function (a, b) { return a.period.cpl - b.period.cpl; })[0];
+  var best = C.campaignsIn(S.mdl, ids, D.addDays(t, -30), y1).filter(function (x) { return x.period.leads >= 10 && C.isLeadCampaign(x.c); }).sort(function (a, b) { return a.period.cpl - b.period.cpl; })[0];
   if (best) out.push(['good', 'Chiến dịch ra lead rẻ nhất 30 ngày', '«' + best.c.n + '»: ' + int(best.period.leads) + ' lead, ' + mny(best.period.cpl) + '/lead. Ứng viên để tăng ngân sách.', 'best']);
   var noSpend = ids.filter(function (id) { var A = S.mdl.accounts[id]; if (!A) return false; var r = C.totals(S.mdl, [id], D.addDays(t, -3), t), q = C.totals(S.mdl, [id], D.addDays(t, -33), D.addDays(t, -4)); return r.spend === 0 && q.spend > 1000000; });
   noSpend.forEach(function (id) { out.push(['warn', acctName(id) + ' ngừng chi tiêu 3 ngày', 'Tài khoản có chi tiêu trong tháng trước nhưng 3 ngày gần đây không phân phối quảng cáo.', 'nospend']); });
@@ -1071,14 +1090,14 @@ function dailyReport() {
   if (pme > D.monthEnd(pms)) pme = D.monthEnd(pms);
   var w0 = D.addDays(y, -6), day = tt(y, y), b7 = tt(D.addDays(y, -7), D.addDays(y, -1)), w = tt(w0, y), pw = tt(D.addDays(y, -13), D.addDays(y, -7)), m = tt(ms, y), pm = tt(pms, pme);
   var wc = C.campaignsIn(S.mdl, ids, w0, y);
-  var top = wc.filter(function (x) { return x.period.leads > 0; }).sort(function (a, b) { return b.period.leads - a.period.leads || a.period.cpl - b.period.cpl; })[0];
-  var waste = wc.filter(function (x) { return /LEAD/.test(x.c.obj) && x.period.spend > 300000 && !x.period.leads; }).sort(function (a, b) { return b.period.spend - a.period.spend; })[0];
+  var top = wc.filter(function (x) { return x.period.leads > 0 && C.isLeadCampaign(x.c); }).sort(function (a, b) { return b.period.leads - a.period.leads || a.period.cpl - b.period.cpl; })[0];
+  var waste = wc.filter(function (x) { return C.isLeadCampaign(x.c) && x.period.spend > 300000 && !x.period.leads; }).sort(function (a, b) { return b.period.spend - a.period.spend; })[0];
   var segs = segAgg({ s: w0, e: y }).filter(function (s) { return s.o.leads > 0; }).sort(function (a, b) { return b.o.leads - a.o.leads; }).slice(0, 4);
   var mN = +y.slice(5, 7), pmN = +pms.slice(5, 7), dayLabel = y === D.addDays(D.todayVN(), -1) ? 'Hôm qua' : 'Ngày gần nhất có số';
   var pts = [];
   pts.push(dayLabel + ' (' + WDL[D.parseISO(y).getUTCDay()] + ', ' + dlong(y) + '): chi ' + mtext(day.spend) + ', ' + int(day.leads) + ' lead' + (day.cpl != null ? ', ' + mny(day.cpl) + '/lead' : '') + '. Trung bình 7 ngày trước đó: ' + dec(b7.leads / 7, 1) + ' lead và ' + mtext(b7.spend / 7) + ' mỗi ngày.');
-  pts.push('7 ngày qua (' + dshort(w0) + '–' + dshort(y) + '): ' + int(w.leads) + ' lead, chi ' + mtext(w.spend) + (w.cpl ? ', ' + mny(w.cpl) + '/lead' : '') + '. So với 7 ngày trước: lead ' + (chgText(w.leads, pw.leads) || (pw.leads ? 'không đổi' : 'chưa có số so sánh')) + (w.cpl && pw.cpl ? ', chi phí/lead ' + chgText(w.cpl, pw.cpl) : '') + '.');
-  pts.push('Tháng ' + mN + ' (01–' + dshort(y) + '): ' + int(m.leads) + ' lead, chi ' + mtext(m.spend) + (m.cpl ? ', ' + mny(m.cpl) + '/lead' : '') + '. Cùng kỳ tháng ' + pmN + ' (' + dshort(pms) + '–' + dshort(pme) + '): ' + int(pm.leads) + ' lead, chi ' + mtext(pm.spend) + '.');
+  pts.push('7 ngày qua (' + dshort(w0) + '–' + dshort(y) + '): ' + int(w.leads) + ' lead, chi ' + mtext(w.spend) + (w.cpl != null ? ', ' + mny(w.cpl) + '/lead' : '') + '. So với 7 ngày trước: lead ' + (chgText(w.leads, pw.leads) || (pw.leads ? 'không đổi' : 'chưa có số so sánh')) + (cplComparable(w, pw) ? ', chi phí/lead ' + chgText(w.cpl, pw.cpl) : '') + '.');
+  pts.push('Tháng ' + mN + ' (01–' + dshort(y) + '): ' + int(m.leads) + ' lead, chi ' + mtext(m.spend) + (m.cpl != null ? ', ' + mny(m.cpl) + '/lead' : '') + '. Cùng kỳ tháng ' + pmN + ' (' + dshort(pms) + '–' + dshort(pme) + '): ' + int(pm.leads) + ' lead, chi ' + mtext(pm.spend) + '.');
   if (segs.length) pts.push('Lead 7 ngày theo khối: ' + segs.map(function (s) { return C.segLabel(s.k) + ' ' + int(s.o.leads) + (cplOk(s.o) ? ' (' + mny(s.o.cpl) + '/lead)' : ''); }).join('; ') + '.');
   if (top) pts.push('Chiến dịch ra nhiều lead nhất 7 ngày: «' + top.c.n + '», ' + int(top.period.leads) + ' lead, ' + mny(top.period.cpl) + '/lead.');
   if (waste) pts.push('Cần xem lại: «' + waste.c.n + '» đã chi ' + mtext(waste.period.spend) + ' trong 7 ngày nhưng chưa có lead.');
@@ -1093,6 +1112,7 @@ function dailyReport() {
   }
   var mt = benchMetaFor(ids), mc = mt && mt.rows.filter(function (r) { return r.metric === 'cpl'; })[0];
   if (mc && D.diffDays(mt.until, y) <= 45) pts.push('Theo Meta (' + dshort(mt.since) + '–' + dshort(mt.until) + '), nhóm quảng cáo «' + mc.adset + '» có chi phí/lead ' + (mc.rel < 0 ? 'thấp hơn ' : 'cao hơn ') + dec(Math.abs(mc.rel), 1) + '% so với mặt bằng các trường học, mầm non cùng chạy quảng cáo thu lead.');
+  pts.push(cplDef([day, w, m]));
   var pa = (S.mdl.meta && S.mdl.meta.perAccount) || {}, miss = ids.filter(function (id) { var x = pa[id]; return x && (x.failed || x.skipped); });
   if (miss.length) pts.push('Lưu ý: tài khoản ' + miss.map(acctName).join(', ') + ' chưa đồng bộ đủ nên số trên có thể thiếu.');
   return { y: y, dayLabel: dayLabel, w0: w0, ms: ms, day: day, b7: b7, w: w, pw: pw, m: m, pm: pm, pms: pms, pme: pme, mN: mN, pmN: pmN, pts: pts };
@@ -1108,9 +1128,9 @@ function dailyCard() {
   };
   S.dailyText = 'BÁO CÁO QUẢNG CÁO FACEBOOK NGÀY ' + dlong(r.y) + '\nTrường TH, THCS & THPT Ngôi Sao Hoàng Mai · ' + opt.label + '\n\n• ' + r.pts.join('\n• ') + '\n\nXem chi tiết: ' + location.origin;
   var I = S.mdl.insights, noAi = !I || !I.headline;
-  return '<div class="card daily"><div class="card-hd"><div><div class="eyebrow">Báo cáo ngày · ' + esc(opt.label) + '</div><h2>Quảng cáo Facebook ngày ' + esc(dlong(r.y)) + '</h2><p>Tự tính từ số liệu Meta sau mỗi lần đồng bộ (mỗi sáng), không cần chờ phân tích. Chi phí/lead chỉ tính chiến dịch thu lead. Mũi tên so với mốc ghi dưới mỗi ô; xanh là tốt hơn.</p></div><div class="act"><button class="btn" type="button" data-copy-daily>Sao chép gửi Zalo</button></div></div>' +
+  return '<div class="card daily"><div class="card-hd"><div><div class="eyebrow">Báo cáo ngày · ' + esc(opt.label) + '</div><h2>Quảng cáo Facebook ngày ' + esc(dlong(r.y)) + '</h2><p>Tự tính từ số liệu Meta sau mỗi lần đồng bộ (mỗi sáng), không cần chờ phân tích. ' + esc(cplDef([r.day, r.w, r.m])) + ' Mũi tên so với mốc ghi dưới mỗi ô; xanh là tốt hơn.</p></div><div class="act"><button class="btn" type="button" data-copy-daily>Sao chép gửi Zalo</button></div></div>' +
     '<div class="dgrid">' +
-    stat(r.dayLabel, WDL[D.parseISO(r.y).getUTCDay()] + ', ' + dlong(r.y), r.day, { leads: avg('leads'), spend: avg('spend'), cpl: r.b7.cpl }, 'so với trung bình 7 ngày trước đó') +
+    stat(r.dayLabel, WDL[D.parseISO(r.y).getUTCDay()] + ', ' + dlong(r.y), r.day, { leads: avg('leads'), spend: avg('spend'), cpl: r.b7.cpl, cplBasis: r.b7.cplBasis }, 'so với trung bình 7 ngày trước đó') +
     stat('7 ngày qua', dshort(r.w0) + ' – ' + dshort(r.y), r.w, r.pw, 'so với 7 ngày trước đó') +
     stat('Tháng ' + r.mN + ' đến nay', '01 – ' + dshort(r.y), r.m, r.pm, 'so với cùng kỳ tháng ' + r.pmN + ' (' + dshort(r.pms) + ' – ' + dshort(r.pme) + ')') +
     '</div><ul class="dpoints">' + r.pts.slice(3).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
@@ -1218,7 +1238,7 @@ function reportData() {
   var matApprox = !!camps.approx; // dòng theo tháng của tháng hiện tại chạy tới hôm nay (chưa trọn ngày)
   var leadCamps = camps.filter(function (x) { return C.isLeadCampaign(x.c); });
   var lc = leadCamps.reduce(function (o, x) { o.spend += x.period.spend; o.leads += x.period.leads; return o; }, { spend: 0, leads: 0 });
-  var lcCpl = lc.leads ? lc.spend / lc.leads : null;
+  var lcCpl = c.cplBasis === 'lead' && c.cpl != null ? c.cpl : null; // mức bình quân các chiến dịch thu lead để so từng chiến dịch
   var meta = S.mdl.meta || {}, pa = meta.perAccount || {};
   var miss = ids.filter(function (id) { var x = pa[id]; return x && (x.failed || x.skipped); });
   var loss = (meta.leadLoss || []).filter(function (id) { return ids.indexOf(id) >= 0; });
@@ -1226,9 +1246,8 @@ function reportData() {
   var heavy = ids.filter(function (id) { var x = pa[id]; return x && !x.failed && !x.skipped && x.heavy; });
   var noData = ids.filter(function (id) { return !S.mdl.accounts[id] && miss.indexOf(id) < 0; });
   var known = accountsMeta().map(function (a) { return a.id; });
-  var absent = S.acct === 'adm' || S.acct === 'all' ? C.ACCOUNTS.filter(function (a) { return a.role !== 'recruit' && known.indexOf(a.id) < 0; }).map(function (a) { return a.id; }) : [];
   var stale = meta.syncedAt && (Date.now() - new Date(meta.syncedAt).getTime()) > 30 * 3600000 ? meta.syncedAt : null;
-  var top = camps.filter(function (x) { return x.period.leads > 0; }).sort(function (a, b) { return b.period.leads - a.period.leads || a.period.cpl - b.period.cpl; }).slice(0, 5);
+  var top = camps.filter(function (x) { return x.period.leads > 0 && C.isLeadCampaign(x.c); }).sort(function (a, b) { return b.period.leads - a.period.leads || a.period.cpl - b.period.cpl; }).slice(0, 5);
   var noLead = leadCamps.filter(function (x) { return x.period.spend >= 300000 && !x.period.leads && unsureIds.indexOf(x.c.acct) < 0; }).sort(function (a, b) { return b.period.spend - a.period.spend; });
   var watch = [];
   noLead.forEach(function (x) { watch.push({ x: x, kind: 'bad', why: 'Đã chi ' + mtext(x.period.spend) + ' trong kỳ nhưng chưa có lead.' }); });
@@ -1239,11 +1258,11 @@ function reportData() {
   var ads = C.adsIn(S.mdl, ids, p.s, p.e);
   var topAds = hasAdm ? ads.filter(function (x) { return x.period.leads >= MINLEAD && C.isLeadCampaign(S.mdl.campaigns[x.a.cid] || x.a); }).sort(function (a, b) { return a.period.cpl - b.period.cpl; }).slice(0, 3) : [];
   var segLeads = segs.reduce(function (s, x) { return s + x.o.leads; }, 0);
-  var mostSeg = segs.filter(function (s) { return s.o.leads > 0 && s.k !== 'hr' && s.k !== 'other'; }).sort(function (a, b) { return b.o.leads - a.o.leads; })[0];
+  var mostSeg = segs.filter(function (s) { return s.o.leads > 0 && s.k !== 'hr' && s.k !== 'other' && s.k !== 'brand'; }).sort(function (a, b) { return b.o.leads - a.o.leads; })[0];
   var recent = p.e >= D.addDays(t, -2); // điểm cần chú ý chỉ tính cho 7 ngày gần nhất → chỉ dùng khi kỳ kết thúc gần đây
   var alerts = recent ? alertsList().filter(function (a) { return a[0] !== 'good' && a[3] !== 'freq' && !(unsureIds.length && /^(cpl|nolead|camp-nolead)$/.test(a[3])); }) : []; // tần suất tính cả đời chiến dịch, không gắn với kỳ
   return { p: p, ids: ids, t: t, y: y, c: c, v: v, cmpOk: cmpOk, yp: yp, yv: yv, yoyGap: yoyGap, reach: reach, camps: camps, segs: segs, segPrev: segPrev, segPrevApprox: segPrevApprox,
-    segCamp: segCamp, segLeads: segLeads, matApprox: matApprox, leadCamps: leadCamps, lc: lc, lcCpl: lcCpl, miss: miss, loss: loss, unsure: unsureIds.length > 0, heavy: heavy, noData: noData, absent: absent, stale: stale,
+    segCamp: segCamp, segLeads: segLeads, matApprox: matApprox, leadCamps: leadCamps, lc: lc, lcCpl: lcCpl, miss: miss, loss: loss, unsure: unsureIds.length > 0, heavy: heavy, noData: noData, stale: stale,
     top: top, noLead: noLead, watch: watch, hasAdm: hasAdm, ads: ads, topAds: topAds, mostSeg: mostSeg, recent: recent, alerts: alerts };
 }
 /* Đánh giá chung, tự động, theo chi phí/lead: chỉ khi so được và mỗi kỳ có từ 20 lead, số lead không bị thiếu */
@@ -1269,7 +1288,7 @@ function reportFacts(r) {
   else if (['psy', 'all', 'sy', 'ytd'].indexOf(p.k) < 0 && shiftYear(p.s, -1) < C.START) out.push('Chưa có số cùng kỳ năm trước (dữ liệu có từ ' + dlong(C.START) + ').');
   if (r.mostSeg) out.push('Khối ra nhiều lead nhất: ' + C.segLabel(r.mostSeg.k) + ' (' + int(r.mostSeg.o.leads) + ' lead, ' + pct(r.segLeads ? r.mostSeg.o.leads / r.segLeads : 0, 0) + ' tổng lead).');
   var nl = r.noLead.reduce(function (s, x) { return s + x.period.spend; }, 0);
-  out.push(r.noLead.length ? r.noLead.length + ' chiến dịch thu lead đã chi từ 300.000 ₫ nhưng chưa có lead (tổng ' + mtext(nl) + ').' : 'Không có chiến dịch thu lead nào chi từ 300.000 ₫ mà chưa ra lead.');
+  out.push(c.cplBasis !== 'lead' ? 'Chưa đủ số theo chiến dịch của kỳ này nên chưa kiểm tra được chiến dịch nào chi nhiều mà chưa ra lead.' : r.noLead.length ? r.noLead.length + ' chiến dịch thu lead đã chi từ 300.000 ₫ nhưng chưa có lead (tổng ' + mtext(nl) + ').' : 'Không có chiến dịch thu lead nào chi từ 300.000 ₫ mà chưa ra lead.');
   if (!r.yv && r.top[0]) out.push('Chiến dịch ra nhiều lead nhất: «' + r.top[0].c.n + '», ' + int(r.top[0].period.leads) + ' lead, ' + mny(r.top[0].period.cpl) + '/lead.');
   return out.slice(0, 6);
 }
@@ -1301,7 +1320,6 @@ function reportWarnings(r, syncTxt) {
   var w = [];
   if (r.miss.length) w.push(r.miss.map(acctName).join(', ') + ' chưa đồng bộ đủ ở lần gần nhất: chi tiêu và lead mấy ngày gần nhất có thể thiếu.');
   if (r.loss.length) w.push(r.loss.map(acctName).join(', ') + ': Meta không trả số lead ở lần đồng bộ gần nhất, lead ngày gần nhất có thể thiếu nên chưa đánh giá tăng/giảm.');
-  if (r.absent.length) w.push('Chưa kết nối số liệu của ' + r.absent.map(acctName).join(', ') + ': báo cáo chưa gồm các tài khoản này.');
   if (r.noData.length) w.push('Chưa có số liệu của ' + r.noData.map(acctName).join(', ') + '.');
   if (r.stale) w.push('Số liệu chưa cập nhật từ ' + syncTxt + '; lần đồng bộ tự động gần nhất có thể đã lỗi.');
 
@@ -1326,7 +1344,7 @@ function report(sec) {
     '<div class="card-hd"><div><div class="eyebrow">Báo cáo tổng thể · ' + esc(opt.label) + '</div><h2>Quảng cáo Facebook – ' + esc(p.label) + '</h2>' +
     '<p>Kỳ báo cáo: ' + esc(dlong(p.s)) + ' – ' + esc(dlong(p.fresh ? T() : p.e)) + (p.clamped ? (p.syncToday ? ' (đến hết hôm qua; hôm nay chưa trọn ngày)' : ' (đến hết ' + esc(dshort(p.e)) + '; ngày ' + esc(dshort(T())) + ' là ngày đồng bộ gần nhất, chỉ có số một phần)') : '') + '. ' + (p.fresh ? '' : cmpLine) + '</p>' +
     '<p>Tài khoản: ' + esc(r.ids.map(acctName).join(', ')) + '. Số liệu Meta đến hết ' + esc(dlong(r.y)) + (syncTxt ? ' · đồng bộ lần cuối ' + esc(syncTxt) : '') + '.</p>' +
-    '<p>' + esc(leadDef(r)) + (S.acct === 'adm' && hasRecruit() ? ' Không tính tài khoản Tuyển dụng.' : '') + ' Chi phí/lead chỉ tính chiến dịch thu lead.</p></div>' +
+    '<p>' + esc(leadDef(r)) + (S.acct === 'adm' && hasRecruit() ? ' Không tính tài khoản Tuyển dụng.' : '') + ' ' + esc(cplDef([r.c])) + '</p></div>' +
     '<div class="act rep-actions"><button class="btn" type="button" data-rep-copy>Sao chép tóm tắt</button><button class="btn pri" type="button" data-rep-print>In / Lưu PDF</button><div class="rep-quick" role="group" aria-label="Chọn nhanh kỳ báo cáo">' + quick + '</div></div></div>' +
     (warnPage.length ? '<div class="rep-warn">' + warnPage.map(esc).join('<br>') + '</div>' : '');
   if (p.fresh) {
@@ -1339,14 +1357,14 @@ function report(sec) {
   var dl = function (k, prevTxt, pctOk) { // dòng so với kỳ trước + cùng kỳ năm trước của một ô
     var h = '';
     if (v) h += '<div class="d">' + (r.cmpOk && pctOk && !(r.unsure && k === 'cpl') ? deltaHtml(k, c[k], v[k], true) + ' ' : '') + '<span>kỳ trước ' + prevTxt + '</span></div>';
-    if (yv) h += '<div class="d">' + (k === 'spend' || (k === 'cpl' ? !r.unsure && cplBig(c, yv) : bigN(c.leads, yv.leads)) ? deltaHtml(k, c[k], yv[k], true) + ' ' : '') + '<span>cùng kỳ năm trước ' + (k === 'spend' ? mtext(yv.spend) : k === 'leads' ? int(yv.leads) : yv.cpl ? mny(yv.cpl) : '—') + '</span></div>';
+    if (yv) h += '<div class="d">' + (k === 'spend' || (k === 'cpl' ? !r.unsure && cplBig(c, yv) : bigN(c.leads, yv.leads)) ? deltaHtml(k, c[k], yv[k], true) + ' ' : '') + '<span>cùng kỳ năm trước ' + (k === 'spend' ? mtext(yv.spend) : k === 'leads' ? int(yv.leads) : yv.cpl != null ? mny(yv.cpl) + cplPrevNote(c, yv) : '—') + '</span></div>';
     return h;
   };
   var sub = function (t) { return t ? '<div class="d"><span>' + t + '</span></div>' : ''; };
   html += '<div class="rk-grid">' +
     '<div class="rk"><div class="l">Chi tiêu</div><div class="v">' + (c.spend > 0 ? esc(mp[0]) + '<small>' + esc(mp[1]) + '</small>' : '—') + '</div>' + dl('spend', v ? mtext(v.spend) : '', true) + '</div>' +
     '<div class="rk"><div class="l">Lead thu được</div><div class="v">' + int(c.leads) + '<small>lead</small></div>' + dl('leads', v ? int(v.leads) : '', v && Math.min(c.leads, v.leads) >= ENOUGH_LEADS) + sub('trung bình ' + dec(c.leads / days, 1) + ' lead/ngày') + '</div>' +
-    '<div class="rk"><div class="l">Chi phí / lead</div><div class="v">' + (c.cpl == null ? '—' : esc(NF.format(Math.round(c.cpl))) + '<small>₫</small>') + '</div>' + dl('cpl', v ? mny(v.cpl) : '', v && cplBig(c, v)) + sub(c.cplBasis === 'lead' ? 'chỉ chiến dịch thu lead: chi ' + mtext(c.lcSpend) + ' cho ' + int(c.lcLeads) + ' lead' + (c.otherSpend > 0 ? '; chi thương hiệu, tương tác ' + mtext(c.otherSpend) + ' không tính' : '') + (leadsOutside(c) > 0 ? '; ' + int(leadsOutside(c)) + ' lead từ chiến dịch khác không tính' : '') + (c.cplApprox ? ' (có phần ước tính từ số theo tháng)' : '') : 'tổng chi tiêu ÷ tổng lead (chưa đủ số theo chiến dịch)') + '</div>' +
+    '<div class="rk"><div class="l">Chi phí / lead</div><div class="v">' + (c.cpl == null ? '—' : esc(NF.format(Math.round(c.cpl))) + '<small>₫</small>') + '</div>' + dl('cpl', v ? (v.cpl != null ? mny(v.cpl) + cplPrevNote(c, v) : '—') : '', v && cplBig(c, v)) + sub(c.cplBasis === 'lead' ? 'chỉ chiến dịch thu lead' + (c.lcSpend > 0 || c.lcLeads > 0 ? ': chi ' + mtext(c.lcSpend) + ' cho ' + int(c.lcLeads) + ' lead' : ': chưa có chi tiêu hoặc lead trong kỳ') + (c.otherSpend > 0 ? '; chi thương hiệu, tương tác ' + mtext(c.otherSpend) + ' không tính' : '') + (leadsOutside(c) > 0 ? '; ' + int(leadsOutside(c)) + ' lead từ chiến dịch khác không tính' : '') + (c.cplApprox ? ' (có phần ước tính từ số theo tháng)' : '') : 'tổng chi tiêu ÷ tổng lead (chưa đủ số theo chiến dịch)') + '</div>' +
     '<div class="rk"><div class="l">Người tiếp cận</div><div class="v">' + (r.reach ? cshort(r.reach.v) : '—') + '</div>' +
       (r.reach && r.reach.prev ? '<div class="d">' + deltaHtml('reach', r.reach.v, r.reach.prev, true) + ' <span>kỳ trước ' + cshort(r.reach.prev) + '</span></div>' : '') +
       sub(!r.reach ? 'Meta chưa có số người tiếp cận chính xác cho kỳ này' : ['tần suất ' + dec(r.reach.freq || 0, 1)].concat(r.reach.today ? ['số Meta đến sáng ' + dshort(r.t)] : [], r.ids.length > 1 ? ['cộng ' + r.ids.length + ' tài khoản, có thể đếm trùng'] : []).join(' · ')) + '</div>' +
@@ -1355,8 +1373,8 @@ function report(sec) {
   if (p.k !== 'sy' && r.y >= sy) {
     var A = C.totals(S.mdl, r.ids, sy, r.y), Bs = shiftYear(sy, -1), B = Bs >= C.START ? C.totals(S.mdl, r.ids, Bs, shiftYear(r.y, -1)) : null;
     if (B && !(B.spend > 0)) B = null;
-    html += '<p class="note-s">Năm học ' + esc(sy.slice(0, 4) + '–' + String(+sy.slice(0, 4) + 1).slice(2)) + ' đến hết ' + esc(dshort(r.y)) + ': chi ' + esc(mtext(A.spend)) + ', ' + int(A.leads) + ' lead' + (A.leads ? ', ' + esc(mny(A.cpl)) + '/lead' : '') + '.' +
-      (B ? ' So với cùng kỳ năm học trước: ' + esc(leadChange(A.leads, B.leads)) + (!r.unsure && bigN(A.leads, B.leads) && A.cpl && B.cpl ? ', chi phí/lead ' + esc(chgText(A.cpl, B.cpl)) : '') + '.' : '') + '</p>';
+    html += '<p class="note-s">Năm học ' + esc(sy.slice(0, 4) + '–' + String(+sy.slice(0, 4) + 1).slice(2)) + ' đến hết ' + esc(dshort(r.y)) + ': chi ' + esc(mtext(A.spend)) + ', ' + int(A.leads) + ' lead' + (A.cpl != null ? ', ' + esc(mny(A.cpl)) + '/lead' : '') + '.' +
+      (B ? ' So với cùng kỳ năm học trước: ' + esc(leadChange(A.leads, B.leads)) + (!r.unsure && cplBig(A, B) ? ', chi phí/lead ' + esc(chgText(A.cpl, B.cpl)) : '') + '.' : '') + '</p>';
   }
   html += '</div>';
 
@@ -1389,7 +1407,7 @@ function segCard(r) {
     var pv = r.segPrev[s.k], ok = cplOk(s.o);
     return '<tr><td>' + segChip(s.k) + '</td><td class="r">' + mshort(s.o.spend) + '<div class="ts">' + pct(segTot ? s.o.spend / segTot : 0, 0) + ' ngân sách</div></td>' +
       '<td class="r"><b>' + int(s.o.leads) + '</b><div class="ts">' + (r.segLeads && s.o.leads ? pct(s.o.leads / r.segLeads, 0) + ' tổng lead ' : '') + (arrows && pv ? (bigN(s.o.leads, pv.leads) ? deltaHtml('leads', s.o.leads, pv.leads, true) : '· kỳ trước ' + int(pv.leads)) : '') + '</div></td>' +
-      '<td class="r">' + (ok ? mny(s.o.cpl) + (arrows && !r.unsure && pv && cplBig(s.o, pv) ? '<div class="ts">' + deltaHtml('cpl', s.o.cpl, pv.cpl, true) + '</div>' : '') : '<span class="ts">' + (s.k === 'brand' ? 'không nhằm thu lead' : s.o.leads ? 'ít lead' : 'không thu lead') + '</span>') + '</td></tr>';
+      '<td class="r">' + (ok ? mny(s.o.cpl) + (arrows && !r.unsure && pv && cplBig(s.o, pv) ? '<div class="ts">' + deltaHtml('cpl', s.o.cpl, pv.cpl, true) + '</div>' : '') : '<span class="ts">' + (s.o.noCover ? 'chưa đủ số' : s.k === 'brand' ? 'không nhằm thu lead' : s.o.leads ? 'ít lead' : 'không thu lead') + '</span>') + '</td></tr>';
   };
   var top = r.segs.slice().sort(function (a, b) { return b.o.spend - a.o.spend; })[0];
   var diff = c.spend ? Math.abs(r.segCamp.spend - c.spend) / c.spend : 0;
@@ -1419,7 +1437,7 @@ function schoolYearCard(r) {
   var gap = r.ids.filter(function (id) { var A0 = S.mdl.accounts[id], ks = A0 ? Object.keys(A0.daily) : []; return (pa[id] && pa[id].history === 'partial') || (ks.length && ks.reduce(function (mm, k) { return k < mm ? k : mm; }) > shiftYear(sy, -1)); });
   var cell = function (a, b) {
     return '<td class="r">' + (a ? '<b>' + int(a.leads) + '</b>' : '—') + (b ? '<div class="ts">năm trước ' + int(b.leads) + (a && bigN(a.leads, b.leads) ? ' ' + deltaHtml('leads', a.leads, b.leads, true) : '') + '</div>' : '<div class="ts">năm trước: chưa có số</div>') + '</td>' +
-      '<td class="r">' + (a && a.cpl != null ? mny(a.cpl) : '—') + (b && b.cpl != null ? '<div class="ts">năm trước ' + mny(b.cpl) + '</div>' : '') + '</td>' +
+      '<td class="r">' + (a && a.cpl != null ? mny(a.cpl) : '—') + (b && b.cpl != null ? '<div class="ts">năm trước ' + mny(b.cpl) + cplPrevNote(a, b) + '</div>' : '') + '</td>' +
       '<td class="r">' + (a ? mshort(a.spend) : '—') + (b ? '<div class="ts">năm trước ' + mshort(b.spend) + '</div>' : '') + '</td>';
   };
   return repCard('Mùa tuyển sinh: năm học ' + syl + ' so với ' + psyl, 'Lead lên xuống theo mùa tuyển sinh, nên so từng tháng với cùng tháng năm học trước; tháng đang chạy so cùng số ngày. Các tháng chưa tới chỉ hiện số năm trước để thấy mùa cao điểm. Không phụ thuộc kỳ đang chọn.',
@@ -1446,7 +1464,7 @@ function paceCard(r) {
 function campOpsCard(r) {
   var p = r.p, c = r.c, days = D.diffDays(p.s, p.e) + 1, lines = [];
   var nl = r.noLead.reduce(function (s, x) { return s + x.period.spend; }, 0), share = c.spend ? nl / c.spend : 0;
-  lines.push([share > 0.1 ? 'bad' : share > 0.03 ? 'warn' : 'good', 'Tiền chưa ra lead', r.noLead.length ? mtext(nl) + ' (' + pct(share, 0) + ' chi tiêu) ở ' + r.noLead.length + ' chiến dịch thu lead đã chi từ 300.000 ₫ mà chưa có lead.' : 'Không có chiến dịch thu lead nào chi từ 300.000 ₫ mà chưa ra lead.']);
+  lines.push(c.cplBasis !== 'lead' ? ['info', 'Tiền chưa ra lead', 'Chưa đủ số theo chiến dịch của kỳ này nên chưa kiểm tra được.'] : [share > 0.1 ? 'bad' : share > 0.03 ? 'warn' : 'good', 'Tiền chưa ra lead', r.noLead.length ? mtext(nl) + ' (' + pct(share, 0) + ' chi tiêu) ở ' + r.noLead.length + ' chiến dịch thu lead đã chi từ 300.000 ₫ mà chưa có lead.' : 'Không có chiến dịch thu lead nào chi từ 300.000 ₫ mà chưa ra lead.']);
   if (days <= 92) { var ds = C.series(S.mdl, r.ids, p.s, p.e, 'day'), off = ds.filter(function (x) { return !(x.spend > 0); }).length; lines.push([off ? 'info' : 'good', 'Phân phối', off ? off + ' trên ' + ds.length + ' ngày không có chi tiêu (có thể do chủ động tạm nghỉ).' : 'Ngày nào trong kỳ cũng có quảng cáo chạy.']); }
   var adsAll = Object.keys(S.mdl.ads).map(function (k) { return S.mdl.ads[k]; }).filter(function (a) { return r.ids.indexOf(a.acct) >= 0; });
   if (days >= 14 && adsAll.length) { var fresh = adsAll.filter(function (a) { return a.c && a.c >= p.s && a.c <= p.e; }).length; lines.push([fresh ? 'good' : 'warn', 'Nội dung mới', fresh + ' mẫu quảng cáo mới tạo trong kỳ (mẫu quảng cáo cập nhật thứ 2 và thứ 5 nên có thể trễ vài ngày).']); }
@@ -1464,12 +1482,12 @@ function campOpsCard(r) {
 }
 function channelCard(r) {
   var p = r.p, body = '';
-  var status = function (id, a) { return r.noData.indexOf(id) >= 0 || r.absent.indexOf(id) >= 0 ? 'chưa có số liệu' : r.miss.indexOf(id) >= 0 ? 'chưa đồng bộ đủ' : r.loss.indexOf(id) >= 0 ? 'Meta chưa trả số lead' : a.spend > 0 ? '' : '0 ₫ · không chạy trong kỳ'; };
-  if (r.ids.length > 1 || r.absent.length) {
-    var acc = r.ids.concat(r.absent).map(function (id) { return { id: id, a: C.totals(S.mdl, [id], p.s, p.e), pv: r.cmpOk ? C.totals(S.mdl, [id], p.ps, p.pe) : null }; }).sort(function (x, y) { return y.a.spend - x.a.spend; });
+  var status = function (id, a) { return r.noData.indexOf(id) >= 0 ? 'chưa có số liệu' : r.miss.indexOf(id) >= 0 ? 'chưa đồng bộ đủ' : r.loss.indexOf(id) >= 0 ? 'Meta chưa trả số lead' : a.spend > 0 ? '' : '0 ₫ · không chạy trong kỳ'; };
+  if (r.ids.length > 1) {
+    var acc = r.ids.map(function (id) { return { id: id, a: C.totals(S.mdl, [id], p.s, p.e), pv: r.cmpOk ? C.totals(S.mdl, [id], p.ps, p.pe) : null }; }).sort(function (x, y) { return y.a.spend - x.a.spend; });
     var tot = acc.reduce(function (s, x) { return s + x.a.spend; }, 0);
     body += '<div class="tbl-wrap"><table class="rep-tbl"><thead><tr><th>Tài khoản</th><th class="r">Chi tiêu</th><th class="r">Lead</th><th class="r">Chi phí/lead</th></tr></thead><tbody>' +
-      acc.map(function (x) { var st = status(x.id, x.a), nod = st === 'chưa có số liệu'; return '<tr><td>' + esc(acctName(x.id)) + (st ? '<div class="ts">' + st + '</div>' : '') + '</td><td class="r">' + (nod ? '—' : mshort(x.a.spend) + '<div class="ts">' + pct(tot ? x.a.spend / tot : 0, 0) + '</div>') + '</td><td class="r">' + (nod ? '—' : int(x.a.leads) + (x.pv && x.pv.leads ? '<div class="ts">' + (bigN(x.a.leads, x.pv.leads) ? deltaHtml('leads', x.a.leads, x.pv.leads, true) : 'kỳ trước ' + int(x.pv.leads)) + '</div>' : '')) + '</td><td class="r">' + (!nod && x.a.leads >= MINLEAD ? mny(x.a.cpl) : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>';
+      acc.map(function (x) { var st = status(x.id, x.a), nod = st === 'chưa có số liệu'; return '<tr><td>' + esc(acctName(x.id)) + (st ? '<div class="ts">' + st + '</div>' : '') + '</td><td class="r">' + (nod ? '—' : mshort(x.a.spend) + '<div class="ts">' + pct(tot ? x.a.spend / tot : 0, 0) + '</div>') + '</td><td class="r">' + (nod ? '—' : int(x.a.leads) + (x.pv && x.pv.leads ? '<div class="ts">' + (bigN(x.a.leads, x.pv.leads) ? deltaHtml('leads', x.a.leads, x.pv.leads, true) : 'kỳ trước ' + int(x.pv.leads)) + '</div>' : '')) + '</td><td class="r">' + (!nod && cplOk(x.a) ? mny(x.a.cpl) + (x.a.cplBasis === 'lead' ? '' : '<div class="ts">tổng chi ÷ tổng lead</div>') : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>';
   }
   var obj = {}; r.camps.forEach(function (x) { var k = C.objectiveLabel(x.c.obj); var o = obj[k] = obj[k] || { k: k, spend: 0, leads: 0 }; o.spend += x.period.spend; o.leads += x.period.leads; });
   var objs = Object.keys(obj).map(function (k) { return obj[k]; }).filter(function (o) { return o.spend > 0; }).sort(function (a, b) { return b.spend - a.spend; });
@@ -1503,12 +1521,12 @@ function marketCard(r) {
   var body = (mc ? '<div class="rep-meta">Theo Meta (' + esc(dshort(mt.since)) + '–' + esc(dshort(mt.until)) + '), nhóm quảng cáo «' + esc(mc.adset) + '» của ' + esc(acctName(mt.account)) + ' có chi phí/lead ' + (mc.rel < 0 ? 'thấp hơn ' : 'cao hơn ') + dec(Math.abs(mc.rel), 1) + '% so với các trường học, mầm non cùng chạy quảng cáo thu lead. Đây là một nhóm quảng cáo, không phải toàn trường.</div>' : '') +
     (pick.length ? '<div class="mrows">' + pick.map(function (x) { return '<div class="mrow"><div class="l">' + esc(x.metric === 'cpl' ? 'Chi phí/lead chiến dịch thu lead' : x.label.replace(/ \(.*\)$/, '')) + '</div><div class="v">' + fv(x.school, x.unit) + '</div><div class="ts">' + (x.kind === 'case' ? 'ví dụ ' : x.kind === 'mixed' ? 'tham khảo ' : 'mặt bằng ') + esc(rng(x)) + '</div>' + benchTag(x) + '<div class="ts">' + esc(x.scope) + '</div><div class="ts">' + esc(x.source) + (x.period ? ', ' + esc(x.period) : '') + '</div></div>'; }).join('') + '</div>' : '') +
     '<p class="note-s">Chưa có báo cáo nào có phương pháp rõ ràng cho riêng quảng cáo giáo dục tại Việt Nam; các khoảng trên lấy từ blog agency trong nước, cập nhật ' + esc(dlong(FBBench.AS_OF)) + '. Chi tiết nguồn: thẻ Phân tích & đề xuất.</p>';
-  return repCard('So với mặt bằng ngành giáo dục tại Việt Nam (tham khảo)', 'Số của trường 30 ngày gần nhất (' + esc(dshort(since)) + '–' + esc(dshort(r.y)) + '), không theo kỳ đang chọn. Chi phí/lead chỉ tính chiến dịch thu lead.', body, '', 'insights');
+  return repCard('So với mặt bằng ngành giáo dục tại Việt Nam (tham khảo)', 'Số của trường 30 ngày gần nhất (' + esc(dshort(since)) + '–' + esc(dshort(r.y)) + '), không theo kỳ đang chọn. Chi phí/lead trong so sánh chỉ tính chiến dịch thu lead.', body, '', 'insights');
 }
 function notesCard(r) {
   var p = r.p, n = [leadDef(r).replace(/^Lead: /, 'Lead là số Meta ghi nhận: ').replace(/\.$/, ', có thể trùng người.')];
   if (p.clamped) n.push('Số liệu đến hết ' + dlong(p.e) + '; ngày ' + dlong(r.t) + (p.syncToday ? ' chưa trọn' : ' (ngày đồng bộ gần nhất) chỉ có số một phần') + ' nên không tính.');
-  n.push('Chi phí/lead = chi tiêu của chiến dịch thu lead ÷ lead của chính các chiến dịch đó. Chi cho thương hiệu, tương tác ghi riêng, không tính vào chi phí/lead.');
+  n.push(r.c.cplBasis === 'lead' ? 'Chi phí/lead = chi tiêu của chiến dịch thu lead ÷ lead của chính các chiến dịch đó. Chi cho thương hiệu, tương tác ghi riêng, không tính vào chi phí/lead; lead của các chiến dịch khác vẫn nằm trong tổng lead.' : 'Kỳ này chưa đủ số theo chiến dịch nên chi phí/lead tạm tính bằng tổng chi tiêu ÷ tổng lead (gồm cả chi thương hiệu, tương tác); khi đủ số sẽ chỉ tính chiến dịch thu lead.');
   n.push('Chi tiêu theo số Meta báo, chưa gồm thuế nên có thể khác hoá đơn.');
   n.push('Người tiếp cận chỉ hiện khi Meta có số chính xác' + (r.ids.length > 1 ? '; cộng giữa các tài khoản có thể đếm trùng.' : '.'));
   n.push(S.acct === 'adm' ? 'Gồm ' + r.ids.map(acctName).join(' và ') + (hasRecruit() ? '; không tính tài khoản Tuyển dụng.' : '.') : S.acct === 'all' ? 'Đang gồm tài khoản Tuyển dụng.' : 'Chỉ tính tài khoản đang chọn.');
@@ -1558,18 +1576,19 @@ function trend(sec) {
   // school-year comparison
   var sy = D.schoolYearStart(t), ps = shiftYear(sy, -1), pe = shiftYear(t, -1);
   var a = C.totals(S.mdl, ids, sy, t), b = C.totals(S.mdl, ids, ps < C.START ? C.START : ps, pe);
-  var rowsC = [['Chi tiêu', mny(a.spend), mny(b.spend), deltaHtml('spend', a.spend, b.spend)], ['Lead', int(a.leads), int(b.leads), deltaHtml('leads', a.leads, b.leads)], ['Chi phí / lead', mny(a.cpl), mny(b.cpl), cplComparable(a, b) ? deltaHtml('cpl', a.cpl, b.cpl) : ''], ['Lượt hiển thị', int(a.impr), int(b.impr), deltaHtml('impr', a.impr, b.impr)], ['Lượt click', int(a.clicks), int(b.clicks), deltaHtml('clicks', a.clicks, b.clicks)], ['Chi phí / click', mny(a.cpc), mny(b.cpc), deltaHtml('cpc', a.cpc, b.cpc)], ['CPM', mny(a.cpm), mny(b.cpm), deltaHtml('cpm', a.cpm, b.cpm)], ['Lượt xem', int(a.views), int(b.views), deltaHtml('views', a.views, b.views)]];
+  var rowsC = [['Chi tiêu', mny(a.spend), mny(b.spend), deltaHtml('spend', a.spend, b.spend)], ['Lead', int(a.leads), int(b.leads), deltaHtml('leads', a.leads, b.leads)], ['Chi phí / lead', mny(a.cpl), mny(b.cpl) + cplPrevNote(a, b), cplComparable(a, b) ? deltaHtml('cpl', a.cpl, b.cpl) : ''], ['Lượt hiển thị', int(a.impr), int(b.impr), deltaHtml('impr', a.impr, b.impr)], ['Lượt click', int(a.clicks), int(b.clicks), deltaHtml('clicks', a.clicks, b.clicks)], ['Chi phí / click', mny(a.cpc), mny(b.cpc), deltaHtml('cpc', a.cpc, b.cpc)], ['CPM', mny(a.cpm), mny(b.cpm), deltaHtml('cpm', a.cpm, b.cpm)], ['Lượt xem', int(a.views), int(b.views), deltaHtml('views', a.views, b.views)]];
   html += '<div class="card s6"><div class="card-hd"><div><h2>So với cùng kỳ năm học trước</h2><p>' + dlong(sy) + ' – ' + dlong(t) + ' so với ' + dlong(ps) + ' – ' + dlong(pe) + '.</p></div></div><div class="tbl-wrap"><table><thead><tr><th>Chỉ số</th><th class="r">Năm học này</th><th class="r">Cùng kỳ năm trước</th><th class="r">Thay đổi</th></tr></thead><tbody>' + rowsC.map(function (r) { return '<tr><td>' + r[0] + '</td><td class="r">' + r[1] + '</td><td class="r">' + r[2] + '</td><td class="r">' + r[3] + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   // weekday pattern in current period
-  var p = currentPeriod(), wd = [0, 1, 2, 3, 4, 5, 6].map(function () { return { spend: 0, leads: 0, n: 0, clicks: 0, ls: 0, ll: 0 }; });
-  C.series(S.mdl, ids, p.s, p.e, 'day').forEach(function (r) { var i = (D.parseISO(r.key).getUTCDay() + 6) % 7; wd[i].spend += r.spend; wd[i].leads += r.leads; wd[i].clicks += r.clicks; wd[i].n++; if (r.cplBasis === 'lead' && !r.cplApprox) { wd[i].ls += r.lcSpend; wd[i].ll += r.lcLeads; } });
+  var p = currentPeriod(), wd = [0, 1, 2, 3, 4, 5, 6].map(function () { return { spend: 0, leads: 0, n: 0, clicks: 0 }; });
+  C.series(S.mdl, ids, p.s, p.e, 'day').forEach(function (r) { var i = (D.parseISO(r.key).getUTCDay() + 6) % 7; wd[i].spend += r.spend; wd[i].leads += r.leads; wd[i].clicks += r.clicks; wd[i].n++; });
   html += '<div class="card s6"><div class="card-hd"><div><h2>Nhịp theo thứ trong tuần</h2><p>Trung bình mỗi ngày trong ' + esc(p.label.toLowerCase()) + '.</p></div></div><div class="chart" id="chWd"></div></div>';
   // monthly table
   html += '<div class="card s12"><div class="card-hd"><div><h2>Bảng số liệu theo tháng</h2></div></div><div class="tbl-wrap"><table><thead><tr><th>Tháng</th><th class="r">Chi tiêu</th><th class="r">Lead</th><th class="r">Chi phí/lead</th><th class="r">Tiếp cận</th><th class="r">Hiển thị</th><th class="r">CPM</th><th class="r">Click</th><th class="r">CTR</th><th class="r">CPC</th><th class="r">Lượt xem</th></tr></thead><tbody>' +
-    months.slice().reverse().map(function (r) { return '<tr><td>' + esc('Tháng ' + (+r.key.slice(5)) + '/' + r.key.slice(0, 4)) + '</td><td class="r">' + mny(r.spend) + '</td><td class="r">' + int(r.leads) + '</td><td class="r">' + mny(r.cpl) + '</td><td class="r">' + int(r.reach) + '</td><td class="r">' + int(r.impr) + '</td><td class="r">' + mny(r.cpm) + '</td><td class="r">' + int(r.clicks) + '</td><td class="r">' + pct(r.ctr) + '</td><td class="r">' + mny(r.cpc) + '</td><td class="r">' + int(r.views) + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
+    months.slice().reverse().map(function (r) { return '<tr><td>' + esc('Tháng ' + (+r.key.slice(5)) + '/' + r.key.slice(0, 4)) + '</td><td class="r">' + mny(r.spend) + '</td><td class="r">' + int(r.leads) + '</td><td class="r">' + mny(r.cpl) + (r.cplBasis === 'lead' ? '' : '<sup title="Tổng chi tiêu ÷ tổng lead: tháng này chưa đủ số theo chiến dịch">*</sup>') + (r.cplApprox ? '<sup title="Ước tính từ số theo tháng">~</sup>' : '') + '</td><td class="r">' + int(r.reach) + '</td><td class="r">' + int(r.impr) + '</td><td class="r">' + mny(r.cpm) + '</td><td class="r">' + int(r.clicks) + '</td><td class="r">' + pct(r.ctr) + '</td><td class="r">' + mny(r.cpc) + '</td><td class="r">' + int(r.views) + '</td></tr>'; }).join('') + '</tbody></table></div><p class="note-s">' + (months.some(function (r) { return r.cplBasis !== 'lead'; }) ? '* Tổng chi tiêu ÷ tổng lead (tháng chưa đủ số theo chiến dịch). ' : '') + 'Chi phí/lead còn lại chỉ tính chiến dịch thu lead; ~ là ước tính từ số theo tháng.</p></div>';
   html += '</div>';
   sec.innerHTML = html;
-  var mrows = months.map(function (r) { return { label: mlabel(r.key), tipTitle: 'Tháng ' + (+r.key.slice(5)) + '/' + r.key.slice(0, 4), vals: { spend: r.spend, leads: r.leads, reach: r.reach, cpl: r.cpl, cpm: r.cpm, ctr: r.ctr, cpc: r.cpc, views: r.views } }; });
+  var domM = domBasis(months);
+  var mrows = months.map(function (r) { return { label: mlabel(r.key), tipTitle: 'Tháng ' + (+r.key.slice(5)) + '/' + r.key.slice(0, 4), vals: { spend: r.spend, leads: r.leads, reach: r.reach, cpl: cplPoint(r, domM), cpm: r.cpm, ctr: r.ctr, cpc: r.cpc, views: r.views } }; });
   panelChart($('#chMonths'), mrows, [{ key: 'spend', label: 'Chi tiêu', fmt: 'money', color: 'var(--series)', type: 'bar', h: 130 }, { key: 'leads', label: 'Lead', fmt: 'int', color: 'var(--lead)', type: 'bar', h: 90 }], { aria: 'Chi tiêu và lead theo tháng' });
   sm.forEach(function (x, i) { panelChart($('#sm' + i), mrows, [{ key: x[0], label: x[1], fmt: x[2], color: x[3], type: 'line', h: 110 }], { labelW: 46 }); });
   panelChart($('#chWd'), ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'].map(function (l, i) { var w = wd[i], n = w.n || 1; return { label: l.replace('Thứ ', 'T').replace('Chủ nhật', 'CN'), tipTitle: l, vals: { spend: w.spend / n, leads: w.leads / n, cpl: w.ll ? w.ls / w.ll : null } }; }),
@@ -1582,7 +1601,7 @@ function segments(sec) {
   var total = segs.reduce(function (s, x) { return s + x.o.spend; }, 0);
   var html = '<div class="sec-title">Hiệu quả theo khối tuyển sinh</div><p class="sec-sub">' + esc(p.label) + ' · Mỗi chiến dịch được xếp vào một khối theo tên chiến dịch (ví dụ TS1 = lớp 1, TS6 = lớp 6, TS10 = lớp 10).</p><div class="segs">';
   segs.filter(function (s) { return s.o.spend > 0; }).forEach(function (s) {
-    var best = s.camps.filter(function (x) { return x.period.leads > 0; }).sort(function (a, b) { return a.period.cpl - b.period.cpl; })[0]
+    var best = s.camps.filter(function (x) { return x.period.leads > 0 && C.isLeadCampaign(x.c); }).sort(function (a, b) { return a.period.cpl - b.period.cpl; })[0]
       || s.camps.slice().sort(function (a, b) { return b.period.spend - a.period.spend; })[0];
     html += '<div class="card segc" style="--c:' + SEGCOL[s.k] + '"><h3>' + esc(C.segLabel(s.k)) + '<small>' + pct(total ? s.o.spend / total : 0, 0) + ' ngân sách</small></h3><div class="facts">' +
       '<div class="f"><div class="l">Chi tiêu</div><div class="v">' + mshort(s.o.spend) + '</div></div>' +
@@ -1596,7 +1615,7 @@ function segments(sec) {
   html += '</div><div class="grid" style="margin-top:16px">';
   html += '<div class="card s8"><div class="card-hd"><div><h2>Chi tiêu theo khối qua các tháng</h2><p>Toàn bộ lịch sử, giúp thấy mùa cao điểm của từng khối.</p></div>' + legend(C.SEGMENTS.filter(function (s) { return S.mdl && hasSeg(s.k); }).map(function (s) { return { label: s.label, c: SEGCOL[s.k] }; })) + '</div><div class="chart" id="chSegM"></div></div>';
   var withLead = segs.filter(function (s) { return cplOk(s.o); }).sort(function (a, b) { return a.o.cpl - b.o.cpl; });
-  var few = segs.filter(function (s) { return s.o.spend > 0 && s.o.leads > 0 && !cplOk(s.o); }).map(function (s) { return C.segLabel(s.k); });
+  var few = segs.filter(function (s) { return s.o.spend > 0 && s.o.leads > 0 && !s.o.noCover && !cplOk(s.o); }).map(function (s) { return C.segLabel(s.k); });
   html += '<div class="card s4"><div class="card-hd"><div><h2>Chi phí/lead theo khối</h2><p>Thấp hơn là tốt hơn. ' + esc(p.label) + '. Chỉ xếp hạng khối có từ ' + MINLEAD + ' lead.</p></div></div>' + (withLead.length ? barList(withLead.map(function (s) { return { label: C.segLabel(s.k), v: s.o.cpl, c: SEGCOL[s.k], text: mny(s.o.cpl) + '<small>' + int(s.o.leads) + ' lead</small>' }; }), { swatch: true }) : '<div class="empty">Chưa khối nào đủ ' + MINLEAD + ' lead trong kỳ.</div>') + (few.length ? '<p class="note-s">Ít hoặc không có lead (chủ yếu chạy tương tác, nhận diện): ' + esc(few.join(', ')) + '.</p>' : '') + '</div>';
   html += '</div>';
   sec.innerHTML = html;
@@ -1826,12 +1845,12 @@ function bindAsk() {
 var askCtl;
 function askContext() {
   var p = currentPeriod(), c = tot(p.s, p.e), v = p.ps ? tot(p.ps, p.pe) : null;
-  var k = function (o) { return o ? { chi_tieu: Math.round(o.spend), lead: o.leads, chi_phi_lead: o.cpl && Math.round(o.cpl), chi_thuong_hieu: o.otherSpend == null ? null : Math.round(o.otherSpend), tiep_can: o.reach, hien_thi: o.impr, click: o.clicks, ctr: o.ctr && +(o.ctr * 100).toFixed(2), cpc: o.cpc && Math.round(o.cpc), cpm: o.cpm && Math.round(o.cpm), luot_xem: o.views } : null; };
+  var k = function (o) { return o ? { chi_tieu: Math.round(o.spend), lead: o.leads, chi_phi_lead: o.cpl && Math.round(o.cpl), cach_tinh_ky: o.cplBasis || null, chi_thuong_hieu: o.otherSpend == null ? null : Math.round(o.otherSpend), tiep_can: o.reach, hien_thi: o.impr, click: o.clicks, ctr: o.ctr && +(o.ctr * 100).toFixed(2), cpc: o.cpc && Math.round(o.cpc), cpm: o.cpm && Math.round(o.cpm), luot_xem: o.views } : null; };
   var segs = segAgg(p).map(function (s) { return { khoi: C.segLabel(s.k), chi_tieu: Math.round(s.o.spend), lead: s.o.leads, chi_phi_lead: s.o.cpl && Math.round(s.o.cpl) }; });
   var camps = C.campaignsIn(S.mdl, acctIds(), p.s, p.e).sort(function (a, b) { return b.period.spend - a.period.spend; }).slice(0, 15).map(function (x) { return { ten: x.c.n, khoi: C.segLabel(x.c.seg), muc_tieu: C.objectiveLabel(x.c.obj), trang_thai: x.c.st, chi_tieu: Math.round(x.period.spend), lead: x.period.leads, chi_phi_lead: x.period.cpl && Math.round(x.period.cpl), ctr: x.period.ctr && +(x.period.ctr * 100).toFixed(2) }; });
   var months = C.series(S.mdl, acctIds(), C.START, T(), 'month').filter(function (r) { return r.spend > 0; }).map(function (r) { return { thang: r.key, chi_tieu: Math.round(r.spend), lead: r.leads, chi_phi_lead: r.cpl && Math.round(r.cpl) }; });
   var I = S.mdl.insights;
-  return { cach_tinh: 'chi_phi_lead = chi tiêu của chiến dịch thu lead ÷ lead của chính các chiến dịch đó; chi_thuong_hieu là chi cho thương hiệu, tương tác, không tính vào chi phí/lead', truong: 'Trường Tiểu học, THCS & THPT Ngôi Sao Hoàng Mai (Hà Nội)', ky: p.label + ' (' + p.s + ' đến ' + p.e + ')', tai_khoan: ($('#acctSel').selectedOptions[0] || {}).textContent, chi_so_ky: k(c), ky_truoc: v ? Object.assign({ khoang: p.ps + ' đến ' + p.pe }, k(v)) : null, theo_khoi: segs, chien_dich: camps, theo_thang: months, nhan_dinh_gan_nhat: I ? { tieu_de: I.headline, tom_tat: I.summary } : null };
+  return { cach_tinh: 'chi_phi_lead = chi tiêu của chiến dịch thu lead ÷ lead của chính các chiến dịch đó (cach_tinh_ky = all nghĩa là kỳ đó chưa đủ số theo chiến dịch nên tạm tính bằng tổng chi tiêu ÷ tổng lead); chi_thuong_hieu là chi cho thương hiệu, tương tác, không tính vào chi phí/lead', truong: 'Trường Tiểu học, THCS & THPT Ngôi Sao Hoàng Mai (Hà Nội)', ky: p.label + ' (' + p.s + ' đến ' + p.e + ')', tai_khoan: ($('#acctSel').selectedOptions[0] || {}).textContent, chi_so_ky: k(c), ky_truoc: v ? Object.assign({ khoang: p.ps + ' đến ' + p.pe }, k(v)) : null, theo_khoi: segs, chien_dich: camps, theo_thang: months, nhan_dinh_gan_nhat: I ? { tieu_de: I.headline, tom_tat: I.summary } : null };
 }
 function ask(q) {
   if (!q || !S.sample) return;

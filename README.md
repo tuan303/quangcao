@@ -97,7 +97,7 @@ Trang chỉ kết nối hai tài khoản quảng cáo, khai báo trong `ACCOUNTS
 | TK Fanpage Trường | `895057262833914` |
 | TK Facebook cô Ngà | `1870132100153072` |
 
-Số liệu cũ của các tài khoản đã gỡ vẫn nằm trong Firestore nhưng không hiển thị và không được đồng bộ nữa. Biến `META_AD_ACCOUNTS`, nếu có, chỉ dùng được để bớt tài khoản; tài khoản ngoài danh sách trên bị bỏ qua.
+Số liệu cũ của các tài khoản đã gỡ vẫn nằm trong Firestore nhưng không hiển thị và không được đồng bộ nữa. Biến `META_AD_ACCOUNTS`, nếu có, chỉ dùng được để bớt tài khoản; tài khoản ngoài danh sách trên bị bỏ qua. Tài khoản bị bớt cũng không hiển thị trên trang và không đưa vào bản phân tích (số liệu của nó không còn được cập nhật). Để trống biến này là đúng nhất.
 
 1. Vào Business Manager có hai tài khoản trên, chọn **Tài khoản quảng cáo**. Tài khoản nào chưa có thì thêm bằng **Thêm → Yêu cầu quyền truy cập**. Không chọn “Nhận quyền sở hữu” nếu không chắc chắn.
 2. Vào **Người dùng hệ thống** và tạo một System User. Gán tài sản là đúng hai tài khoản quảng cáo trên với quyền **Xem hiệu quả**. Gỡ các tài khoản khác khỏi System User nếu trước đây đã gán.
@@ -205,14 +205,14 @@ Bộ kiểm thử chạy offline với Meta API giả lập. Nó kiểm tra:
 ## Lưu ý số liệu
 
 - **Lead** là lead do Meta ghi nhận, gồm form và Messenger. Khi lấy trực tiếp từ Meta API, trang dùng loại `lead` (tổng của Meta). Nếu Meta không trả loại này, trang lấy một giá trị lead trên Meta (`onsite_conversion.lead_grouped`, rồi `leadgen_grouped`, rồi `leadgen.other`) cộng một giá trị lead website (`offsite_conversion.fb_pixel_lead`). Các loại chồng lên nhau không bao giờ được cộng hai lần.
-- **Chi phí/lead** = chi tiêu của các chiến dịch thu lead (mục tiêu “Khách hàng tiềm năng”) ÷ lead của chính các chiến dịch đó. Chi cho thương hiệu, tương tác, lưu lượng ghi riêng là “chi thương hiệu, tương tác” và không tính vào chi phí/lead. Kỳ cũ hơn khoảng 2 tháng mà không trọn tháng thì tách theo số tháng của chiến dịch nên là ước tính.
+- **Chi phí/lead** = chi tiêu của các chiến dịch thu lead (mục tiêu “Khách hàng tiềm năng”) ÷ lead của chính các chiến dịch đó. Chi cho thương hiệu, tương tác, lưu lượng ghi riêng là “chi thương hiệu, tương tác” và không tính vào chi phí/lead. Lead của các chiến dịch khác (tin nhắn, tương tác…) vẫn nằm trong “Lead thu được” nhưng không tính vào chi phí/lead; trang ghi rõ số lead đó. Kỳ cũ hơn khoảng 2 tháng mà không trọn tháng thì chia số theo tháng của chiến dịch cho các ngày chiến dịch chạy nên là ước tính. Khi số theo chiến dịch chưa phủ đủ chi tiêu của tài khoản trong kỳ (80%–125%), trang tạm tính bằng tổng chi tiêu ÷ tổng lead và ghi rõ; hai kỳ chỉ được so sánh khi cùng cách tính.
 - **Tiếp cận** khi cộng nhiều tài khoản có thể đếm trùng người.
 - **Dữ liệu** bắt đầu từ 01/03/2025. Số liệu của ngày hôm nay chưa trọn ngày.
 - **Lượt xem**: khi lấy trực tiếp từ Meta API, chỉ số này dùng trường `views`. Nếu Meta không trả trường đó, trang dùng lượt hiển thị thay thế.
 
 ## Công cụ đồng bộ của tác vụ Claude (`tools/`)
 
-Đây là bản sao các công cụ mà tác vụ Claude hằng ngày dùng (bản đang chạy nằm ở `~/.claude/scheduled-tasks/fbads-nshm-daily-sync/tools/`). Mọi công cụ đều dùng chung `fbads-core.js` ở thư mục gốc.
+Đây là bản sao các công cụ mà tác vụ Claude hằng ngày dùng (bản đang chạy nằm ở `~/.claude/scheduled-tasks/fbads-nshm-daily-sync/tools/`). Mọi công cụ đều dùng chung `fbads-core.js` ở thư mục gốc. Sau khi cập nhật mã (hai tài khoản, cách tính chi phí/lead), cần chép lại `fbads-core.js` và thư mục `tools/` vào thư mục của tác vụ để bản đang chạy dùng cùng cách tính.
 
 | Tệp | Việc |
 |---|---|

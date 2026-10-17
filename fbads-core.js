@@ -458,11 +458,10 @@
   /* totals over [since, until] for a set of accounts. Reach is exact when the store
    * holds that window (summed across accounts: people reached by two accounts count twice). */
   function totals(mdl, accts, since, until) {
-    var t = zero(), days = 0, reachExact = true, reach = 0, as = {};
+    var t = zero(), days = 0, reachExact = true, reach = 0;
     accts.forEach(function (acct) {
       var A = mdl.accounts[acct]; if (!A) return;
-      as[acct] = 0;
-      Object.keys(A.daily).forEach(function (d) { if (d >= since && d <= until) { addInto(t, A.daily[d]); as[acct] += A.daily[d][MI.spend]; days++; } });
+      Object.keys(A.daily).forEach(function (d) { if (d >= since && d <= until) { addInto(t, A.daily[d]); days++; } });
       var key = since + '|' + until, rr = A.reach[key];
       if (rr) reach += rr[0];
       else {
@@ -475,19 +474,20 @@
     o.reachSum = o.reach; // sum of daily reach (upper bound)
     o.reach = reachExact ? reach : o.reach;
     o.reachExact = reachExact;
-    return splitCpl(mdl, accts, since, until, derive(o), as);
+    return splitCpl(mdl, accts, since, until, derive(o));
   }
   /* Chi phí/lead chỉ tính chiến dịch thu lead: chi tiêu của các chiến dịch thu lead ÷ lead của chính các chiến dịch đó.
-   * Chi cho thương hiệu, tương tác, lưu lượng… (otherSpend) để riêng, không cộng vào chi phí/lead.
+   * Chi cho thương hiệu, tương tác, tin nhắn… (otherSpend) để riêng, không cộng vào chi phí/lead.
    *   o.cpl        chi phí/lead của chiến dịch thu lead (null khi kỳ không có lead từ chiến dịch thu lead)
    *   o.cplAll     tổng chi tiêu ÷ tổng lead (chỉ để đối chiếu)
-   *   o.lcSpend, o.lcLeads, o.otherSpend, o.cplApprox (số theo tháng cho kỳ không trọn tháng), o.cplBasis 'lead' | 'all'
-   * Khi chưa có số theo chiến dịch của các tài khoản này thì dùng tổng chi tiêu ÷ tổng lead và đánh dấu cplBasis = 'all'. */
-  function splitCpl(mdl, accts, since, until, o, acctSpend) {
+   *   o.lcSpend, o.lcLeads, o.otherSpend: phần chiến dịch thu lead / chiến dịch khác, luôn khớp với tổng chi tiêu và tổng lead của tài khoản
+   *   o.cplApprox  một phần chỉ có số theo tháng nên được chia theo ngày (ước tính)
+   *   o.cplBasis   'lead' | 'all': 'all' khi số theo chiến dịch chưa phủ đủ chi tiêu của tài khoản trong kỳ, lúc đó cpl = tổng chi tiêu ÷ tổng lead. */
+  function splitCpl(mdl, accts, since, until, o) {
     var r = splitParts(mdl, accts, since, until, function () { return 'all'; });
-    return applySplit(o, r.any, r.P.all, acctSpend || spendByAcct(mdl, accts, since, until));
+    return applySplit(o, r.any, r.P.all, covered(mdl, accts, since, until, r.P.all));
   }
-  // cộng số theo chiến dịch vào từng khoảng (key) của kỳ, tách chiến dịch thu lead / chiến dịch khác, ghi chi tiêu theo tài khoản
+  // cộng số theo chiến dịch vào từng khoảng (key) của kỳ, tách chiến dịch thu lead / chiến dịch khác
   function splitParts(mdl, accts, since, until, keyOf) {
     var set = {}, any = false, P = {};
     accts.forEach(function (a) { set[a] = 1; });
@@ -495,42 +495,81 @@
       var c = mdl.campaigns[id]; if (!set[c.acct]) return;
       any = true;
       var isLead = isLeadCampaign(c);
-      eachPart(mdl, c, since, until, keyOf, function (k, v, f, approx) {
-        var p = P[k] || (P[k] = { lead: zero(), other: zero(), camp: {}, approx: false });
+      eachPart(mdl, c, since, until, keyOf, function (k, v, f, approx, daily) {
+        var p = P[k] || (P[k] = { lead: zero(), other: zero(), cd: {}, approx: false });
         addScaled(isLead ? p.lead : p.other, v, f);
-        p.camp[c.acct] = (p.camp[c.acct] || 0) + (v[MI.spend] || 0) * f;
+        if (daily) p.cd[c.acct] = (p.cd[c.acct] || 0) + (v[MI.spend] || 0); // chi tiêu theo ngày của chiến dịch, để đối chiếu với tài khoản
         if (approx) p.approx = true;
       });
     });
     return { any: any, P: P };
   }
-  // Số theo chiến dịch chỉ dùng được khi phủ gần hết chi tiêu của từng tài khoản trong kỳ; thiếu thì không tách được.
-  var COVER = 0.8;
-  function applySplit(o, any, p, acctSpend) {
-    o.cplAll = o.cpl;
-    var ok = any && Object.keys(acctSpend).every(function (a) { var s = acctSpend[a]; return !(s > 0) || ((p && p.camp[a]) || 0) >= s * COVER; });
-    if (!ok) { o.cplBasis = 'all'; o.lcSpend = null; o.lcLeads = null; o.otherSpend = null; o.cplApprox = false; return o; }
-    var L = toObj(p ? p.lead : zero()), n = leadsOf(L), os = p ? p.other[MI.spend] : 0;
-    if (p && p.approx) {
-      // Có phần chỉ có số theo tháng: lấy cơ cấu chiến dịch (phần chi và phần lead của chiến dịch thu lead) rồi áp lên số thật của tài khoản
-      // trong kỳ, để chi tiêu thu lead + chi khác luôn khớp tổng chi và lead thu lead không vượt tổng lead.
-      var tot = L.spend + os, no = leadsOf(toObj(p.other));
-      var ls = tot > 0 ? o.spend * L.spend / tot : 0;
-      n = n + no > 0 ? Math.round((o.leads || 0) * n / (n + no)) : 0; L.spend = ls; os = o.spend - ls;
+  /* Số theo chiến dịch chỉ dùng được khi phủ gần đủ chi tiêu của từng tài khoản (80%–125%):
+   * phần có số theo ngày của chiến dịch thì đối chiếu ngay trong kỳ, phần chỉ có số theo tháng thì đối chiếu cả tháng
+   * (không đối chiếu từng ngày vì số theo tháng được chia đều nên lệch từng ngày là bình thường). */
+  var COVER = 0.8, COVER_HI = 1.25;
+  function covered(mdl, accts, from, to, p) {
+    for (var i = 0; i < accts.length; i++) {
+      var a = accts[i], cd = mdl.campd[a], cut = cd && cd.since, hiM = to;
+      if (cut) {
+        var lo = from > cut ? from : cut;
+        if (lo <= to) {
+          var s = acctSpendIn(mdl, a, lo, to), c = (p && p.cd[a]) || 0;
+          if (s > 0 ? (c < s * COVER || c > s * COVER_HI) : c >= 1) return false;
+        }
+        if (to >= cut) hiM = addDays(cut, -1);
+      }
+      if (from <= hiM) {
+        for (var m = from.slice(0, 7), last = hiM.slice(0, 7); m <= last; m = nextMonth(m)) if (!monthOK(mdl, a, m, cut)) return false;
+      }
     }
-    o.cplBasis = 'lead'; o.lcSpend = L.spend; o.lcLeads = n; o.otherSpend = os; o.cplApprox = !!(p && p.approx);
-    o.cpl = n ? L.spend / n : null;
+    return true;
+  }
+  function nextMonth(m) { var y = +m.slice(0, 4), mo = +m.slice(5, 7) + 1; if (mo > 12) { mo = 1; y++; } return y + '-' + pad(mo); }
+  function monthOK(mdl, acct, m, cut) {
+    var cache = mdl._mcov || (mdl._mcov = {}), key = acct + '|' + m + '|' + (cut || ''), r = cache[key];
+    if (r !== undefined) return r;
+    var ms = m + '-01', me = monthEnd(ms), cutMonth = !!(cut && cut > ms && cut <= me), hi = cutMonth ? addDays(cut, -1) : me;
+    if (mdl.maxDate && hi > mdl.maxDate) hi = mdl.maxDate;
+    var s = acctSpendIn(mdl, acct, ms, hi), c = 0, cd = mdl.campd[acct];
+    Object.keys(mdl.campaigns).forEach(function (id) {
+      var cp = mdl.campaigns[id]; if (cp.acct !== acct) return;
+      var v = cp.monthly && cp.monthly[m]; if (!v) return;
+      var x = v[MI.spend] || 0;
+      if (cutMonth && cd) { var rows = cd.rows[id] || {}; Object.keys(rows).forEach(function (d) { if (d >= cut && d <= me) x -= rows[d][MI.spend] || 0; }); }
+      c += x > 0 ? x : 0;
+    });
+    return (cache[key] = s > 0 ? (c >= s * COVER && c <= s * COVER_HI) : c < 1);
+  }
+  // chi tiêu của một tài khoản trong [from, to] (tổng cộng dồn theo ngày, dùng cho đối chiếu độ phủ)
+  function acctSpendIn(mdl, acct, from, to) {
+    if (from > to) return 0;
+    var cache = mdl._cum || (mdl._cum = {}), c = cache[acct];
+    if (!c) {
+      var A = mdl.accounts[acct], days = A ? Object.keys(A.daily).sort() : [], cum = [0];
+      days.forEach(function (d, i) { cum.push(cum[i] + (A.daily[d][MI.spend] || 0)); });
+      c = cache[acct] = { days: days, cum: cum };
+    }
+    return c.cum[countLE(c.days, to)] - c.cum[countLE(c.days, addDays(from, -1))];
+  }
+  function countLE(arr, x) { var lo = 0, hi = arr.length; while (lo < hi) { var m = (lo + hi) >> 1; if (arr[m] <= x) lo = m + 1; else hi = m; } return lo; }
+  function applySplit(o, any, p, ok) {
+    o.cplAll = o.cpl;
+    var L = toObj(p ? p.lead : zero()), n = leadsOf(L), no = p ? leadsOf(toObj(p.other)) : 0, lt = o.leads || 0;
+    // tài khoản có lead nhưng chiến dịch không báo lead nào: chưa tách được
+    if (!any || !ok || (lt >= MINLEAD_CORE && n + no === 0)) { o.cplBasis = 'all'; o.lcSpend = null; o.lcLeads = null; o.otherSpend = null; o.cplApprox = false; return o; }
+    var ls = L.spend, os = p ? p.other[MI.spend] : 0, sp = o.spend || 0, tot = ls + os;
+    // chia tổng chi tiêu và tổng lead của tài khoản theo cơ cấu giữa chiến dịch thu lead và chiến dịch khác:
+    // phần thu lead + phần khác luôn bằng đúng tổng, lead thu lead không vượt tổng lead (kể cả khi số theo tháng được chia theo ngày)
+    if (tot > 0) { if (Math.abs(tot - sp) > 1e-9 * Math.max(1, sp)) { ls = sp * ls / tot; os = sp - ls; } } else { ls = 0; os = sp; }
+    if (os < 0.5) os = 0; if (ls > sp) ls = sp;
+    var all = n + no;
+    if (all > 0) { if (Math.abs(all - lt) > 1e-9 * Math.max(1, lt)) n = lt * n / all; } else n = 0;
+    o.cplBasis = 'lead'; o.lcSpend = ls; o.lcLeads = n; o.otherSpend = os; o.cplApprox = !!(p && p.approx);
+    o.cpl = n > 0 ? ls / n : null;
     return o;
   }
-  function spendByAcct(mdl, accts, since, until) {
-    var as = {};
-    accts.forEach(function (a) {
-      var A = mdl.accounts[a]; if (!A) return;
-      as[a] = 0;
-      Object.keys(A.daily).forEach(function (d) { if (d >= since && d <= until) as[a] += A.daily[d][MI.spend]; });
-    });
-    return as;
-  }
+  var MINLEAD_CORE = 5;
   function addScaled(a, b, f) { if (f === 1) return addInto(a, b); for (var i = 0; i < a.length; i++) a[i] += (b[i] || 0) * f; return a; }
   function toObj(v) { var o = {}; M.forEach(function (k, i) { o[k] = v[i] || 0; }); return o; }
   function leadsOf(o) { return Math.max(o.lead || 0, o.mlead || 0); }
@@ -556,23 +595,24 @@
   /* time series: grain 'day' | 'week' (Mon–Sun) | 'month' */
   function series(mdl, accts, since, until, grain) {
     var buckets = {}, order = [];
+    var kmemo = {};
     function keyOf(d) {
-      if (grain === 'month') return d.slice(0, 7);
-      if (grain === 'week') { var dt = parseISO(d), wd = (dt.getUTCDay() + 6) % 7; return addDays(d, -wd); }
-      return d;
+      var r = kmemo[d]; if (r !== undefined) return r;
+      if (grain === 'month') r = d.slice(0, 7);
+      else if (grain === 'week') { var dt = parseISO(d), wd = (dt.getUTCDay() + 6) % 7; r = addDays(d, -wd); }
+      else r = d;
+      return (kmemo[d] = r);
     }
     for (var d = since; d <= until; d = addDays(d, 1)) {
       var k = keyOf(d);
-      if (!buckets[k]) { buckets[k] = { key: k, from: d, to: d, v: zero(), reach: 0, as: {} }; order.push(k); }
+      if (!buckets[k]) { buckets[k] = { key: k, from: d, to: d, v: zero(), reach: 0 }; order.push(k); }
       buckets[k].to = d;
     }
     accts.forEach(function (acct) {
       var A = mdl.accounts[acct]; if (!A) return;
-      order.forEach(function (k) { buckets[k].as[acct] = 0; });
       Object.keys(A.daily).forEach(function (d) {
         if (d < since || d > until) return;
-        var b = buckets[keyOf(d)];
-        addInto(b.v, A.daily[d]); b.as[acct] += A.daily[d][MI.spend];
+        addInto(buckets[keyOf(d)].v, A.daily[d]);
       });
     });
     var sp = splitParts(mdl, accts, since, until, keyOf);
@@ -585,7 +625,7 @@
         if (ok) o.reach = ex, o.freq = o.reach ? o.impr / o.reach : null;
       }
       o.key = k; o.from = b.from; o.to = b.to;
-      return applySplit(o, sp.any, sp.P[k], b.as);
+      return applySplit(o, sp.any, sp.P[k], covered(mdl, accts, b.from, b.to, sp.P[k]));
     });
   }
   function sumImpr(A, s, e) { var t = 0; Object.keys(A.daily).forEach(function (d) { if (d >= s && d <= e) t += A.daily[d][MI.impr]; }); return t; }
@@ -614,37 +654,48 @@
     eachPart(mdl, c, since, until, function () { return 'all'; }, function (k, v, f, ap) { addScaled(t, v, f); if (ap) approx = true; });
     return { v: t, approx: approx };
   }
-  /* Số của một chiến dịch trong [since, until], gọi cb(key, vec, hệ số, ước tính?) cho từng phần:
-   * ngày có số theo ngày của chiến dịch (campd) lấy đúng từng ngày; trước đó lấy số theo tháng: tháng nằm trọn trong một khoảng
-   * thì lấy nguyên, tháng không trọn thì chia theo tỷ trọng chi tiêu từng ngày của tài khoản (đánh dấu ước tính). */
+  var MDAYS = {};
+  function monthDays(ms) { var a = MDAYS[ms]; if (!a) { a = MDAYS[ms] = []; for (var d = ms, me = monthEnd(ms); d <= me; d = addDays(d, 1)) a.push(d); } return a; }
+  function validDate(x) { return typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x) && x >= '2015-01-01'; }
+  /* Số của một chiến dịch trong [since, until], gọi cb(key, vec, hệ số, ước tính?, theo ngày?) cho từng phần:
+   *  - ngày có số theo ngày của chiến dịch (campd): lấy đúng từng ngày;
+   *  - trước đó lấy số theo tháng: tháng nằm trọn trong một khoảng thì lấy nguyên; tháng không trọn thì chia đều cho các ngày chiến dịch chạy
+   *    trong tháng (từ ngày bắt đầu đến ngày dừng) và đánh dấu ước tính;
+   *  - tháng chứa mốc campd.since: số theo tháng đã gồm cả các ngày campd cung cấp nên chỉ lấy phần còn lại trước mốc. */
   function eachPart(mdl, c, since, until, keyOf, cb) {
     var cd = mdl.campd[c.acct], cut = cd && cd.since, end = until;
     if (cut && until >= cut) {
       var rows = cd.rows[c.id] || {}, s2 = since > cut ? since : cut;
-      Object.keys(rows).forEach(function (d) { if (d >= s2 && d <= until) cb(keyOf(d), rows[d], 1, false); });
+      Object.keys(rows).forEach(function (d) { if (d >= s2 && d <= until) cb(keyOf(d), rows[d], 1, false, true); });
       if (since >= cut) return;
       end = addDays(cut, -1);
     }
-    var mo = c.monthly || {};
+    var mo = c.monthly || {}, cutMonth = cut ? cut.slice(0, 7) : '', maxD = mdl.maxDate || '9999-12-31';
+    var s0 = validDate(c.s) ? c.s : '', e0 = validDate(c.e) ? c.e : '';
     Object.keys(mo).forEach(function (k) {
       var ms = k + '-01', me = monthEnd(ms);
       if (me < since || ms > end) return;
-      var a = since > ms ? since : ms, b = end < me ? end : me;
-      if (a === ms && (b === me || b >= (mdl.maxDate || b)) && keyOf(a) === keyOf(b)) { cb(keyOf(a), mo[k], 1, false); return; }
-      for (var d = a; d <= b; d = addDays(d, 1)) { var f = dayShare(mdl, c.acct, ms, me, d); if (f > 0) cb(keyOf(d), mo[k], f, true); }
+      var vec = mo[k], top = me;
+      if (cut && k === cutMonth && cut > ms && cut <= me) {
+        vec = vec.slice(); var cr = cd.rows[c.id] || {};
+        Object.keys(cr).forEach(function (d) { if (d >= cut && d <= me) for (var i = 0; i < vec.length; i++) vec[i] -= cr[d][i] || 0; });
+        for (var j = 0; j < vec.length; j++) if (vec[j] < 0) vec[j] = 0;
+        top = addDays(cut, -1);
+      }
+      var hiM = top < maxD ? top : maxD;               // ngày cuối cùng của tháng có thể có chi tiêu
+      if (since <= ms && end >= hiM && keyOf(ms) === keyOf(hiM)) { cb(keyOf(ms), vec, 1, false, false); return; }
+      var cs = s0 > ms ? s0 : ms, ce = e0 && e0 < hiM ? e0 : hiM;
+      if (cs > ce) { cs = ms; ce = hiM; }              // ngày bắt đầu/dừng không khớp số liệu: chia đều cả tháng
+      var wa = since > cs ? since : cs, wb = end < ce ? end : ce;
+      if (wa > wb) return;
+      var days = monthDays(ms), N = +ce.slice(8) - +cs.slice(8) + 1, j1 = +wb.slice(8) - 1, rk = null, run = 0;
+      for (var q = +wa.slice(8) - 1; q <= j1; q++) {
+        var kk = keyOf(days[q]);
+        if (kk !== rk) { if (run) cb(rk, vec, run / N, true, false); rk = kk; run = 0; }
+        run++;
+      }
+      if (run) cb(rk, vec, run / N, true, false);
     });
-  }
-  // tỷ trọng chi tiêu của tài khoản rơi vào ngày d trong tháng (chia đều theo ngày khi tháng đó tài khoản không có số theo ngày)
-  function dayShare(mdl, acct, ms, me, d) {
-    var cache = mdl._mshare || (mdl._mshare = {}), key = acct + '|' + ms, A = mdl.accounts[acct], m = cache[key];
-    if (!m) {
-      var end = mdl.maxDate && mdl.maxDate < me ? mdl.maxDate : me, tot = 0, n = 0;
-      for (var x = ms; x <= end; x = addDays(x, 1)) { n++; var v = A && A.daily[x]; tot += v ? v[MI.spend] : 0; }
-      m = cache[key] = { tot: tot, n: n, end: end };
-    }
-    if (d > m.end) return 0;
-    if (m.tot > 0) { var w = A && A.daily[d]; return w ? w[MI.spend] / m.tot : 0; }
-    return m.n ? 1 / m.n : 0;
   }
   /* Ads with spend in the window (monthly granularity) */
   function adsIn(mdl, accts, since, until) {

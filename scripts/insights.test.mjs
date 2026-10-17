@@ -156,5 +156,38 @@ test('cost per lead: only lead-objective campaigns count, missing campaign data 
     ['campd-' + A]: { acct: A, since: '2026-09-01', rows: {} }
   });
   const pv = C.periodVec(m, m.campaigns.L, '2026-03-02', '2026-03-02');
-  assert.equal(pv.v[C.MI.spend], 300); assert.equal(pv.v[C.MI.lead], 3); assert.equal(pv.approx, true);
+  assert.equal(pv.v[C.MI.spend], 200); assert.equal(pv.v[C.MI.lead], 2); assert.equal(pv.approx, true); // the month's data covers 2 days: half of it for one day
+  const whole = C.periodVec(m, m.campaigns.L, '2026-03-01', '2026-03-31');
+  assert.equal(whole.v[C.MI.spend], 400); assert.equal(whole.approx, false); // a whole month is exact
+});
+
+test('cost per lead: the month that holds the campaign-daily cut is exact, campaign dates limit the proration, impossible coverage falls back', () => {
+  const A = '895057262833914', vec = (spend, lead) => { const v = C.zero(); v[C.MI.spend] = spend; v[C.MI.lead] = lead; v[C.MI.impr] = 1000; return v; };
+  const dayRange = (a, b) => { const out = []; for (let d = a; d <= b; d = C.dates.addDays(d, 1)) out.push(d); return out; };
+  // August: awareness runs all month (100 ₫/day); the lead campaign ran only 20–31 Aug (1.000 ₫/day, 1 lead/day); campaign-daily rows start on 16 Aug
+  const daily = {}, brand = {}, lead = {}, brandCd = {}, leadCd = {};
+  for (const d of dayRange('2026-08-01', '2026-08-31')) {
+    const inLead = d >= '2026-08-20'; daily[d] = vec(100 + (inLead ? 1000 : 0), inLead ? 1 : 0); brand[d] = vec(100, 0); if (inLead) lead[d] = vec(1000, 1);
+    if (d >= '2026-08-16') { brandCd[d] = brand[d]; if (inLead) leadCd[d] = lead[d]; }
+  }
+  const sum = o => Object.values(o).reduce((t, v) => C.addInto(t, v), C.zero());
+  const docs = {
+    ['acct-' + A]: { acct: A, daily },
+    ['camp-' + A]: { acct: A, rows: { L: { n: 'TS1-LEAD', obj: 'OUTCOME_LEADS', s: '2026-08-20', e: '', m: sum(lead) }, B: { n: 'Thương hiệu', obj: 'OUTCOME_AWARENESS', s: '2026-08-01', e: '', m: sum(brand) } }, monthly: { L: { '2026-08': sum(lead) }, B: { '2026-08': sum(brand) } } },
+    ['campd-' + A]: { acct: A, since: '2026-08-16', rows: { L: leadCd, B: brandCd } }
+  };
+  const m = C.model(docs);
+  const whole = C.totals(m, [A], '2026-08-01', '2026-08-31');
+  assert.equal(whole.cplApprox, false); assert.equal(whole.lcSpend, 12000); assert.equal(whole.lcLeads, 12); assert.equal(whole.cpl, 1000);
+  assert.equal(C.campaignsIn(m, [A], '2026-08-01', '2026-08-31').approx, false);
+  // 1–15 Aug is before the lead campaign started: no phantom lead spend there
+  const early = C.totals(m, [A], '2026-08-03', '2026-08-12');
+  assert.equal(early.lcSpend, 0); assert.equal(early.otherSpend, 1000); assert.equal(early.cplApprox, true);
+  // bucket parts always add up to the account's spend and never exceed its leads
+  for (const g of ['day', 'week', 'month']) for (const r of C.series(m, [A], '2026-08-01', '2026-08-31', g)) {
+    assert.ok(Math.abs(r.lcSpend + r.otherSpend - r.spend) < 1e-6, g + ' ' + r.key); assert.ok(r.lcLeads <= r.leads + 1e-9, g + ' ' + r.key);
+  }
+  // campaign data twice the account's spend (e.g. the account's daily rows are missing): not a lead basis
+  const doubled = JSON.parse(JSON.stringify(docs)); for (const d of Object.keys(doubled['acct-' + A].daily)) { const v = doubled['acct-' + A].daily[d]; v.forEach((x, i) => { v[i] = x / 2; }); }
+  assert.equal(C.totals(C.model(doubled), [A], '2026-08-16', '2026-08-31').cplBasis, 'all');
 });
