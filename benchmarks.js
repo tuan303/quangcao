@@ -33,7 +33,6 @@
     lcr: { label: 'Tỉ lệ ra lead / lượt nhấp liên kết', unit: '%', better: 'higher', basis: 'lead' },
     freq: { label: 'Tần suất (chiến dịch thu lead)', unit: 'lần', better: 'lower', basis: 'lead' }
   };
-  var LEAD_OBJ = { OUTCOME_LEADS: 1, LEAD_GENERATION: 1 };
 
   /* So sánh của chính Meta (Industry benchmark): nhóm quảng cáo của trường so với các nhà quảng cáo tương tự trong ngành.
    * Meta chỉ cho biết cao/thấp hơn bao nhiêu % so với mặt bằng nhóm, không cho giá trị tuyệt đối, và chỉ cho nhóm quảng cáo đủ số liệu.
@@ -62,7 +61,8 @@
   function schoolFigures(C, mdl, opt) {
     var all = C.totals(mdl, opt.accts, opt.since, opt.until);
     var lead = {}, n = 0;
-    C.campaignsIn(mdl, opt.accts, opt.since, opt.until).forEach(function (x) { if (LEAD_OBJ[x.c.obj]) { add(lead, x.period); n++; } });
+    // cùng định nghĩa chiến dịch thu lead với chi phí/lead trên dashboard
+    C.campaignsIn(mdl, opt.accts, opt.since, opt.until).forEach(function (x) { if (C.isLeadCampaign(x.c)) { add(lead, x.period); n++; } });
     return { all: all, lead: n ? C.derive(lead) : null, leadCampaigns: n };
   }
 

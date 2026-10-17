@@ -101,3 +101,60 @@ test('benchmarks.js: every reference range is complete, sourced and in the right
   const m = B.META;
   assert.ok(m.since <= m.until && m.until <= m.asOf && m.rows.every(r => B.METRICS[r.metric] && typeof r.rel === 'number'));
 });
+
+test('only the two connected ad accounts are used; cost per lead counts lead campaigns only', async () => {
+  assert.deepEqual(C.ACCOUNTS.map(a => a.id), ['895057262833914', '1870132100153072']);
+  const { scopeDocs, syncAccounts } = await import('../server/scope.js');
+  const docs = { 'acct-163604412431952': { acct: '163604412431952', daily: {} }, 'acct-895057262833914': { acct: '895057262833914', daily: {} }, 'crea-x': { rows: [] },
+    meta: { accounts: [{ id: '163604412431952' }], perAccount: { '163604412431952': { failed: 1 }, '895057262833914': { ok: 1 } }, failed: ['163604412431952|daily_w1'], leadLoss: ['163604412431952'] } };
+  const s = scopeDocs(C, docs);
+  assert.ok(!s['acct-163604412431952'] && s['acct-895057262833914'] && s['crea-x']);
+  assert.deepEqual(Object.keys(s.meta.perAccount), ['895057262833914']);
+  assert.deepEqual(s.meta.failed, []); assert.deepEqual(s.meta.leadLoss, []);
+  assert.deepEqual(s.meta.accounts.map(a => a.id), C.ACCOUNTS.map(a => a.id));
+  assert.deepEqual(syncAccounts(C, { META_AD_ACCOUNTS: 'act_163604412431952, 1870132100153072' }), { accts: ['1870132100153072'], ignored: ['163604412431952'] });
+  assert.deepEqual(syncAccounts(C, {}).accts, C.ACCOUNTS.map(a => a.id));
+  // brand spend is reported apart and does not enter the cost per lead
+  const day = '2026-10-10', vec = (spend, lead) => { const v = C.zero(); v[C.MI.spend] = spend; v[C.MI.lead] = lead; v[C.MI.impr] = 1000; return v; };
+  const A = '895057262833914';
+  const m = C.model({
+    ['acct-' + A]: { acct: A, daily: { [day]: (() => { const v = vec(1500000, 10); return v; })() } },
+    ['camp-' + A]: { acct: A, rows: { L: { n: 'TS1-LEAD', obj: 'OUTCOME_LEADS', m: vec(1000000, 10) }, B: { n: 'Thương hiệu', obj: 'OUTCOME_AWARENESS', m: vec(500000, 0) } }, monthly: {} },
+    ['campd-' + A]: { acct: A, since: '2026-09-01', rows: { L: { [day]: vec(1000000, 10) }, B: { [day]: vec(500000, 0) } } }
+  });
+  const t = C.totals(m, [A], day, day);
+  assert.equal(t.spend, 1500000); assert.equal(t.leads, 10);
+  assert.equal(t.cpl, 100000);        // 1.000.000 ₫ of the lead campaign / 10 leads
+  assert.equal(t.cplAll, 150000);     // what the old formula showed
+  assert.equal(t.otherSpend, 500000); assert.equal(t.cplBasis, 'lead');
+  assert.equal(C.series(m, [A], day, day, 'day')[0].cpl, 100000);
+});
+
+test('cost per lead: only lead-objective campaigns count, missing campaign data falls back, partial months are prorated', () => {
+  const A = '895057262833914', vec = (spend, lead, impr = 1000) => { const v = C.zero(); v[C.MI.spend] = spend; v[C.MI.lead] = lead; v[C.MI.impr] = impr; return v; };
+  const days = ['2026-10-09', '2026-10-10'], daily = {}, campd = { L: {}, M: {}, B: {} };
+  for (const d of days) { daily[d] = vec(1800000, 14); campd.L[d] = vec(1000000, 10); campd.M[d] = vec(300000, 4); campd.B[d] = vec(500000, 0); }
+  const docs = {
+    ['acct-' + A]: { acct: A, daily },
+    ['camp-' + A]: { acct: A, rows: { L: { n: 'TS1-LEAD', obj: 'OUTCOME_LEADS', m: vec(2000000, 20) }, M: { n: 'Tin nhắn tư vấn', obj: 'OUTCOME_ENGAGEMENT', m: vec(600000, 8) }, B: { n: 'Thương hiệu', obj: 'OUTCOME_AWARENESS', m: vec(1000000, 0) } }, monthly: {} },
+    ['campd-' + A]: { acct: A, since: '2026-09-01', rows: campd }
+  };
+  const t = C.totals(C.model(docs), [A], days[0], days[1]);
+  assert.equal(t.leads, 28); assert.equal(t.lcLeads, 20); assert.equal(t.lcSpend, 2000000); // the Messenger (engagement) campaign is apart, its leads stay in the total
+  assert.equal(t.otherSpend, 1600000); assert.equal(t.cpl, 100000); assert.equal(Math.round(t.cplAll), Math.round(3600000 / 28));
+  // series buckets add up to the window
+  const ser = C.series(C.model(docs), [A], days[0], days[1], 'day');
+  assert.equal(ser.reduce((s, r) => s + r.lcSpend, 0), t.lcSpend); assert.equal(ser.reduce((s, r) => s + r.otherSpend, 0), t.otherSpend);
+  // campaign rows missing for a day the account spent → that day is not split, it is labelled
+  delete campd.L[days[1]]; delete campd.M[days[1]]; delete campd.B[days[1]];
+  const d1 = C.totals(C.model(docs), [A], days[1], days[1]);
+  assert.equal(d1.cplBasis, 'all'); assert.equal(d1.cpl, d1.cplAll); assert.equal(d1.otherSpend, null);
+  // before the campaign-daily rows: a partial month is prorated by the account's daily spend, not counted whole
+  const m = C.model({
+    ['acct-' + A]: { acct: A, daily: { '2026-03-01': vec(100, 0), '2026-03-02': vec(300, 0) } },
+    ['camp-' + A]: { acct: A, rows: { L: { n: 'TS1-LEAD', obj: 'OUTCOME_LEADS', m: vec(400, 4) } }, monthly: { L: { '2026-03': vec(400, 4) } } },
+    ['campd-' + A]: { acct: A, since: '2026-09-01', rows: {} }
+  });
+  const pv = C.periodVec(m, m.campaigns.L, '2026-03-02', '2026-03-02');
+  assert.equal(pv.v[C.MI.spend], 300); assert.equal(pv.v[C.MI.lead], 3); assert.equal(pv.approx, true);
+});

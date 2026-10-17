@@ -77,8 +77,8 @@ async function run(req, res) {
     const today = C.dates.todayVN(), dow = C.dates.parseISO(today).getUTCDay();
     let groups = String(q.groups || '').split(',').map(s => s.trim()).filter(Boolean);
     const askedGroups = groups.length > 0;
-    const accounts = [...new Set(String(process.env.META_AD_ACCOUNTS || '').split(/[\s,;]+/).map(s => s.replace(/^act_/i, '')).filter(Boolean))];
-    const accts = accounts.length ? accounts : C.ACCOUNTS.map(a => a.id);
+    const { syncAccounts } = await import('../server/scope.js');
+    const { accts, ignored: ignoredAccounts } = syncAccounts(C); // chỉ hai tài khoản đang kết nối
 
     const stored = await readAll();
     const prevMeta = stored.meta || {};
@@ -206,7 +206,7 @@ async function run(req, res) {
     const gotFresh = Object.keys(fresh).length > 0;
     const meta = Object.assign({}, prevMeta, gotFresh ? {
       v: C.VERSION, syncedAt: new Date().toISOString(), syncedBy: by, dataUntil: today, start: C.START,
-      accounts: prevMeta.accounts && prevMeta.accounts.length ? prevMeta.accounts : C.ACCOUNTS, source: 'meta-api',
+      accounts: C.ACCOUNTS.filter(a => accts.includes(a.id)), source: 'meta-api',
       fullAt: groups.includes('ads') && groups.includes('bd') && !failed.length && !skipped.length && !leadLoss.length ? new Date().toISOString() : (prevMeta.fullAt || null)
     } : {}, {
       // không lấy được gì: giữ nguyên ngày đồng bộ và ngày số liệu, chỉ ghi lại lần thử và tài khoản nào đang lỗi
@@ -225,7 +225,7 @@ async function run(req, res) {
     // luôn lưu kết quả đồng bộ (kể cả khi không lấy được gì) để trang báo đúng tài khoản nào đang thiếu số liệu
     if (!dry) written = await writeDocs(gotFresh ? Object.assign({}, merged, { meta, syncstate }) : { meta, syncstate }, { by });
     releaseLock = null; // syncstate vừa ghi không còn runningUntil
-    send(res, 200, { ok: true, dry, groups, pending: pending.map(x => x.g), calls: calls.length, written, fresh: Object.keys(fresh).length, failed, skipped, checks: checkOut, summary, perAccount, ms: Date.now() - started });
+    send(res, 200, { ok: true, dry, groups, pending: pending.map(x => x.g), ignoredAccounts, calls: calls.length, written, fresh: Object.keys(fresh).length, failed, skipped, checks: checkOut, summary, perAccount, ms: Date.now() - started });
   } catch (e) {
     console.error('[sync]', e);
     if (releaseLock) await releaseLock().catch(() => {});

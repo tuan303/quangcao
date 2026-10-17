@@ -8,13 +8,16 @@ const LIMITS = { campaigns: 40, recent: 25, ads: 30, adBody: 400, bdRows: 15 };
 export function buildPack(C, docs, today) {
   const mdl = C.model(docs), D = C.dates, MI = C.MI;
   const roles = Object.fromEntries(C.ACCOUNTS.map(a => [a.id, a.role]));
-  const accounts = (docs.meta && docs.meta.accounts && docs.meta.accounts.length ? docs.meta.accounts : C.ACCOUNTS);
+  const connected = new Set(((docs.meta || {}).accounts || C.ACCOUNTS).map(a => a.id));
+  const accounts = C.ACCOUNTS.filter(a => connected.has(a.id)); // chỉ các tài khoản đang kết nối và đang đồng bộ
   const ADM = accounts.filter(a => (a.role || roles[a.id]) !== 'recruit').map(a => a.id);
   const RECRUIT = accounts.filter(a => (a.role || roles[a.id]) === 'recruit').map(a => a.id);
   const r0 = x => x == null || !isFinite(x) ? null : Math.round(x);
   const r2 = x => x == null || !isFinite(x) ? null : Math.round(x * 10000) / 100; // tỉ lệ → % (2 chữ số)
   const r1 = x => x == null || !isFinite(x) ? null : Math.round(x * 100) / 100;
-  const K = o => o && { spend: r0(o.spend), leads: o.leads, cpl: r0(o.cpl), reach: r0(o.reach), impr: r0(o.impr), cpm: r0(o.cpm), clicks: r0(o.clicks), ctr_pct: r2(o.ctr), cpc: r0(o.cpc),
+  // cpl = chi tiêu chiến dịch thu lead ÷ lead của chính các chiến dịch đó; spend_other = chi thương hiệu, tương tác… (không tính vào cpl)
+  const K = o => o && { spend: r0(o.spend), leads: o.leads, cpl: r0(o.cpl), spend_lead_campaigns: o.lcSpend == null ? undefined : r0(o.lcSpend), leads_lead_campaigns: o.lcLeads == null ? undefined : r0(o.lcLeads),
+    spend_other: o.otherSpend == null ? undefined : r0(o.otherSpend), cpl_all_spend: o.cplAll == null ? undefined : r0(o.cplAll), cpl_basis: o.cplBasis, cpl_estimated: o.cplApprox ? true : undefined, reach: r0(o.reach), impr: r0(o.impr), cpm: r0(o.cpm), clicks: r0(o.clicks), ctr_pct: r2(o.ctr), cpc: r0(o.cpc),
     link_clicks: r0(o.link), cpc_link: r0(o.cpcLink), link_ctr_pct: r2(o.lctr), thruplay: r0(o.thru), engagements: r0(o.eng), eng_rate_pct: r2(o.engRate), freq: r1(o.freq), lpv: r0(o.lpv) };
 
   const y1 = D.addDays(today, -1), sy = D.schoolYearStart(today), psy = (+sy.slice(0, 4) - 1) + '-08-01';
@@ -30,7 +33,7 @@ export function buildPack(C, docs, today) {
   const perAccount = {};
   for (const a of accounts) perAccount[a.id] = { name: a.name, role: a.role || roles[a.id], last30d: K(C.totals(mdl, [a.id], ...P.last30d)), school_year_to_date: K(C.totals(mdl, [a.id], sy, today)) };
   const monthly = C.series(mdl, ADM, D.addDays(today, -400), today, 'month').map(r => Object.assign({ month: r.key }, K(r)));
-  const daily30 = C.series(mdl, ADM, P.last30d[0], y1, 'day').map(r => ({ day: r.key, spend: r0(r.spend), leads: r.leads }));
+  const daily30 = C.series(mdl, ADM, P.last30d[0], y1, 'day').map(r => ({ day: r.key, spend: r0(r.spend), leads: r.leads, cpl: r0(r.cpl) }));
 
   const camps = Object.values(mdl.campaigns).filter(c => ADM.includes(c.acct) || RECRUIT.includes(c.acct)).map(c => {
     const L = C.vecObj(c.m || C.zero());
@@ -52,8 +55,17 @@ export function buildPack(C, docs, today) {
 
   function segAgg(s, e) {
     const out = {};
-    for (const x of C.campaignsIn(mdl, ADM, s, e)) { const k = x.c.seg; out[k] ||= C.zero(); C.addInto(out[k], C.M.map(m => x.period[m] || 0)); }
-    return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, { label: C.segLabel(k), ...K(C.vecObj(v)), reach: undefined, freq: undefined }]));
+    const lead = {};
+    for (const x of C.campaignsIn(mdl, ADM, s, e)) {
+      const k = x.c.seg, vec = C.M.map(m => x.period[m] || 0);
+      out[k] ||= C.zero(); C.addInto(out[k], vec);
+      if (C.isLeadCampaign(x.c)) { lead[k] ||= C.zero(); C.addInto(lead[k], vec); }
+    }
+    return Object.fromEntries(Object.entries(out).map(([k, v]) => {
+      const o = C.vecObj(v), L = C.vecObj(lead[k] || C.zero());
+      o.cpl = L.leads ? L.spend / L.leads : null; // chi phí/lead của khối: chỉ chiến dịch thu lead
+      return [k, { label: C.segLabel(k), ...K(o), spend_lead_campaigns: r0(L.spend), leads_lead_campaigns: r0(L.leads), reach: undefined, freq: undefined }];
+    }));
   }
   const segments = { last30d: segAgg(...P.last30d), school_year_to_date: segAgg(sy, today), prev_school_year: segAgg(psy, D.addDays(sy, -1)) };
 
@@ -72,11 +84,12 @@ export function buildPack(C, docs, today) {
     for (const r of b.rows) {
       if (!ADM.includes(r[0])) continue;
       const key = r.slice(2, 2 + nk).join(' | ');
-      const o = (acc[key] ||= { key, spend: 0, impr: 0, clicks: 0, lead: 0, mlead: 0 });
+      const o = (acc[key] ||= { key, spend: 0, impr: 0, clicks: 0, lead: 0, mlead: 0, ls: 0, ll: 0, lm: 0 });
       for (const m of ['spend', 'impr', 'clicks', 'lead', 'mlead']) o[m] += r[ci[m]] || 0;
+      if (C.isLeadCampaign(mdl.campaigns[r[1]])) { o.ls += r[ci.spend] || 0; o.ll += r[ci.lead] || 0; o.lm += r[ci.mlead] || 0; }
     }
     const tot = Object.values(acc).reduce((s, o) => s + o.spend, 0) || 1;
-    return Object.values(acc).map(o => { const leads = Math.max(o.lead, o.mlead); return { key: o.key, spend_share_pct: r2(o.spend / tot), leads, cpl: r0(leads ? o.spend / leads : null), ctr_pct: r2(o.impr ? o.clicks / o.impr : null) }; })
+    return Object.values(acc).map(o => { const leads = Math.max(o.lead, o.mlead); const ll = Math.max(o.ll, o.lm); return { key: o.key, spend_share_pct: r2(o.spend / tot), leads, cpl: r0(ll ? o.ls / ll : null), ctr_pct: r2(o.impr ? o.clicks / o.impr : null) }; })
       .sort((a, b) => b.spend_share_pct - a.spend_share_pct).slice(0, LIMITS.bdRows);
   }
   const breakdowns = { age_gender: bd('agegender'), platform_position: bd('platform'), region: bd('region'), device: bd('device') };
@@ -87,9 +100,11 @@ export function buildPack(C, docs, today) {
     sync: { syncedAt: meta.syncedAt || null, accounts_missing: Object.entries(meta.perAccount || {}).filter(([, x]) => x && (x.failed || x.skipped)).map(([a]) => a), lead_loss: meta.leadLoss || [] },
     notes: [
       'Tiền tệ VND. Lead = max(lead, lead trên Meta) theo từng dòng (form + Messenger), không cộng trùng.',
+      'cpl (chi phí/lead) = chi tiêu của chiến dịch thu lead ÷ lead của chính các chiến dịch đó (chiến dịch thu lead = mục tiêu thu lead, hoặc chiến dịch khác đã thu được lead như tin nhắn Messenger); spend_other là chi cho thương hiệu, tương tác… không tính vào cpl; cpl_all_spend = tổng chi tiêu ÷ tổng lead, chỉ để đối chiếu, không dùng làm chi phí/lead. Cpl theo khối, theo khán giả (breakdowns) cũng chỉ tính chiến dịch thu lead.',
+      'cpl_basis = "all": kỳ đó chưa đủ số theo chiến dịch nên cpl tạm tính bằng tổng chi tiêu ÷ tổng lead; không so cpl giữa hai kỳ khác cpl_basis. cpl_estimated = true: một phần số theo chiến dịch được ước tính từ số theo tháng.',
+      'Chỉ có hai tài khoản đang kết nối: TK Fanpage Trường (895057262833914) và TK Facebook cô Ngà (1870132100153072).',
       'Số của hôm nay chưa trọn ngày. Tiếp cận cộng nhiều tài khoản có thể đếm trùng người.',
-      'Phân khúc theo tên chiến dịch: l1=Lớp 1/Tiểu học, l6=Lớp 6/THCS, l10=Lớp 10/THPT, js=Jolly Steps (cầu nối mầm non–tiểu học), camp=Trại hè, brand=thương hiệu/thành tích (bài đẩy), mix=tuyển sinh chung, hr=tuyển dụng.',
-      'Tài khoản tuyển dụng không tính vào số tuyển sinh.'
+      'Phân khúc theo tên chiến dịch: l1=Lớp 1/Tiểu học, l6=Lớp 6/THCS, l10=Lớp 10/THPT, js=Jolly Steps (cầu nối mầm non–tiểu học), camp=Trại hè, brand=thương hiệu/thành tích (bài đẩy), mix=tuyển sinh chung, hr=tuyển dụng.'
     ],
     accounts, periods, per_account: perAccount, monthly_admissions: monthly, daily_last30d: daily30,
     segments, objectives,

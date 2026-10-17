@@ -90,8 +90,17 @@ Dự án Firebase **quangcao-9a705** chỉ phục vụ dashboard này, không d�
 
 Khi có token, trang không còn phụ thuộc máy quản trị phải bật vào buổi sáng. Ngoài ra, quản trị bấm “Đồng bộ ngay” là có số liệu mới tức thì.
 
-1. Vào Business Manager **Công ty CP Giáo dục Đông Đô**. Hai tài khoản quảng cáo `1870132100153072` (Fanpage trường) và `163604412431952` chưa thuộc Business nào. Thêm chúng vào Business bằng **Tài khoản quảng cáo → Thêm → Yêu cầu quyền truy cập**. Không chọn “Nhận quyền sở hữu” nếu không chắc chắn.
-2. Vào **Người dùng hệ thống** và tạo một System User. Gán tài sản là 4 tài khoản quảng cáo với quyền **Xem hiệu quả**.
+Trang chỉ kết nối hai tài khoản quảng cáo, khai báo trong `ACCOUNTS` ở `fbads-core.js`:
+
+| Tài khoản | ID |
+|---|---|
+| TK Fanpage Trường | `895057262833914` |
+| TK Facebook cô Ngà | `1870132100153072` |
+
+Số liệu cũ của các tài khoản đã gỡ vẫn nằm trong Firestore nhưng không hiển thị và không được đồng bộ nữa. Biến `META_AD_ACCOUNTS`, nếu có, chỉ dùng được để bớt tài khoản; tài khoản ngoài danh sách trên bị bỏ qua.
+
+1. Vào Business Manager có hai tài khoản trên, chọn **Tài khoản quảng cáo**. Tài khoản nào chưa có thì thêm bằng **Thêm → Yêu cầu quyền truy cập**. Không chọn “Nhận quyền sở hữu” nếu không chắc chắn.
+2. Vào **Người dùng hệ thống** và tạo một System User. Gán tài sản là đúng hai tài khoản quảng cáo trên với quyền **Xem hiệu quả**. Gỡ các tài khoản khác khỏi System User nếu trước đây đã gán.
 3. Bấm **Tạo token mới**, chọn quyền **ads_read** và hạn **Không bao giờ hết hạn**. Dán token vào biến `META_ACCESS_TOKEN` trên Vercel, rồi Redeploy.
 4. Chạy thử, không ghi dữ liệu. Chỉ làm sau khi đã đẩy số liệu lần đầu (bước 5 phần Triển khai), để có số liệu cũ mà đối chiếu:
 
@@ -196,6 +205,7 @@ Bộ kiểm thử chạy offline với Meta API giả lập. Nó kiểm tra:
 ## Lưu ý số liệu
 
 - **Lead** là lead do Meta ghi nhận, gồm form và Messenger. Khi lấy trực tiếp từ Meta API, trang dùng loại `lead` (tổng của Meta). Nếu Meta không trả loại này, trang lấy một giá trị lead trên Meta (`onsite_conversion.lead_grouped`, rồi `leadgen_grouped`, rồi `leadgen.other`) cộng một giá trị lead website (`offsite_conversion.fb_pixel_lead`). Các loại chồng lên nhau không bao giờ được cộng hai lần.
+- **Chi phí/lead** = chi tiêu của các chiến dịch thu lead (mục tiêu “Khách hàng tiềm năng”) ÷ lead của chính các chiến dịch đó. Chi cho thương hiệu, tương tác, lưu lượng ghi riêng là “chi thương hiệu, tương tác” và không tính vào chi phí/lead. Kỳ cũ hơn khoảng 2 tháng mà không trọn tháng thì tách theo số tháng của chiến dịch nên là ước tính.
 - **Tiếp cận** khi cộng nhiều tài khoản có thể đếm trùng người.
 - **Dữ liệu** bắt đầu từ 01/03/2025. Số liệu của ngày hôm nay chưa trọn ngày.
 - **Lượt xem**: khi lấy trực tiếp từ Meta API, chỉ số này dùng trường `views`. Nếu Meta không trả trường đó, trang dùng lượt hiển thị thay thế.

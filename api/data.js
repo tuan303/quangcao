@@ -14,7 +14,9 @@ export default async function handler(req, res) {
     const fresh = /^(1|true)$/.test(String(req.query && req.query.fresh || ''));
     if (!cache || fresh || Date.now() - cache.at > 60000) {
       const { readAll } = await import('../server/store.js');
-      cache = { at: Date.now(), docs: await readAll() };
+      await import('../fbads-core.js');
+      const { scopeDocs } = await import('../server/scope.js');
+      cache = { at: Date.now(), docs: scopeDocs(globalThis.FBCore, await readAll(), process.env) }; // chỉ hai tài khoản đang kết nối
     }
     let docs = cache.docs;
     // chi tiết lỗi đồng bộ (thông báo thô của Meta) chỉ dành cho quản trị

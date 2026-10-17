@@ -30,6 +30,8 @@ export default async function handler(req, res) {
     // đang có lần đồng bộ chạy (khoá syncstate.runningUntil): chờ tối đa khoảng 50 giây để không phân tích số liệu cũ
     for (let i = 0; i < 5 && docs.syncstate && docs.syncstate.runningUntil && Date.parse(docs.syncstate.runningUntil) > Date.now(); i++) { await new Promise(r => setTimeout(r, 10000)); docs = await readAll(); }
     if (docs.syncstate && docs.syncstate.runningUntil && Date.parse(docs.syncstate.runningUntil) > Date.now()) return send(res, 409, { ok: false, error: 'Đang đồng bộ số liệu. Thử viết phân tích lại sau ít phút.' });
+    const { scopeDocs } = await import('../server/scope.js');
+    docs = scopeDocs(C, docs, process.env); // chỉ hai tài khoản đang kết nối
     if (!Object.keys(docs).some(k => k.indexOf('acct-') === 0)) return send(res, 409, { ok: false, error: 'Chưa có số liệu quảng cáo để phân tích. Hãy đồng bộ trước.' });
     const pack = buildPack(C, docs, today);
     pack.benchmark_comparison = B.compare(C, C.model(docs), today);

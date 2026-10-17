@@ -38,6 +38,7 @@ Người đọc: Chủ tịch Hội đồng quản trị (đọc lướt, cần 
 
 Quy tắc:
 - Viết tiếng Việt, câu ngắn, rõ, giọng chuyên nghiệp, không sáo rỗng, không dùng thuật ngữ tiếng Anh khi có từ tiếng Việt (giữ CPM, CTR, CPC nếu cần, giải thích lần đầu).
+- Chi phí/lead luôn là cpl trong gói số liệu (chi tiêu của chiến dịch thu lead ÷ lead của chính các chiến dịch đó). Không chia tổng chi tiêu cho tổng lead; chi cho thương hiệu, tương tác (spend_other) nêu riêng.
 - Mọi con số phải lấy đúng từ gói số liệu (JSON) được cung cấp. Không tự tính phép tính mới ngoài so sánh phần trăm đơn giản giữa hai số có sẵn; không bịa số, không bịa sự kiện về trường.
 - Tiền viết dạng 48.083 ₫ hoặc 10,26 triệu ₫. Tỉ lệ viết 4,45%. Ngày viết dd/mm/yyyy.
 - Luôn so sánh: 7 ngày qua với 7 ngày trước đó, 30 ngày qua với 30 ngày trước đó, năm học này với cùng kỳ năm học trước khi có số.
