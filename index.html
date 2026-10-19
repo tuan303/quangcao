@@ -517,7 +517,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
       <button class="tab" role="tab" data-tab="segments" aria-selected="false">Khối tuyển sinh</button>
       <button class="tab" role="tab" data-tab="campaigns" aria-selected="false">Chiến dịch</button>
       <button class="tab" role="tab" data-tab="content" aria-selected="false">Nội dung</button>
-      <button class="tab" role="tab" data-tab="audience" aria-selected="false">Khán giả</button>
+      <button class="tab" role="tab" data-tab="audience" aria-selected="false">Đối tượng</button>
       <button class="tab" role="tab" data-tab="insights" aria-selected="false">Phân tích &amp; đề xuất</button>
     </nav>
     <div class="filters" id="filters" hidden>
@@ -922,7 +922,7 @@ function renderSyncNotice() {
   if (loss.length) parts.push('Meta không trả số lead của ' + esc(loss.map(name).join(', ')) + ' trong lần này, nên trang giữ số lead đã lưu trước đó.');
   // chỉ thiếu mẫu quảng cáo/khán giả: không ảnh hưởng chi tiêu và lead, nên chỉ quản trị thấy; lần đồng bộ sau tự lấy tiếp
   if (heavy.length && !base.length && !loss.length && !S.editor) { hideSyncNotice(); return; }
-  if (heavy.length && !base.length) parts.push('Mẫu quảng cáo hoặc số liệu khán giả của ' + esc(heavy.map(function (e) { return name(e[0]); }).join(', ')) + ' chưa cập nhật xong; chi tiêu và lead vẫn đầy đủ. ' + (m.pending && m.pending.length ? 'Lần đồng bộ sau sẽ tự lấy tiếp phần này.' : 'Đã thử lại nhiều lần chưa được, phần này sẽ lấy lại theo lịch hằng tuần (mẫu quảng cáo thứ 2 và thứ 5, khán giả thứ 3 và thứ 6).'));
+  if (heavy.length && !base.length) parts.push('Mẫu quảng cáo hoặc số liệu đối tượng của ' + esc(heavy.map(function (e) { return name(e[0]); }).join(', ')) + ' chưa cập nhật xong; chi tiêu và lead vẫn đầy đủ. ' + (m.pending && m.pending.length ? 'Lần đồng bộ sau sẽ tự lấy tiếp phần này.' : 'Đã thử lại nhiều lần chưa được, phần này sẽ lấy lại theo lịch hằng tuần (mẫu quảng cáo thứ 2 và thứ 5, khán giả thứ 3 và thứ 6).'));
   if (S.editor) {
     var canSync = !$('#syncBtn').hidden;
     if (canSync && base.concat(heavy).some(function (e) { return e[1].skipped || e[1].heavy; })) parts.push('Muốn có ngay thì bấm Đồng bộ ngay (1–4 phút).');
@@ -1334,7 +1334,7 @@ function report(sec) {
   var syncTxt = meta.syncedAt ? fmtAt(new Date(meta.syncedAt)) : '';
   var warn = reportWarnings(r, syncTxt), warnPage = warn.slice();
   // thiếu mẫu quảng cáo/khán giả không ảnh hưởng chi tiêu và lead: chỉ quản trị thấy, không đưa vào bản gửi Zalo
-  if (r.heavy.length && S.editor) warnPage.push('Mẫu quảng cáo hoặc số liệu khán giả của ' + r.heavy.map(acctName).join(', ') + ' chưa cập nhật xong (chi tiêu và lead vẫn đầy đủ).');
+  if (r.heavy.length && S.editor) warnPage.push('Mẫu quảng cáo hoặc số liệu đối tượng của ' + r.heavy.map(acctName).join(', ') + ' chưa cập nhật xong (chi tiêu và lead vẫn đầy đủ).');
   var html = '<div class="report">';
 
   // 2.1 đầu báo cáo + bốn con số chính
@@ -1533,7 +1533,7 @@ function notesCard(r) {
   n.push('Khối nhận diện từ tên chiến dịch; tên không rõ xếp vào Thương hiệu hoặc Tuyển sinh chung.');
   if (r.matApprox) n.push('Số theo chiến dịch của kỳ không trọn tháng có thể tính theo tháng.');
   if (!r.yp && !p.fresh && ['psy', 'all', 'sy', 'ytd'].indexOf(p.k) < 0 && shiftYear(p.s, -1) < C.START) n.push('Chỉ so được cùng kỳ năm trước từ ' + dlong(shiftYear(C.START, 1)) + ' (dữ liệu từ ' + dlong(C.START) + ').');
-  n.push('Mẫu quảng cáo cập nhật thứ 2 và thứ 5; số liệu khán giả thứ 3 và thứ 6.');
+  n.push('Mẫu quảng cáo cập nhật thứ 2 và thứ 5; số liệu đối tượng thứ 3 và thứ 6.');
   if (window.FBBench) n.push('Mặt bằng ngành là mốc tham khảo (cập nhật ' + dlong(FBBench.AS_OF) + '), không phải chuẩn.');
   return repCard('Cách đọc số liệu', '', '<ul class="rep-notes">' + n.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul><div class="rep-print-only rep-sign"><div>Người lập</div><div>Người duyệt</div></div>');
 }
@@ -1826,7 +1826,7 @@ function insights(sec) {
   html += '<div class="grid" style="margin-top:22px">';
   if (I.budget) html += '<div class="card s6"><div class="card-hd"><div><h2>Gợi ý phân bổ ngân sách</h2><p>' + esc(I.budget.summary || '') + '</p></div></div>' + (I.budget.split ? barList(I.budget.split.map(function (x) { return { label: x.label || C.segLabel(x.segment), v: x.pct, c: SEGCOL[x.segment] || 'var(--series)', text: dec(x.pct, 0) + '%<small>' + esc(x.reason || '') + '</small>' }; }), { swatch: true }) : '') + '</div>';
   if (I.tests && I.tests.length) html += '<div class="card s6"><div class="card-hd"><div><h2>Thử nghiệm A/B nên chạy</h2></div></div><div class="alerts">' + I.tests.map(function (t) { return '<div class="al">' + tone('info', 'Thử nghiệm') + '<div><div class="t">' + esc(t.hypothesis) + '</div><div class="x">' + esc(t.setup || '') + (t.metric ? ' Đo bằng: ' + esc(t.metric) + '.' : '') + '</div></div></div>'; }).join('') + '</div></div>';
-  if (I.audience && I.audience.length) html += '<div class="card s6"><div class="card-hd"><div><h2>Nhận định về khán giả</h2></div></div><div class="prose">' + I.audience.map(function (x) { return '<p>• ' + esc(x) + '</p>'; }).join('') + '</div></div>';
+  if (I.audience && I.audience.length) html += '<div class="card s6"><div class="card-hd"><div><h2>Nhận định về đối tượng</h2></div></div><div class="prose">' + I.audience.map(function (x) { return '<p>• ' + esc(x) + '</p>'; }).join('') + '</div></div>';
   if (I.targets && I.targets.length) html += '<div class="card s6"><div class="card-hd"><div><h2>Chỉ tiêu tham chiếu cho tháng tới</h2></div></div><div class="tbl-wrap"><table><thead><tr><th>Chỉ số</th><th class="r">Hiện tại</th><th class="r">Mục tiêu</th><th>Ghi chú</th></tr></thead><tbody>' + I.targets.map(function (t) { return '<tr><td>' + esc(t.metric) + '</td><td class="r">' + esc(t.current) + '</td><td class="r"><b>' + esc(t.target) + '</b></td><td class="ts">' + esc(t.note || '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
   html += '</div>';
   html += askCard();

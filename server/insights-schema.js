@@ -82,7 +82,7 @@ export default {
    "type": "array",
    "minItems": 6,
    "maxItems": 6,
-   "description": "areas in order: Hiệu quả chi phí/lead; Nhịp độ & phân bổ ngân sách; Chất lượng nội dung; Nhắm chọn khán giả; Cấu trúc tài khoản & chiến dịch; Đo lường & theo dõi lead",
+   "description": "areas in order: Hiệu quả chi phí/lead; Nhịp độ & phân bổ ngân sách; Chất lượng nội dung; Nhắm chọn đối tượng; Cấu trúc tài khoản & chiến dịch; Đo lường & theo dõi lead",
    "items": {
     "type": "object",
     "required": [

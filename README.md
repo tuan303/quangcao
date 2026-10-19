@@ -8,7 +8,7 @@ Báo cáo quảng cáo Facebook cho Chủ tịch HĐQT và Ban Truyền thông. 
 - Khối tuyển sinh
 - Chiến dịch
 - Nội dung
-- Khán giả
+- Đối tượng
 - Phân tích & đề xuất
 
 Số liệu được cập nhật mỗi sáng.
@@ -110,7 +110,7 @@ Số liệu cũ của các tài khoản đã gỡ vẫn nằm trong Firestore nh
 
    Kết quả cần có `"ok": true`, `checks.mismatches` rỗng và `checks.checkedDays` lớn hơn 0. Máy chủ đối chiếu số liệu mới với số liệu đang lưu; nếu lệch ở nhiều ngày, máy chủ không ghi.
 
-Lần đồng bộ đầu tiên lấy số liệu từ 01/03/2025. Mỗi lần đồng bộ được chạy tối đa 300 giây (Fluid compute, bật trong `vercel.json`). Nếu không kịp, máy chủ ghi phần đã lấy được (số liệu gần đây được lấy trước) và lần sau lấy tiếp phần lịch sử còn thiếu. Nhóm mẫu quảng cáo hoặc khán giả chưa lấy xong cũng được lấy tiếp ở lần đồng bộ sau, không phải chờ tới ngày theo lịch; thử tối đa 3 lần liên tiếp, sau đó quay về lịch hằng tuần. Hai lần đồng bộ không chạy chồng lên nhau: lần sau được báo “đang có lần đồng bộ khác chạy” và trang tự cập nhật khi xong. Tiến độ lưu ở tài liệu `syncstate`. Khi một tài khoản chưa lấy đủ, trang hiện thông báo màu vàng ghi rõ tài khoản đó. Quản trị còn thấy thêm lỗi chi tiết của Meta.
+Lần đồng bộ đầu tiên lấy số liệu từ 01/03/2025. Mỗi lần đồng bộ được chạy tối đa 300 giây (Fluid compute, bật trong `vercel.json`). Nếu không kịp, máy chủ ghi phần đã lấy được (số liệu gần đây được lấy trước) và lần sau lấy tiếp phần lịch sử còn thiếu. Nhóm mẫu quảng cáo hoặc đối tượng chưa lấy xong cũng được lấy tiếp ở lần đồng bộ sau, không phải chờ tới ngày theo lịch; thử tối đa 3 lần liên tiếp, sau đó quay về lịch hằng tuần. Hai lần đồng bộ không chạy chồng lên nhau: lần sau được báo “đang có lần đồng bộ khác chạy” và trang tự cập nhật khi xong. Tiến độ lưu ở tài liệu `syncstate`. Khi một tài khoản chưa lấy đủ, trang hiện thông báo màu vàng ghi rõ tài khoản đó. Quản trị còn thấy thêm lỗi chi tiết của Meta.
 
 Phiên bản Meta Graph API mặc định là `v25.0`, vì v23.0 đã hết hạn cho Marketing API từ 09/06/2026. Có thể đổi bằng biến `META_API_VERSION`.
 
