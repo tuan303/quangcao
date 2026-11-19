@@ -150,8 +150,10 @@ main{padding-block:20px 40px}
 .hl{display:flex;flex-direction:column;gap:8px}
 .daily .eyebrow{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--brand);font-weight:600;margin-bottom:4px}
 .daily h2{font-family:var(--font-display);font-size:20px;letter-spacing:-.01em}
-.dgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-@media (max-width:820px){.dgrid{grid-template-columns:1fr}}
+.dgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:1180px){.dgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.dgrid{grid-template-columns:1fr}}
+.dstat.today{border-style:dashed}
 .dstat{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface-2);min-width:0}
 .dstat .l{font-size:13px;font-weight:600;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .dstat .l>span{font-weight:400;color:var(--muted);font-size:12px}
@@ -1089,12 +1091,16 @@ function dailyReport() {
   var ms = D.monthStart(y), pms = D.prevMonth(y), pme = D.addDays(pms, D.diffDays(ms, y));
   if (pme > D.monthEnd(pms)) pme = D.monthEnd(pms);
   var w0 = D.addDays(y, -6), day = tt(y, y), b7 = tt(D.addDays(y, -7), D.addDays(y, -1)), w = tt(w0, y), pw = tt(D.addDays(y, -13), D.addDays(y, -7)), m = tt(ms, y), pm = tt(pms, pme);
+  var t0 = T(), td = tt(t0, t0), m0 = S.mdl.meta || {}, st0 = m0.syncedAt ? new Date(m0.syncedAt) : null; // hôm nay: từ 00:00 đến lúc đồng bộ
+  var syncHM = st0 && !isNaN(st0) ? st0.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }) : '';
+  var tdLabel = t0 === D.todayVN() ? 'Ngày hôm nay' : 'Ngày ' + dshort(t0);
   var wc = C.campaignsIn(S.mdl, ids, w0, y);
   var top = wc.filter(function (x) { return x.period.leads > 0 && C.isLeadCampaign(x.c); }).sort(function (a, b) { return b.period.leads - a.period.leads || a.period.cpl - b.period.cpl; })[0];
   var waste = wc.filter(function (x) { return C.isLeadCampaign(x.c) && x.period.spend > 300000 && !x.period.leads; }).sort(function (a, b) { return b.period.spend - a.period.spend; })[0];
   var segs = segAgg({ s: w0, e: y }).filter(function (s) { return s.o.leads > 0; }).sort(function (a, b) { return b.o.leads - a.o.leads; }).slice(0, 4);
   var mN = +y.slice(5, 7), pmN = +pms.slice(5, 7), dayLabel = y === D.addDays(D.todayVN(), -1) ? 'Hôm qua' : 'Ngày gần nhất có số';
   var pts = [];
+  var todayPt = tdLabel + ' (00:00' + (syncHM ? '–' + syncHM : '') + ', chưa trọn ngày): ' + int(td.leads) + ' lead, chi ' + mtext(td.spend) + (td.cpl != null ? ', ' + mny(td.cpl) + '/lead' : '') + '. ' + (dayLabel === 'Hôm qua' ? 'Hôm qua' : 'Ngày liền trước') + ' cả ngày: ' + int(day.leads) + ' lead, chi ' + mtext(day.spend) + '.';
   pts.push(dayLabel + ' (' + WDL[D.parseISO(y).getUTCDay()] + ', ' + dlong(y) + '): chi ' + mtext(day.spend) + ', ' + int(day.leads) + ' lead' + (day.cpl != null ? ', ' + mny(day.cpl) + '/lead' : '') + '. Trung bình 7 ngày trước đó: ' + dec(b7.leads / 7, 1) + ' lead và ' + mtext(b7.spend / 7) + ' mỗi ngày.');
   pts.push('7 ngày qua (' + dshort(w0) + '–' + dshort(y) + '): ' + int(w.leads) + ' lead, chi ' + mtext(w.spend) + (w.cpl != null ? ', ' + mny(w.cpl) + '/lead' : '') + '. So với 7 ngày trước: lead ' + (chgText(w.leads, pw.leads) || (pw.leads ? 'không đổi' : 'chưa có số so sánh')) + (cplComparable(w, pw) ? ', chi phí/lead ' + chgText(w.cpl, pw.cpl) : '') + '.');
   pts.push('Tháng ' + mN + ' (01–' + dshort(y) + '): ' + int(m.leads) + ' lead, chi ' + mtext(m.spend) + (m.cpl != null ? ', ' + mny(m.cpl) + '/lead' : '') + '. Cùng kỳ tháng ' + pmN + ' (' + dshort(pms) + '–' + dshort(pme) + '): ' + int(pm.leads) + ' lead, chi ' + mtext(pm.spend) + '.');
@@ -1115,7 +1121,7 @@ function dailyReport() {
   pts.push(cplDef([day, w, m]));
   var pa = (S.mdl.meta && S.mdl.meta.perAccount) || {}, miss = ids.filter(function (id) { var x = pa[id]; return x && (x.failed || x.skipped); });
   if (miss.length) pts.push('Lưu ý: tài khoản ' + miss.map(acctName).join(', ') + ' chưa đồng bộ đủ nên số trên có thể thiếu.');
-  return { y: y, dayLabel: dayLabel, w0: w0, ms: ms, day: day, b7: b7, w: w, pw: pw, m: m, pm: pm, pms: pms, pme: pme, mN: mN, pmN: pmN, pts: pts };
+  return { t0: t0, td: td, tdLabel: tdLabel, syncHM: syncHM, todayPt: todayPt, y: y, dayLabel: dayLabel, w0: w0, ms: ms, day: day, b7: b7, w: w, pw: pw, m: m, pm: pm, pms: pms, pme: pme, mN: mN, pmN: pmN, pts: pts };
 }
 function dailyCard() {
   var r = dailyReport(), opt = acctOptions().filter(function (o) { return o.k === S.acct; })[0] || acctOptions()[0];
@@ -1126,10 +1132,14 @@ function dailyCard() {
       '<div class="row"><span>Chi phí / lead</span><b>' + (cur.cpl != null ? mny(cur.cpl) : '—') + '</b>' + (cplComparable(cur, prev) ? deltaHtml('cpl', cur.cpl, prev.cpl, true) : '') + '</div>' +
       '<div class="cmp">' + esc(prevLabel) + '</div></div>';
   };
-  S.dailyText = 'BÁO CÁO QUẢNG CÁO FACEBOOK NGÀY ' + dlong(r.y) + '\nTrường TH, THCS & THPT Ngôi Sao Hoàng Mai · ' + opt.label + '\n\n• ' + r.pts.join('\n• ') + '\n\nXem chi tiết: ' + location.origin;
+  S.dailyText = 'BÁO CÁO QUẢNG CÁO FACEBOOK NGÀY ' + dlong(r.y) + '\nTrường TH, THCS & THPT Ngôi Sao Hoàng Mai · ' + opt.label + '\n\n• ' + [r.todayPt].concat(r.pts).join('\n• ') + '\n\nXem chi tiết: ' + location.origin;
+  var todayStat = '<div class="dstat today"><div class="l">' + esc(r.tdLabel) + '<span>' + esc('00:00' + (r.syncHM ? ' – ' + r.syncHM : '') + ' · ' + dshort(r.t0)) + '</span></div><div class="big">' + int(r.td.leads) + '<small>lead</small></div>' +
+    '<div class="row"><span>Chi tiêu</span><b>' + mtext(r.td.spend) + '</b></div>' +
+    '<div class="row"><span>Chi phí / lead</span><b>' + (r.td.cpl != null ? mny(r.td.cpl) : '—') + '</b></div>' +
+    '<div class="cmp">Chưa trọn ngày, tính đến lúc đồng bộ · ' + (r.dayLabel === 'Hôm qua' ? 'hôm qua' : 'ngày liền trước') + ' cả ngày: ' + int(r.day.leads) + ' lead</div></div>';
   var I = S.mdl.insights, noAi = !I || !I.headline;
-  return '<div class="card daily"><div class="card-hd"><div><div class="eyebrow">Báo cáo ngày · ' + esc(opt.label) + '</div><h2>Quảng cáo Facebook ngày ' + esc(dlong(r.y)) + '</h2><p>Tự tính từ số liệu Meta sau mỗi lần đồng bộ (mỗi sáng), không cần chờ phân tích. ' + esc(cplDef([r.day, r.w, r.m])) + ' Mũi tên so với mốc ghi dưới mỗi ô; xanh là tốt hơn.</p></div><div class="act"><button class="btn" type="button" data-copy-daily>Sao chép gửi Zalo</button></div></div>' +
-    '<div class="dgrid">' +
+  return '<div class="card daily"><div class="card-hd"><div><div class="eyebrow">Báo cáo ngày · ' + esc(opt.label) + '</div><h2>Quảng cáo Facebook ngày ' + esc(dlong(r.y)) + '</h2><p>Tự tính từ số liệu Meta sau mỗi lần đồng bộ (mỗi sáng), không cần chờ phân tích. ' + esc(cplDef([r.day, r.w, r.m])) + ' Mũi tên so với mốc ghi dưới mỗi ô; xanh là tốt hơn. Ô «' + esc(r.tdLabel) + '» chưa trọn ngày nên không có mũi tên.</p></div><div class="act"><button class="btn" type="button" data-copy-daily>Sao chép gửi Zalo</button></div></div>' +
+    '<div class="dgrid">' + todayStat +
     stat(r.dayLabel, WDL[D.parseISO(r.y).getUTCDay()] + ', ' + dlong(r.y), r.day, { leads: avg('leads'), spend: avg('spend'), cpl: r.b7.cpl, cplBasis: r.b7.cplBasis }, 'so với trung bình 7 ngày trước đó') +
     stat('7 ngày qua', dshort(r.w0) + ' – ' + dshort(r.y), r.w, r.pw, 'so với 7 ngày trước đó') +
     stat('Tháng ' + r.mN + ' đến nay', '01 – ' + dshort(r.y), r.m, r.pm, 'so với cùng kỳ tháng ' + r.pmN + ' (' + dshort(r.pms) + ' – ' + dshort(r.pme) + ')') +
