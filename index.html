@@ -1837,7 +1837,9 @@ function admApartNote(f) {
 /* File tuyển sinh đã cũ: lead và chi tiêu chỉ tính đến ngày tải file nên không chạy trước số đăng ký. Trả về câu cảnh báo hoặc ''. */
 function admStale(x, sum) {
   var n = x.w && x.w.staleDays; if (n == null || n <= 3) return '';
-  return 'File tuyển sinh cập nhật ' + int(n) + ' ngày trước (' + (admWhen(sum) || 'chưa rõ') + '); lead và chi tiêu Facebook chỉ tính đến ' + dshort(x.w.uploaded) + ' để cùng mốc với số đăng ký.';
+  var up = x.w.uploaded, head = 'File tuyển sinh cập nhật ' + int(n) + ' ngày trước (' + (admWhen(sum) || 'chưa rõ') + ')';
+  if (x.w.atUpload) return head + '; lead và chi tiêu Facebook chỉ tính đến ' + dshort(x.e) + ' để cùng mốc với số đăng ký.';
+  return head + '; đăng ký và đóng phí trong file chỉ đến ' + dshort(up) + (x.e > up ? ', còn lead và chi tiêu Facebook tính đến ' + dshort(x.e) + ' nên tỷ lệ có thể thấp hơn thực tế' : '; học sinh đăng ký hoặc đóng phí thêm sau ngày đó chưa được tính') + '.';
 }
 function admUploadHtml() {
   if (!(S.editor && typeof WEB !== 'undefined' && WEB && WEB.user)) return '';
@@ -1850,11 +1852,18 @@ function admPeriodLabel(x, p) {
   return 'Mùa tuyển sinh ' + (x.sum.season || '') + ' · số tích luỹ: lead và chi tiêu Facebook từ ' + dlong(x.s) + ' đến ' + dshort(x.e) + ', đăng ký và đóng phí theo file tuyển sinh' + (admWhen(x.sum) ? ' cập nhật ' + admWhen(x.sum) : '');
 }
 /* Những điều cần biết về chất lượng file, dùng cho thông báo sau khi tải, hộp xác nhận và ghi chú cuối trang. */
-function admNotes(sum) {
+function admNotes(sum, upload) { // upload = true: thêm các cảnh báo về mùa tuyển sinh (khi đã lưu, trang có thông báo riêng)
   var ck = sum.checks || {}, n = sum.total.reg, w = [];
-  if (ck.paidTabsSkipped && ck.paidTabsSkipped.length) w.push('không dùng tab ' + ck.paidTabsSkipped.join(', ') + ' (không đọc được, hoặc là tab của mùa khác: tab ĐP phải có cột MDT và mã mùa trong tên, ví dụ 2728, trùng mùa của tab Danh sách đăng ký)');
+  if (upload) {
+    var w0 = FBAdm.windowOf(sum, T(), T(), T());
+    if (!sum.season) w.push('chưa đọc được mùa tuyển sinh từ tiêu đề cột Khối (ví dụ “Khối 27 28”) nên lead tính từ 01/08 của mùa hiện tại');
+    else if (w0.future) w.push('mùa ' + sum.season + ' ghi ở tiêu đề cột Khối chưa bắt đầu (quảng cáo tính từ ' + dlong(w0.seasonStart) + '): hãy kiểm tra năm trong tiêu đề');
+    else if (w0.seasonMismatch) w.push('phần lớn Ngày đăng ký nằm sau khi mùa ' + sum.season + ' ghi ở tiêu đề cột Khối kết thúc: hãy kiểm tra năm trong tiêu đề');
+  }
+  if (ck.paidTabsSkipped && ck.paidTabsSkipped.length) w.push('không dùng tab ' + ck.paidTabsSkipped.join(', ') + ' (không đọc được, hoặc là tab của mùa khác: tab ĐP phải có cột MDT và, nếu tên có mã mùa như 2728, mã đó phải trùng mùa của tab Danh sách đăng ký)');
   var oth = Object.keys(sum.programs).filter(function (k) { return !FBAdm.PROGRAMS.some(function (q) { return q.k === k; }); });
-  if (oth.length) w.push(int(oth.reduce(function (a, k) { return a + sum.programs[k].reg; }, 0)) + ' học sinh mang mã chương trình ngoài ' + FBAdm.PROGRAMS.map(function (q) { return q.k; }).join(', ') + ' hoặc để trống ô Chiến dịch (' + oth.map(function (k) { return k === FBAdm.UNKNOWN ? 'chưa rõ' : k; }).join(', ') + ') nên không nằm trong dòng Tổng');
+  var othExt = oth.reduce(function (a, k) { return a + sum.programs[k].reg - sum.programs[k].regInt; }, 0);
+  if (othExt > 0) w.push(int(othExt) + ' học sinh ngoài nội bộ mang mã chương trình ngoài ' + FBAdm.PROGRAMS.map(function (q) { return q.k; }).join(', ') + ' hoặc để trống ô Chiến dịch (' + oth.map(function (k) { return k === FBAdm.UNKNOWN ? 'chưa rõ' : k; }).join(', ') + ') nên không nằm trong dòng Tổng');
   if (ck.paidNotInRegistration > 0) w.push(int(ck.paidNotInRegistration) + ' học sinh trong các tab ĐP không có trong Danh sách đăng ký');
   if (ck.skippedReg > 0) w.push(int(ck.skippedReg) + ' dòng trong Danh sách đăng ký thiếu hoặc sai MDT/họ tên nên không được tính');
   if (ck.skippedPaid > 0) w.push(int(ck.skippedPaid) + ' dòng trong các tab ĐP thiếu hoặc sai MDT nên không được tính');
@@ -1939,7 +1948,7 @@ function admissionsView(sec) {
       : 'Tab Danh sách đăng ký chưa có cột <b>Ngày đăng ký</b>' + (sum.hasPaidDate ? '' : ' (và <b>Ngày đóng phí</b>)') + ', nên đây là số tích luỹ cả mùa và không đổi theo khoảng thời gian đang chọn. Lead và chi tiêu Facebook tính ' + esc(lspan) + '. Thêm cột ngày vào sheet rồi tải lại file để xem theo tuần, tháng và so với lead, chi tiêu cùng kỳ.');
   } else if (x.outside) {
     var cv = x.w.cov;
-    html += x.w.seasonMismatch ? notice('Ngày đăng ký nằm sau hết mùa ghi trong file', 'Ngày đăng ký trong file (từ ' + esc(dlong(cv.first)) + ') đều sau khi mùa ' + esc(sum.season) + ' kết thúc (' + esc(dlong(FBAdm.seasonSpan(sum).end)) + '). Hãy kiểm tra tiêu đề cột <b>Khối</b> trong file (ví dụ “Khối 27 28” cho mùa 2027–28) rồi tải lại file.')
+    html += x.w.seasonMismatch ? notice('Ngày đăng ký nằm sau hết mùa ghi trong file', 'Ngày đăng ký trong file (từ ' + esc(dlong(cv.first)) + ') chủ yếu sau khi mùa ' + esc(sum.season) + ' kết thúc (' + esc(dlong(FBAdm.seasonSpan(sum).end)) + '). Hãy kiểm tra tiêu đề cột <b>Khối</b> trong file (ví dụ “Khối 27 28” cho mùa 2027–28) rồi tải lại file.')
       : notice('Kỳ này nằm ngoài số liệu đăng ký', cv ? 'File tuyển sinh có số đăng ký từ ' + esc(dlong(cv.first)) + ' đến ' + esc(dlong(cv.to)) + '; chọn kỳ trong khoảng này (ví dụ “Năm học” hoặc “30 ngày qua”) để xem tỷ lệ chuyển đổi.' : 'File tuyển sinh chưa có Ngày đăng ký hợp lệ trong mùa này.');
   } else {
     if (x.clipped) html += notice('Kỳ được cắt theo số liệu đăng ký', 'Lead và chi tiêu Facebook chỉ tính từ ' + esc(dlong(x.s)) + ' đến ' + esc(dlong(x.e)) + ', là khoảng file tuyển sinh có số đăng ký (file cập nhật ' + esc(admWhen(sum) || 'chưa rõ') + ').');
@@ -2003,8 +2012,8 @@ async function admUpload(file) {
     if (!r || !r.ok) { toast((r && r.error) || 'Không đọc được file.', 10000); return; }
     var v = FBAdm.validate(r.summary); // kiểm tra lại ngay trong trang trước khi gửi: chỉ số tổng hợp theo đúng cấu trúc mới đi tiếp
     if (!v.ok) { toast('File đọc được nhưng số liệu chưa hợp lệ: ' + v.error, 10000); return; }
-    var nw = v.summary, old = admSummary(), notes = admNotes(nw), days = Object.keys(nw.regByDay).sort();
-    var msg = 'Cập nhật số liệu tuyển sinh?\n\nFile mới: ' + int(nw.total.reg) + ' đăng ký, ' + int(nw.total.paid) + ' đã đóng phí.' + (days.length ? '\nNgày đăng ký trong file: từ ' + dlong(days[0]) + ' đến ' + dlong(days[days.length - 1]) + '.' : '') + (old ? '\nĐang có' + (admWhen(old) ? ' (cập nhật ' + admWhen(old) + ')' : '') + ': ' + int(old.total.reg) + ' đăng ký, ' + int(old.total.paid) + ' đã đóng phí.' : '');
+    var nw = v.summary, old = admSummary(), notes = admNotes(nw, true), days = Object.keys(nw.regByDay).sort();
+    var msg = 'Cập nhật số liệu tuyển sinh?\n\nFile mới: ' + int(nw.total.reg) + ' đăng ký, ' + int(nw.total.paid) + ' đã đóng phí. Mùa tuyển sinh: ' + (nw.season || 'chưa đọc được') + '.' + (days.length ? '\nNgày đăng ký trong file: từ ' + dlong(days[0]) + ' đến ' + dlong(days[days.length - 1]) + '.' : '') + (old ? '\nĐang có' + (admWhen(old) ? ' (cập nhật ' + admWhen(old) + ')' : '') + ': ' + int(old.total.reg) + ' đăng ký, ' + int(old.total.paid) + ' đã đóng phí.' : '');
     if (old && (nw.total.reg < old.total.reg * 0.9 || nw.total.paid < old.total.paid * 0.9)) msg += '\n\nCẢNH BÁO: số trong file mới ít hơn đáng kể so với số đang có. Hãy chắc chắn đây là file mới nhất.';
     if (notes.length) msg += '\n\nLưu ý: ' + notes.join('; ') + '.';
     if (!window.confirm(msg)) { toast('Đã huỷ, chưa thay đổi số liệu.', 5000); return; }

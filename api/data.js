@@ -10,8 +10,12 @@ async function checkedAdmissions(docs) {
   if (!docs.admissions) return docs;
   await import('../admissions.js');
   const raw = docs.admissions, v = globalThis.FBAdm.validate(raw), next = Object.assign({}, docs);
-  if (v.ok) next.admissions = Object.assign({}, v.summary, { uploadedAt: typeof raw.uploadedAt === 'string' ? raw.uploadedAt : null, by: typeof raw.by === 'string' ? raw.by : null });
-  else delete next.admissions;
+  if (v.ok) {
+    // uploadedAt và by do máy chủ ghi: chỉ nhận đúng dạng (giờ ISO, một địa chỉ email ngắn), chuỗi khác bị bỏ
+    const at = typeof raw.uploadedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(raw.uploadedAt) && Number.isFinite(Date.parse(raw.uploadedAt)) ? raw.uploadedAt : null;
+    const by = typeof raw.by === 'string' && raw.by.length <= 100 && /^[^\s@<>"']+@[^\s@<>"']+$/.test(raw.by) ? raw.by : null;
+    next.admissions = Object.assign({}, v.summary, { uploadedAt: at, by });
+  } else { console.warn('[data] tài liệu admissions bị loại vì sai cấu trúc:', v.error); delete next.admissions; }
   return next;
 }
 export default async function handler(req, res) {

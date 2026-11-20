@@ -1,4 +1,4 @@
 {
-  "ghi_chu": "Các chỗ đã biết trong lịch sử của main, chỉ gỡ hẳn được bằng cách viết lại lịch sử (việc của chủ kho). Dạng 'mã tệp rút gọn:loại'. Không thêm chỗ mới vào đây: sửa mã hoặc xoá nhánh.",
-  "accepted": ["caa7c0da:email"]
+  "ghi_chu": "Các email đã nằm sẵn trong lịch sử của main, chỉ gỡ hẳn được bằng cách viết lại lịch sử (việc của chủ kho). Dạng 'mã tệp đầy đủ 40 ký tự:email'. Chỉ email được chấp nhận ở đây; số điện thoại và file dữ liệu thì không bao giờ. Không thêm chỗ mới: sửa mã hoặc xoá nhánh.",
+  "accepted": ["caa7c0dab88a3be3eada3eccb47bb1d2267fa57c:email"]
 }

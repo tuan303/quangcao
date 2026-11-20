@@ -108,14 +108,23 @@
     var s = fold(v).toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^TS0+(?=\d)/, 'TS');
     return s && s.length <= 8 ? s : UNKNOWN;
   }
-  /** Mã mùa bốn chữ số trong tên tab ("LỚP 6 2728 (ĐP)" → "2728"); rỗng khi không có hoặc hai năm không liên tiếp. */
+  /** Mã mùa bốn chữ số ("2728") trong tên tab hay tiêu đề cột: nhận 2728, 27-28, 27 28, 27/28, 2027-28, 2027-2028, 202728, 20272028; rỗng khi không có hoặc hai năm không liên tiếp (20–40). */
   function seasonCodeOf(text) {
-    var re = /(?:^|\D)(\d{2})(\d{2})(?!\d)/g, m, s = String(text == null ? '' : text);
-    while ((m = re.exec(s))) if ((+m[1] + 1) % 100 === +m[2]) return m[1] + m[2];
+    var s = String(text == null ? '' : text), runs = [], re = /\d+/g, m;
+    while ((m = re.exec(s))) runs.push({ v: m[0], at: m.index, end: m.index + m[0].length });
+    var ok = function (a, b) { a = +a; b = +b; return a >= 20 && a <= 40 && (a + 1) % 100 === b; };
+    var yy = function (v) { return v.length === 4 && v.slice(0, 2) === '20' ? v.slice(2) : v; };
+    for (var i = 0; i < runs.length; i++) {
+      var v = runs[i].v, nx = runs[i + 1];
+      if (v.length === 4 && ok(v.slice(0, 2), v.slice(2))) return v;
+      if (v.length === 6 && v.slice(0, 2) === '20' && ok(v.slice(2, 4), v.slice(4))) return v.slice(2);
+      if (v.length === 8 && v.slice(0, 2) === '20' && v.slice(4, 6) === '20' && ok(v.slice(2, 4), v.slice(6))) return v.slice(2, 4) + v.slice(6);
+      if (nx && /^[\s\-–\/]+$/.test(s.slice(runs[i].end, nx.at))) { var a = yy(v), b = yy(nx.v); if (a.length === 2 && b.length === 2 && ok(a, b)) return a + b; }
+    }
     return '';
   }
   function khoiLabel(v) { var m = String(v == null ? '' : v).match(/(\d{1,2})/); return m && +m[1] >= 1 && +m[1] <= 12 ? 'Khối ' + (+m[1]) : 'Khác'; }
-  function seasonOf(header) { var m = String(header || '').match(/(\d{2})\D+(\d{2})\b/); return m && +m[1] >= 20 && +m[1] <= 40 && (+m[1] + 1) % 100 === +m[2] ? '20' + m[1] + '–' + m[2] : ''; }
+  function seasonOf(header) { var c = seasonCodeOf(header); return c ? '20' + c.slice(0, 2) + '–' + c.slice(2) : ''; }
   function newCount() { return { reg: 0, regInt: 0, paid: 0, paidInt: 0 }; }
   function bump(map, key, rec) {
     var o = map[key] || (map[key] = newCount());
@@ -167,10 +176,11 @@
     if (!n) return { ok: false, error: 'Tab "Danh sách đăng ký" chưa có học sinh nào.' };
     if (c.internal == null) return { ok: false, error: 'Tab "Danh sách đăng ký" cần có cột HS nội bộ (để tách học sinh nội bộ khỏi tỷ lệ từ lead Facebook). Không đọc được cột này nên chưa cập nhật.' };
 
-    var paidSheets = {}, missing = {}, skippedTabs = (input.skipped || []).map(function (x) { return tabLabel(x, {}); }), paidDateInPaidSheet = false;
+    var paidSheets = {}, missing = {}, otherSeason = {}, skippedTabs = (input.skipped || []).map(function (x) { return tabLabel(x, {}); }), paidDateInPaidSheet = false;
     (input.paid || []).forEach(function (sh) {
       var rows = sh.rows || [], hh = findHeader(rows), code = seasonCodeOf(sh.name);
-      if (hh < 0 || (code && seasonCode && code !== seasonCode)) { skippedTabs.push(tabLabel(sh.name, {})); return; } // tab ĐP của mùa khác để lại trong file không được cộng vào mùa này
+      if (code && seasonCode && code !== seasonCode) { otherSeason[code] = 1; skippedTabs.push(tabLabel(sh.name, {})); return; } // tab ĐP của mùa khác để lại trong file không được cộng vào mùa này
+      if (hh < 0) { skippedTabs.push(tabLabel(sh.name, {})); return; }
       var cc = columnsOf(rows[hh]), mc = cc.mdt, seen = {}, cnt = 0;
       for (var i = hh + 1; i < rows.length; i++) {
         var r = rows[i];
@@ -183,7 +193,12 @@
       }
       paidSheets[tabLabel(sh.name, paidSheets)] = cnt;
     });
-    if (!Object.keys(paidSheets).length && c.paidDate == null) return { ok: false, error: 'Không đọc được tab (ĐP) nào (tên tab phải kết thúc bằng "(ĐP)" và có cột MDT) và cũng chưa có cột Ngày đóng phí, nên chưa biết học sinh nào đã đóng phí. Chưa cập nhật.' };
+    if (!Object.keys(paidSheets).length && c.paidDate == null) {
+      var oc = Object.keys(otherSeason);
+      return { ok: false, error: oc.length
+        ? 'Tab (ĐP) trong file mang mã mùa ' + oc.join(', ') + ' nhưng tiêu đề cột Khối của tab Danh sách đăng ký là mùa ' + seasonCode + ', nên không được dùng và không còn tab (ĐP) nào khác đọc được. Hãy sửa tiêu đề cột Khối hoặc đổi tên tab (ĐP) cho cùng mùa. Chưa cập nhật.'
+        : 'Không đọc được tab (ĐP) nào (tên tab phải kết thúc bằng "(ĐP)" và có cột MDT) và cũng chưa có cột Ngày đóng phí, nên chưa biết học sinh nào đã đóng phí. Chưa cập nhật.' };
+    }
     // cột "Ngày đóng phí" có giá trị cũng coi là đã đóng phí
     var hasRegDate = c.regDate != null, hasPaidDate = c.paidDate != null || paidDateInPaidSheet;
     Object.keys(students).forEach(function (id) { var s = students[id]; if (!s.paid && s.pd) s.paid = true; });
@@ -195,6 +210,9 @@
       if (hasRegDate) { if (s.rd) { bumpDay(regByDay, s.rd, s.p, s.int); if (s.paid) bumpDay(regPaidByDay, s.rd, s.p, s.int); } else regNoDate++; }
       if (s.paid && hasPaidDate) { if (s.pd) bumpDay(paidByDay, s.pd, s.p, s.int); else paidNoDate++; }
     });
+    // giới hạn của bản tổng hợp (cũng được validate() kiểm tra): báo ngay khi đọc để người tải biết cần sửa gì
+    if (Object.keys(programs).length > 12) return { ok: false, error: 'Cột Chiến dịch có ' + Object.keys(programs).length + ' giá trị khác nhau (tối đa 12). Cột này chỉ nên chứa mã chương trình (TS1, JS, TS6, TS10, HB); hãy kiểm tra có ô nào ghi chữ tự do không.' };
+    if (Object.keys(paidSheets).length > 12) return { ok: false, error: 'File có ' + Object.keys(paidSheets).length + ' tab (ĐP) (tối đa 12). Hãy bỏ các tab ĐP của mùa khác khỏi file.' };
     return {
       ok: true,
       summary: {
@@ -365,10 +383,20 @@
   /** Khoảng ngày file có số đăng ký (theo Ngày đăng ký) và ngày tải lên; null khi không có theo ngày.
    *  Bỏ qua ngày lẻ loi quá xa: sớm hơn đầu mùa hơn ba tháng hoặc sau ngày tải file (hay sau `today` khi chưa biết ngày tải), phòng khi số liệu cũ còn lẫn ngày gõ sai năm. */
   function coverage(sum, seasonStart, today) {
-    var up = vnDate(sum && sum.uploadedAt), ref = up || today || '', lo = addDays(seasonStart, -EARLY_DAYS), hi = ref ? addDays(ref, 1) : '9999-12-31';
+    var up = vnDate(sum && sum.uploadedAt), lo = addDays(seasonStart, -EARLY_DAYS), hi = up || today || '9999-12-31';
     var days = Object.keys(sum && sum.regByDay || {}).filter(function (d) { return d >= lo && d <= hi; }).sort(); if (!days.length) return null;
     var first = days[0], last = days[days.length - 1];
-    return { first: first, last: last, uploaded: up, from: first < seasonStart ? first : seasonStart, to: up && up > last ? up : last };
+    return { first: first, last: last, uploaded: up, from: first < seasonStart ? first : seasonStart, to: up || last }; // lead chỉ chạy đến ngày tải file, không dài hơn vì một ô ghi ngày mai
+  }
+  /** Tỷ lệ học sinh có Ngày đăng ký sau hết mùa `end` (trong khoảng `cov`): từ một nửa trở lên nghĩa là tiêu đề cột Khối ghi nhầm năm. */
+  function lateShare(sum, end, cov) {
+    var all = 0, late = 0;
+    Object.keys(sum.regByDay || {}).forEach(function (d) {
+      if (d < cov.first || d > cov.last) return;
+      var n = 0, m = sum.regByDay[d]; Object.keys(m).forEach(function (p) { n += m[p][0] + m[p][1]; });
+      all += n; if (d > end) late += n;
+    });
+    return all ? late / all : 0;
   }
   /**
    * Khoảng thời gian dùng cho lead, chi tiêu Facebook và đếm tuyển sinh. Lead và chi tiêu luôn chỉ tính đến ngày file tuyển sinh được tải lên,
@@ -388,11 +416,13 @@
       var e = up && up >= seasonStart && up < seasonEnd ? up : seasonEnd;
       return Object.assign(base, { s: seasonStart, e: e, outside: false, clipped: false, atUpload: e !== seasonEnd });
     }
-    var cov = coverage(sum, seasonStart, today), mismatch = !!(cov && span && cov.first > span.end); // mọi ngày đăng ký đều sau hết mùa ghi ở tiêu đề: nhiều khả năng quên đổi tiêu đề cột Khối
+    var cov = coverage(sum, seasonStart, today);
+    // phần lớn ngày đăng ký nằm sau hết mùa ghi ở tiêu đề: nhiều khả năng quên đổi tiêu đề cột Khối; báo cho mọi kỳ thay vì hiện số 0
+    if (cov && span && lateShare(sum, span.end, cov) >= 0.5) return Object.assign(base, { s: since, e: e0, outside: true, clipped: false, cov: cov, seasonMismatch: true });
     if (cov && span && cov.to > span.end) cov = Object.assign({}, cov, { to: span.end });
-    if (!cov || e0 < cov.from || since > cov.to) return Object.assign(base, { s: since, e: e0, outside: true, clipped: false, cov: cov, seasonMismatch: mismatch });
+    if (!cov || e0 < cov.from || since > cov.to) return Object.assign(base, { s: since, e: e0, outside: true, clipped: false, cov: cov });
     var s = since < cov.from ? cov.from : since, e2 = e0 > cov.to ? cov.to : e0;
-    return Object.assign(base, { s: s, e: e2, outside: false, clipped: s !== since || e2 !== e0, cov: cov });
+    return Object.assign(base, { s: s, e: e2, outside: false, clipped: s !== since || e2 !== e0, atUpload: e2 < e0 && !!up && e2 === up, cov: cov });
   }
   function ratio(a, b, min) { return b >= (min == null ? MIN_BASE : min) && b > 0 ? a / b : null; }
 
@@ -462,7 +492,7 @@
         'Đã đóng phí (ĐP) = học sinh có trong các tab (ĐP) của file DATA TUYỂN SINH. "external" là học sinh bên ngoài; học sinh nội bộ (đang học ở trường) được tách riêng vì không đến từ quảng cáo.',
         'Số đăng ký có thể đến cả từ nguồn ngoài Facebook (giới thiệu, sự kiện…), nên tỷ lệ lead → đăng ký/ĐP là ước tính gộp và cost_per_paid thấp hơn thực tế nếu một phần học sinh không đến từ Facebook.',
         'Chương trình ghép với chiến dịch Facebook theo tên chiến dịch: TS1, JS, TS6, TS10; HB là chiến dịch có chữ học bổng/HB mà chưa mang mã TS. Chiến dịch khác nằm ở fb_*_other_programs, không vào tỷ lệ. Học sinh mang mã chương trình khác hoặc để trống ô Chiến dịch nằm ở programs_not_in_total và không cộng vào total.',
-        'Lead và chi tiêu Facebook chỉ tính đến ngày tải file tuyển sinh (file càng cũ thì số đăng ký càng chưa theo kịp lead mới)' + (age != null && age > 3 ? '; file này cập nhật ' + age + ' ngày trước' : '') + '.',
+        'Số đăng ký và đóng phí trong file tính đến ngày tải file (updated_at)' + (age != null && age > 3 ? '; file này cập nhật ' + age + ' ngày trước nên số đăng ký có thể chưa theo kịp lead mới' : '') + '. Khi lead và chi tiêu Facebook bị cắt về ngày đó cho cùng mốc thì khối số liệu tương ứng có ghi chú.',
         mode === 'dated'
           ? 'Theo kỳ: nhóm học sinh đăng ký trong kỳ và số em trong nhóm đã đóng phí tính đến nay; học sinh đăng ký gần đây có thể chưa kịp đóng phí.' + (ck.regNoDate > 0 ? ' ' + ck.regNoDate + ' học sinh chưa có Ngày đăng ký nên không nằm trong số theo kỳ.' : '')
           : 'Số tuyển sinh là tích luỹ cả mùa' + (sum.hasRegDate ? ' (cột Ngày đăng ký mới có ở ' + Math.round((ds || 0) * 100) + '% học sinh, chưa đủ 90% để xem theo kỳ)' : ' (file chưa có cột Ngày đăng ký)') + '; lead và chi tiêu Facebook tính từ đầu mùa.'
