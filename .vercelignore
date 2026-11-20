@@ -1,0 +1,6 @@
+# không cần phục vụ ra web: mã kiểm thử, công cụ chạy trên máy quản trị, tài liệu
+scripts
+tools
+README.md
+firebase.json
+firestore.rules

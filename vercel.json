@@ -25,7 +25,7 @@
       ]
     },
     {
-      "source": "/(index.html|fbads-core.js|benchmarks.js|admissions.js|config.js)?",
+      "source": "/(index.html|fbads-core.js|benchmarks.js|admissions.js|admissions-worker.js|config.js)?",
       "headers": [ { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" } ]
     }
   ]

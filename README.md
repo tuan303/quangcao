@@ -140,20 +140,23 @@ Nút **Sao chép gửi Zalo** chép bản chữ để dán vào Zalo hoặc emai
 
 Thẻ này cho thấy lead quảng cáo Facebook trở thành học sinh đăng ký và học sinh đã đóng phí (ĐP) ra sao, theo từng chương trình (TS1, JS, TS6, TS10, HB), theo khối và theo thời gian. Số liệu tuyển sinh lấy từ file **DATA TUYỂN SINH** (Google Sheets).
 
-**Cách cập nhật** (chỉ tài khoản quản trị): tải file về từ Google Sheets (Tệp → Tải xuống → Microsoft Excel), vào thẻ Chuyển đổi, bấm **Tải file tuyển sinh (.xlsx)**. Trình duyệt đọc file, tính số tổng hợp rồi gửi lên; tên, ngày sinh, số điện thoại không rời khỏi máy và máy chủ từ chối mọi trường ngoài cấu trúc số tổng hợp. Mỗi lần tải thay thế lần trước.
+**Cách cập nhật** (chỉ tài khoản quản trị): tải file về từ Google Sheets (Tệp → Tải xuống → Microsoft Excel), vào thẻ Chuyển đổi, bấm **Tải file tuyển sinh (.xlsx)**. File được đọc ngay trong trình duyệt, ở một luồng riêng tách khỏi trang; chỉ số tổng hợp được gửi lên, tên, ngày sinh, số điện thoại không rời khỏi máy và máy chủ từ chối mọi trường ngoài cấu trúc số tổng hợp. Trước khi lưu, trang hiện hộp xác nhận so số mới với số đang có và nêu các lưu ý về file (dòng bị bỏ, tab không đọc được, cột ngày chưa đủ). Mỗi lần tải thay thế lần trước. Chỉ đọc được .xlsx.
 
 **Trang đọc những gì**
-- Tab **Danh sách đăng ký**: cột `MDT`, `HS nội bộ`, `Khối …`, `Chiến dịch` (mã chương trình). Có thêm cột `Ngày đăng ký` và `Ngày đóng phí` thì xem được theo khoảng thời gian đang chọn, có biểu đồ theo tuần/tháng và so với lead, chi tiêu cùng kỳ. Chưa có cột ngày thì là số tích luỹ cả mùa (lead Facebook tính từ đầu năm học).
-- Các tab có đuôi **(ĐP)**: học sinh có mặt ở đây là đã đóng phí, ghép với danh sách đăng ký qua `MDT`.
+- Tab **Danh sách đăng ký**: cột `MDT`, `HS nội bộ` (bắt buộc, để tách học sinh nội bộ), `Họ tên học sinh`, `Khối …`, `Chiến dịch` (mã chương trình). Học sinh nội bộ là cột này có mã. Thêm cột **Ngày đăng ký** (và **Ngày đóng phí**, không bắt buộc) thì xem được theo khoảng thời gian đang chọn, có biểu đồ theo tuần/tháng và so với lead, chi tiêu cùng kỳ. Ô ngày có thể là ô ngày của Excel hoặc chữ dd/mm/yyyy, dd/mm/yy, yyyy-mm-dd; ngày không có thật hoặc năm ngoài 2020–2040 tính là chưa có ngày. **Chỉ khi từ 90% học sinh có Ngày đăng ký đọc được** thì trang mới xem theo kỳ; ít hơn thì là số tích luỹ cả mùa và trang nói rõ vì sao.
+- Các tab có đuôi **(ĐP)**: học sinh có mặt ở đây là đã đóng phí, ghép với danh sách đăng ký qua `MDT` (cột MDT có thể ở bất kỳ cột nào). Tab có chữ ĐP nhưng không kết thúc bằng "(ĐP)" hoặc không có cột MDT được báo là không đọc được.
+- Dòng thiếu hoặc sai MDT/họ tên không được tính nhưng được đếm và báo.
 
 **Cách tính**
-- Học sinh nội bộ (cột `HS nội bộ` có mã) được tách riêng và không tính vào tỷ lệ từ lead Facebook.
-- Chương trình ghép với chiến dịch Facebook theo tên chiến dịch: tiền tố `TS10`, `TS6`, `TS1`, `JS` (hoặc “Jolly”); chiến dịch có chữ “học bổng” hoặc “HB” mà chưa có mã TS tính cho HB. Chiến dịch khác (thương hiệu, trại hè…) hiện riêng, không vào tỷ lệ.
-- Lead → đăng ký → ĐP = học sinh ngoài nội bộ ÷ lead Facebook của chương trình. Chi phí / đăng ký và chi phí / ĐP = chi tiêu Facebook của chương trình ÷ số học sinh tương ứng. Đăng ký có thể đến cả từ nguồn ngoài Facebook nên đây là ước tính gộp; tỷ lệ trên 100% nghĩa là có đăng ký đến từ nguồn khác.
-- Khi có cột `Ngày đăng ký`: lấy nhóm học sinh đăng ký trong kỳ rồi xem bao nhiêu em trong nhóm đã đóng phí tính đến nay. Học sinh mới đăng ký có thể chưa kịp đóng phí nên kỳ gần nhất thấp hơn thực tế.
-- Dưới 10 học sinh hoặc lead thì không tính phần trăm.
+- Học sinh nội bộ được tách riêng và không tính vào tỷ lệ từ lead Facebook. Học sinh để trống ô Chiến dịch hiện riêng ở "Chưa rõ chương trình" và không cộng vào Tổng.
+- Chương trình ghép với chiến dịch Facebook theo tên chiến dịch: mã `TS10`, `TS6`, `TS1`, `JS` (hoặc "Jolly") đứng gần đầu tên thắng, chịu được "TS 6", "TS-6"; chiến dịch mang hai mã TS khác nhau (nhiều khối) để ở "chưa ghép"; chiến dịch có chữ "học bổng" hoặc "HB" mà chưa có mã nào tính cho HB. Chiến dịch khác (thương hiệu, trại hè…) hiện riêng, không vào tỷ lệ.
+- Lead → đăng ký → ĐP = học sinh ngoài nội bộ ÷ lead Facebook của chương trình. Chi phí / đăng ký và chi phí / ĐP = chi tiêu Facebook của chương trình ÷ số học sinh tương ứng. Đăng ký có thể đến cả từ nguồn ngoài Facebook nên đây là ước tính gộp; tỷ lệ trên 100% nghĩa là có đăng ký đến từ nguồn khác (có dấu * và không dùng để xếp hạng).
+- Khi xem theo kỳ: lấy nhóm học sinh đăng ký trong kỳ rồi xem bao nhiêu em trong nhóm đã đóng phí tính đến nay. Học sinh mới đăng ký có thể chưa kịp đóng phí nên kỳ gần nhất thấp hơn thực tế. Lead và chi tiêu Facebook chỉ tính trong khoảng file có số đăng ký (từ đầu mùa đến ngày tải file); kỳ nằm ngoài khoảng đó thì trang báo, không hiện số 0.
+- Số tích luỹ cả mùa: lead và chi tiêu Facebook tính từ 01/08 của năm trước mùa trong file (mùa 2027–28 → từ 01/08/2026), đăng ký và đóng phí theo file.
+- Thẻ này luôn tính chung các tài khoản tuyển sinh, không theo bộ lọc tài khoản ở thanh trên.
+- Dưới 10 học sinh hoặc lead thì không tính phần trăm hay xếp hạng.
 
-Phần Phân tích của Claude và Báo cáo tổng thể cũng dùng các số này khi đã có file tuyển sinh. Thư viện đọc Excel (SheetJS 0.18.5, bản mini) nằm trong `vendor/`, chỉ tải khi quản trị bấm tải file.
+Phần Phân tích của Claude và Báo cáo tổng thể cũng dùng các số này khi đã có file tuyển sinh. Thư viện đọc Excel (SheetJS 0.18.5, bản mini) nằm trong `vendor/` và chạy trong luồng riêng `admissions-worker.js` (hết 90 giây thì dừng), chỉ tải khi quản trị bấm tải file; kết quả trả về được kiểm tra lại bằng `validate()` trước khi gửi. Bản 0.18.5 có hai lỗi đã biết khi đọc file được làm riêng (treo khi đọc, ô nhiễm prototype); vì file do chính quản trị chọn và chạy tách khỏi trang nên rủi ro thấp, nhưng chỉ nên tải file xuất từ Google Sheets của trường. **Kho mã này công khai: tuyệt đối không đưa file Excel hay số liệu học sinh vào kho** (`.gitignore` đã chặn, bộ kiểm thử có phép quét số điện thoại).
 
 ## Báo cáo tổng thể (thẻ thứ hai)
 
@@ -166,14 +169,15 @@ Bản báo cáo cho Ban lãnh đạo, đọc từ trên xuống hoặc bấm **I
 2. Kết luận chính.
 3. Việc cần làm tiếp theo: của Claude nếu bản phân tích còn mới, nếu không thì gợi ý tự động; kèm cảnh báo 7 ngày gần nhất.
 4. Theo khối tuyển sinh.
-5. Mùa tuyển sinh: từng tháng so với năm học trước.
-6. Nhịp chi ngân sách tháng này.
-7. Chiến dịch và vận hành: tiền chưa ra lead, chiến dịch nổi bật, chiến dịch cần xem lại, mẫu quảng cáo ra lead rẻ.
-8. Theo tài khoản và mục tiêu quảng cáo.
-9. So với mặt bằng ngành giáo dục tại Việt Nam (30 ngày trọn gần nhất).
-10. Cách đọc số liệu.
+5. Chuyển đổi tuyển sinh: từ lead Facebook đến học sinh đã đóng phí (chỉ hiện sau khi quản trị tải file tuyển sinh và khi kỳ báo cáo nằm trong số liệu đăng ký).
+6. Mùa tuyển sinh: từng tháng so với năm học trước.
+7. Nhịp chi ngân sách tháng này.
+8. Chiến dịch và vận hành: tiền chưa ra lead, chiến dịch nổi bật, chiến dịch cần xem lại, mẫu quảng cáo ra lead rẻ.
+9. Theo tài khoản và mục tiêu quảng cáo.
+10. So với mặt bằng ngành giáo dục tại Việt Nam (30 ngày trọn gần nhất).
+11. Cách đọc số liệu.
 
-Nút **Sao chép tóm tắt** chép kết luận, việc cần làm và cảnh báo để gửi qua Zalo hoặc email. Đường link kèm theo (`#bao-cao?p=<kỳ>&a=<tài khoản>`) mở đúng kỳ và tài khoản của bản báo cáo đó.
+Nút **Sao chép tóm tắt** chép kết luận, việc cần làm, cảnh báo và (khi có file tuyển sinh) khối Chuyển đổi tuyển sinh để gửi qua Zalo hoặc email. Đường link kèm theo (`#bao-cao?p=<kỳ>&a=<tài khoản>`) mở đúng kỳ và tài khoản của bản báo cáo đó.
 
 Các ngưỡng tự động là quy ước của trang, dùng để gợi ý:
 

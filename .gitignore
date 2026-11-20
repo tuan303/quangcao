@@ -4,3 +4,10 @@ node_modules/
 !.env.example
 vercel.env
 *.env
+
+# dữ liệu thật không được đưa vào kho mã (kho công khai): file tuyển sinh, bản chụp số liệu, gói số liệu
+*.xlsx
+*.xls
+*.xlsb
+*.csv
+dev-docs.json
