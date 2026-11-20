@@ -108,20 +108,29 @@
     var s = fold(v).toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^TS0+(?=\d)/, 'TS');
     return s && s.length <= 8 ? s : UNKNOWN;
   }
-  /** Mã mùa bốn chữ số ("2728") trong tên tab hay tiêu đề cột: nhận 2728, 27-28, 27 28, 27/28, 2027-28, 2027-2028, 202728, 20272028; rỗng khi không có hoặc hai năm không liên tiếp (20–40). */
-  function seasonCodeOf(text) {
+  /** Mã mùa bốn chữ số ("2728") trong tên tab hay tiêu đề cột, mùa 2025–26 đến 2036–37. Nhận 2027-2028, 2027-28, 202728, 20272028 (tin cậy cao), 2728 liền (trung bình)
+   *  và cặp trần 27 28, 27-28, 27.28, 27/28, 27—28… (thấp: dấu ngăn là 1–4 ký tự không phải chữ hay số). Nhiều ứng viên: lấy loại tin cậy cao hơn, cùng loại thì lấy cái đứng sau.
+   *  strict (tên tab): cặp trần chỉ được nhận khi là nhóm số cuối cùng của tên, để "ĐP 28 29 THÁNG 9" (khoảng ngày) không bị đọc là mùa. Rỗng khi không có. */
+  function seasonCodeOf(text, strict) {
     var s = String(text == null ? '' : text), runs = [], re = /\d+/g, m;
     while ((m = re.exec(s))) runs.push({ v: m[0], at: m.index, end: m.index + m[0].length });
-    var ok = function (a, b) { a = +a; b = +b; return a >= 20 && a <= 40 && (a + 1) % 100 === b; };
+    var ok = function (a, b) { a = +a; b = +b; return a >= 25 && a <= 36 && (a + 1) % 100 === b; };
     var yy = function (v) { return v.length === 4 && v.slice(0, 2) === '20' ? v.slice(2) : v; };
+    var best = '', bestRank = 0, take = function (code, rank) { if (rank >= bestRank) { best = code; bestRank = rank; } };
     for (var i = 0; i < runs.length; i++) {
       var v = runs[i].v, nx = runs[i + 1];
-      if (v.length === 4 && ok(v.slice(0, 2), v.slice(2))) return v;
-      if (v.length === 6 && v.slice(0, 2) === '20' && ok(v.slice(2, 4), v.slice(4))) return v.slice(2);
-      if (v.length === 8 && v.slice(0, 2) === '20' && v.slice(4, 6) === '20' && ok(v.slice(2, 4), v.slice(6))) return v.slice(2, 4) + v.slice(6);
-      if (nx && /^[\s\-–\/]+$/.test(s.slice(runs[i].end, nx.at))) { var a = yy(v), b = yy(nx.v); if (a.length === 2 && b.length === 2 && ok(a, b)) return a + b; }
+      if (v.length === 8 && v.slice(0, 2) === '20' && v.slice(4, 6) === '20' && ok(v.slice(2, 4), v.slice(6))) take(v.slice(2, 4) + v.slice(6), 3);
+      else if (v.length === 6 && v.slice(0, 2) === '20' && ok(v.slice(2, 4), v.slice(4))) take(v.slice(2), 3);
+      else if (v.length === 4 && ok(v.slice(0, 2), v.slice(2))) take(v, 2);
+      if (nx && /^[^\p{L}\p{N}]{1,4}$/u.test(s.slice(runs[i].end, nx.at))) {
+        var a = yy(v), b = yy(nx.v);
+        if (a.length === 2 && b.length === 2 && ok(a, b)) {
+          if (v.length === 4 || nx.v.length === 4) take(a + b, 3);
+          else if (!strict || i + 2 >= runs.length) take(a + b, 1);
+        }
+      }
     }
-    return '';
+    return best;
   }
   function khoiLabel(v) { var m = String(v == null ? '' : v).match(/(\d{1,2})/); return m && +m[1] >= 1 && +m[1] <= 12 ? 'Khối ' + (+m[1]) : 'Khác'; }
   function seasonOf(header) { var c = seasonCodeOf(header); return c ? '20' + c.slice(0, 2) + '–' + c.slice(2) : ''; }
@@ -176,9 +185,14 @@
     if (!n) return { ok: false, error: 'Tab "Danh sách đăng ký" chưa có học sinh nào.' };
     if (c.internal == null) return { ok: false, error: 'Tab "Danh sách đăng ký" cần có cột HS nội bộ (để tách học sinh nội bộ khỏi tỷ lệ từ lead Facebook). Không đọc được cột này nên chưa cập nhật.' };
 
+    if (!seasonCode) { // không biết mùa của file mà các tab ĐP mang nhiều mã mùa khác nhau: không đoán, dừng và nói rõ
+      var tabCodes = {};
+      (input.paid || []).forEach(function (sh) { var k = seasonCodeOf(sh.name, true); if (k) tabCodes[k] = 1; });
+      if (Object.keys(tabCodes).length > 1) return { ok: false, error: 'Tiêu đề cột Khối của tab Danh sách đăng ký không ghi mùa đọc được (ví dụ "Khối 27 28"), trong khi các tab (ĐP) mang nhiều mã mùa (' + Object.keys(tabCodes).sort().join(', ') + ') nên không biết tab nào thuộc mùa này. Hãy sửa tiêu đề cột Khối hoặc bỏ các tab (ĐP) của mùa khác. Chưa cập nhật.' };
+    }
     var paidSheets = {}, missing = {}, otherSeason = {}, skippedTabs = (input.skipped || []).map(function (x) { return tabLabel(x, {}); }), paidDateInPaidSheet = false;
     (input.paid || []).forEach(function (sh) {
-      var rows = sh.rows || [], hh = findHeader(rows), code = seasonCodeOf(sh.name);
+      var rows = sh.rows || [], hh = findHeader(rows), code = seasonCodeOf(sh.name, true);
       if (code && seasonCode && code !== seasonCode) { otherSeason[code] = 1; skippedTabs.push(tabLabel(sh.name, {})); return; } // tab ĐP của mùa khác để lại trong file không được cộng vào mùa này
       if (hh < 0) { skippedTabs.push(tabLabel(sh.name, {})); return; }
       var cc = columnsOf(rows[hh]), mc = cc.mdt, seen = {}, cnt = 0;
@@ -212,7 +226,7 @@
     });
     // giới hạn của bản tổng hợp (cũng được validate() kiểm tra): báo ngay khi đọc để người tải biết cần sửa gì
     if (Object.keys(programs).length > 12) return { ok: false, error: 'Cột Chiến dịch có ' + Object.keys(programs).length + ' giá trị khác nhau (tối đa 12). Cột này chỉ nên chứa mã chương trình (TS1, JS, TS6, TS10, HB); hãy kiểm tra có ô nào ghi chữ tự do không.' };
-    if (Object.keys(paidSheets).length > 12) return { ok: false, error: 'File có ' + Object.keys(paidSheets).length + ' tab (ĐP) (tối đa 12). Hãy bỏ các tab ĐP của mùa khác khỏi file.' };
+    if (Object.keys(paidSheets).length > 20) return { ok: false, error: 'File có ' + Object.keys(paidSheets).length + ' tab (ĐP) (tối đa 20). Hãy bỏ các tab của mùa khác hoặc gộp bớt tab của mùa này.' };
     return {
       ok: true,
       summary: {
@@ -305,7 +319,7 @@
     for (i = 0; i < kk.length; i++) { if (!/^(Khối \d{1,2}|Khác)$/.test(kk[i])) return bad('Tên khối không hợp lệ.'); var ck = cleanCount(s.khoi[kk[i]]); if (!ck) return bad('Số theo khối không hợp lệ.'); out.khoi[kk[i]] = ck; }
     if (!sameCounts(sumCounts(out.programs), out.total)) return bad('Tổng theo chương trình không khớp tổng số.');
     if (!sameCounts(sumCounts(out.khoi), out.total)) return bad('Tổng theo khối không khớp tổng số.');
-    out.paidSheets = {}; var sk = Object.keys(s.paidSheets || {}); if (sk.length > 12) return bad('Quá nhiều tab ĐP (tối đa 12).');
+    out.paidSheets = {}; var sk = Object.keys(s.paidSheets || {}); if (sk.length > 20) return bad('Quá nhiều tab ĐP (tối đa 20).');
     for (i = 0; i < sk.length; i++) { if (!/^[\p{L}\p{N} ()._\-]{1,40}$/u.test(sk[i])) return bad('Tên tab ĐP không hợp lệ.'); var cnt = int0(s.paidSheets[sk[i]]); if (cnt == null) return bad('Số ĐP của tab không hợp lệ.'); out.paidSheets[sk[i]] = cnt; }
     out.rows = { reg: out.total.reg, paid: out.total.paid };
     out.hasRegDate = !!s.hasRegDate; out.hasPaidDate = !!s.hasPaidDate;
