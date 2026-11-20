@@ -1,11 +1,12 @@
 # Dashboard Quảng cáo Facebook – Trường Ngôi Sao Hoàng Mai
 
-Báo cáo quảng cáo Facebook cho Chủ tịch HĐQT và Ban Truyền thông. Trang gồm 8 thẻ:
+Báo cáo quảng cáo Facebook cho Chủ tịch HĐQT và Ban Truyền thông. Trang gồm 9 thẻ:
 
 - Tổng quan
 - Báo cáo tổng thể
 - Xu hướng
 - Khối tuyển sinh
+- Chuyển đổi
 - Chiến dịch
 - Nội dung
 - Đối tượng
@@ -23,6 +24,7 @@ Số liệu được cập nhật mỗi sáng.
 | `api/ingest.js` | Nhận số liệu do tác vụ Claude đẩy lên mỗi sáng (đã đối chiếu với tổng của Meta). |
 | `api/sync.js` | Tuỳ chọn. Khi có `META_ACCESS_TOKEN`, Vercel Cron tự lấy số liệu từ Meta mỗi sáng (gói Hobby chạy trong khoảng 05:00–06:00) và nút “Đồng bộ ngay” hiện cho quản trị. |
 | `api/insights.js` | Tuỳ chọn. Khi có `ANTHROPIC_API_KEY`, Claude tự viết phần “Phân tích & đề xuất” mỗi sáng sau đồng bộ (gói Hobby chạy trong khoảng 07:00–08:00) và quản trị bấm được “Viết phân tích ngay”. |
+| `admissions.js`, `api/admissions.js`, `vendor/xlsx.mini.min.js` | Thẻ Chuyển đổi: đọc file DATA TUYỂN SINH ngay trong trình duyệt của quản trị, chỉ gửi lên số tổng hợp (không có tên, ngày sinh, số điện thoại học sinh). |
 | `benchmarks.js` | Khoảng tham chiếu của quảng cáo ngành giáo dục, kèm nguồn và thời điểm, để so sánh khách quan ngoài so với kỳ trước. |
 
 Dự án Firebase **quangcao-9a705** chỉ phục vụ dashboard này, không dùng chung với dự án nào khác. Collection `fbads` chỉ do máy chủ đọc và ghi (firebase-admin). File `firestore.rules` chặn mọi truy cập trực tiếp từ trình duyệt.
@@ -134,6 +136,25 @@ Lịch đồng bộ trong ngày:
 
 Nút **Sao chép gửi Zalo** chép bản chữ để dán vào Zalo hoặc email gửi Chủ tịch.
 
+## Chuyển đổi tuyển sinh (thẻ Chuyển đổi)
+
+Thẻ này cho thấy lead quảng cáo Facebook trở thành học sinh đăng ký và học sinh đã đóng phí (ĐP) ra sao, theo từng chương trình (TS1, JS, TS6, TS10, HB), theo khối và theo thời gian. Số liệu tuyển sinh lấy từ file **DATA TUYỂN SINH** (Google Sheets).
+
+**Cách cập nhật** (chỉ tài khoản quản trị): tải file về từ Google Sheets (Tệp → Tải xuống → Microsoft Excel), vào thẻ Chuyển đổi, bấm **Tải file tuyển sinh (.xlsx)**. Trình duyệt đọc file, tính số tổng hợp rồi gửi lên; tên, ngày sinh, số điện thoại không rời khỏi máy và máy chủ từ chối mọi trường ngoài cấu trúc số tổng hợp. Mỗi lần tải thay thế lần trước.
+
+**Trang đọc những gì**
+- Tab **Danh sách đăng ký**: cột `MDT`, `HS nội bộ`, `Khối …`, `Chiến dịch` (mã chương trình). Có thêm cột `Ngày đăng ký` và `Ngày đóng phí` thì xem được theo khoảng thời gian đang chọn, có biểu đồ theo tuần/tháng và so với lead, chi tiêu cùng kỳ. Chưa có cột ngày thì là số tích luỹ cả mùa (lead Facebook tính từ đầu năm học).
+- Các tab có đuôi **(ĐP)**: học sinh có mặt ở đây là đã đóng phí, ghép với danh sách đăng ký qua `MDT`.
+
+**Cách tính**
+- Học sinh nội bộ (cột `HS nội bộ` có mã) được tách riêng và không tính vào tỷ lệ từ lead Facebook.
+- Chương trình ghép với chiến dịch Facebook theo tên chiến dịch: tiền tố `TS10`, `TS6`, `TS1`, `JS` (hoặc “Jolly”); chiến dịch có chữ “học bổng” hoặc “HB” mà chưa có mã TS tính cho HB. Chiến dịch khác (thương hiệu, trại hè…) hiện riêng, không vào tỷ lệ.
+- Lead → đăng ký → ĐP = học sinh ngoài nội bộ ÷ lead Facebook của chương trình. Chi phí / đăng ký và chi phí / ĐP = chi tiêu Facebook của chương trình ÷ số học sinh tương ứng. Đăng ký có thể đến cả từ nguồn ngoài Facebook nên đây là ước tính gộp; tỷ lệ trên 100% nghĩa là có đăng ký đến từ nguồn khác.
+- Khi có cột `Ngày đăng ký`: lấy nhóm học sinh đăng ký trong kỳ rồi xem bao nhiêu em trong nhóm đã đóng phí tính đến nay. Học sinh mới đăng ký có thể chưa kịp đóng phí nên kỳ gần nhất thấp hơn thực tế.
+- Dưới 10 học sinh hoặc lead thì không tính phần trăm.
+
+Phần Phân tích của Claude và Báo cáo tổng thể cũng dùng các số này khi đã có file tuyển sinh. Thư viện đọc Excel (SheetJS 0.18.5, bản mini) nằm trong `vendor/`, chỉ tải khi quản trị bấm tải file.
+
 ## Báo cáo tổng thể (thẻ thứ hai)
 
 Bản báo cáo cho Ban lãnh đạo, đọc từ trên xuống hoặc bấm **In / Lưu PDF** (khổ A4, luôn nền trắng). Báo cáo theo kỳ và tài khoản ở thanh lọc, kỳ dừng ở hết hôm qua vì hôm nay chưa trọn ngày; ba nút chọn nhanh là 7 ngày qua, Tháng trước và Năm học. Các phần, theo đúng thứ tự trên trang:
@@ -200,7 +221,8 @@ Bộ kiểm thử chạy offline với Meta API giả lập. Nó kiểm tra:
 - cách đọc trường `actions` (lead, click, tương tác, lưu, chia sẻ);
 - cách chuyển bộ lọc trạng thái và cách tự bỏ trường Meta không hỗ trợ;
 - quyền xem;
-- gói số liệu cho phân tích, cấu trúc đầu ra của Claude và phép so với mặt bằng ngành.
+- gói số liệu cho phân tích, cấu trúc đầu ra của Claude và phép so với mặt bằng ngành;
+- chuyển đổi tuyển sinh: đọc bảng, tổng hợp, ghép chương trình với chiến dịch Facebook, tỷ lệ và việc máy chủ chỉ nhận số tổng hợp.
 
 ## Lưu ý số liệu
 

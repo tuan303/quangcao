@@ -36,6 +36,10 @@ export default async function handler(req, res) {
     const pack = buildPack(C, docs, today);
     pack.benchmark_comparison = B.compare(C, C.model(docs), today, { accts: pack.accounts.filter(a => a.role !== 'recruit').map(a => a.id) });
     pack.benchmark_sources = B.sources();
+    // chuyển đổi tuyển sinh (số tổng hợp từ file DATA TUYỂN SINH), nếu quản trị đã tải lên
+    await import('../admissions.js');
+    const adm = docs.admissions && globalThis.FBAdm.validate(docs.admissions);
+    if (adm && adm.ok) pack.admissions = globalThis.FBAdm.packOf(C, C.model(docs), pack.accounts.filter(a => a.role !== 'recruit').map(a => a.id), Object.assign(adm.summary, { uploadedAt: docs.admissions.uploadedAt }), today);
 
     const { insights, usage, model } = await writeInsights(pack, { timeoutMs: TIMEOUT_MS });
     const problems = validate(insights);

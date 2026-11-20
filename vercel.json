@@ -6,6 +6,7 @@
     "api/sync.js": { "maxDuration": 300 },
     "api/insights.js": { "maxDuration": 300 },
     "api/data.js": { "maxDuration": 20 },
+    "api/admissions.js": { "maxDuration": 20 },
     "api/ingest.js": { "maxDuration": 30 }
   },
   "crons": [
@@ -24,7 +25,7 @@
       ]
     },
     {
-      "source": "/(index.html|fbads-core.js|benchmarks.js|config.js)?",
+      "source": "/(index.html|fbads-core.js|benchmarks.js|admissions.js|config.js)?",
       "headers": [ { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" } ]
     }
   ]
