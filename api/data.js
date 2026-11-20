@@ -24,6 +24,8 @@ export default async function handler(req, res) {
       const perAccount = Object.fromEntries(Object.entries(docs.meta.perAccount).map(([a, x]) => [a, Object.assign({}, x, { error: null })]));
       docs = Object.assign({}, docs, { meta: Object.assign({}, docs.meta, { perAccount }) });
     }
+    // email người tải số liệu tuyển sinh chỉ dành cho quản trị
+    if (who.role !== 'admin' && docs.admissions && docs.admissions.by) docs = Object.assign({}, docs, { admissions: Object.assign({}, docs.admissions, { by: null }) });
     send(res, 200, { ok: true, docs, me: { email: who.email, role: who.role }, sync: { meta: !!String(process.env.META_ACCESS_TOKEN || '').trim(), ai: !!String(process.env.ANTHROPIC_API_KEY || '').trim() } });
   } catch (e) {
     console.error('[data]', e);

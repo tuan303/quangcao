@@ -154,6 +154,10 @@ main{padding-block:20px 40px}
 @media (max-width:1180px){.dgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:640px){.dgrid{grid-template-columns:1fr}}
 .dstat.today{border-style:dashed}
+.adm-up{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 14px}
+.adm-up .ts{color:var(--muted);font-size:12px;max-width:70ch}
+.adm-tbl th .ts,.adm-tbl td .ts{display:block;font-weight:400;font-size:11px;color:var(--muted);white-space:normal}
+.rep-line{margin:0 0 10px;font-size:14px;line-height:1.55}
 .dstat{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface-2);min-width:0}
 .dstat .l{font-size:13px;font-weight:600;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .dstat .l>span{font-weight:400;color:var(--muted);font-size:12px}
@@ -517,6 +521,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
       <button class="tab" role="tab" data-tab="report" aria-selected="false">Báo cáo tổng thể</button>
       <button class="tab" role="tab" data-tab="trend" aria-selected="false">Xu hướng</button>
       <button class="tab" role="tab" data-tab="segments" aria-selected="false">Khối tuyển sinh</button>
+      <button class="tab" role="tab" data-tab="admissions" aria-selected="false">Chuyển đổi</button>
       <button class="tab" role="tab" data-tab="campaigns" aria-selected="false">Chiến dịch</button>
       <button class="tab" role="tab" data-tab="content" aria-selected="false">Nội dung</button>
       <button class="tab" role="tab" data-tab="audience" aria-selected="false">Đối tượng</button>
@@ -538,6 +543,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
   <section data-view="report" hidden></section>
   <section data-view="trend" hidden></section>
   <section data-view="segments" hidden></section>
+  <section data-view="admissions" hidden></section>
   <section data-view="campaigns" hidden></section>
   <section data-view="content" hidden></section>
   <section data-view="audience" hidden></section>
@@ -559,6 +565,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
 <script src="config.js"></script>
 <script src="fbads-core.js" charset="utf-8"></script>
 <script src="benchmarks.js" charset="utf-8"></script>
+<script src="admissions.js" charset="utf-8"></script>
 <script>
 (function () {
 'use strict';
@@ -860,8 +867,8 @@ function deltaHtml(k, cur, prev, short) {
 /* ---------------- data helpers ---------------- */
 function tot(s, e) { return C.totals(S.mdl, acctIds(), s, e); }
 function grainFor(p) { if (S.grain !== 'auto') return S.grain; var n = D.diffDays(p.s, p.e) + 1; return n <= 62 ? 'day' : n <= 200 ? 'week' : 'month'; }
-function seriesRows(p, grain) {
-  return C.series(S.mdl, acctIds(), p.s, p.e, grain).map(function (r) {
+function seriesRows(p, grain, ids) {
+  return C.series(S.mdl, ids || acctIds(), p.s, p.e, grain).map(function (r) {
     var lab = grain === 'month' ? mlabel(r.key) : grain === 'week' ? dshort(r.from) : dshort(r.key);
     var tt = grain === 'month' ? 'Tháng ' + (+r.key.slice(5, 7)) + '/' + r.key.slice(0, 4) : grain === 'week' ? 'Tuần ' + dlong(r.from) + ' – ' + dlong(r.to) : WD[D.parseISO(r.key).getUTCDay()] + ', ' + dlong(r.key);
     return { label: lab, tipTitle: tt, r: r, vals: r };
@@ -1400,12 +1407,14 @@ function report(sec) {
     '<ol class="rep-recs">' + recs.list.map(function (x) { return '<li><b>' + esc(x.t) + '</b><div>' + esc(x.d || '') + '</div>' + (x.owner || x.when || x.impact ? '<div class="m">' + (x.owner ? '<span class="chip" style="--c:var(--series)">' + esc(x.owner) + '</span>' : '') + (x.when ? '<span class="chip" style="--c:var(--c4)">' + esc(x.when) + '</span>' : '') + (x.impact ? '<span class="chip" style="--c:var(--ok)">' + esc(x.impact) + '</span>' : '') + '</div>' : '') + '</li>'; }).join('') + '</ol>' +
     (r.alerts.length ? '<h3 class="rep-h3">Cảnh báo từ số liệu 7 ngày gần nhất (' + esc(dshort(D.addDays(r.t, -7))) + '–' + esc(dshort(r.y)) + ')</h3><div class="alerts">' + r.alerts.slice(0, 3).map(function (a) { return '<div class="al">' + tone(a[0], { warn: 'Theo dõi', bad: 'Cần xử lý' }[a[0]] || 'Ghi nhận') + '<div><div class="t">' + esc(a[1]) + '</div><div class="x">' + esc(a[2]) + '</div></div></div>'; }).join('') + '</div>' : ''));
 
-  html += segCard(r) + schoolYearCard(r) + paceCard(r) + campOpsCard(r) + channelCard(r) + marketCard(r) + notesCard(r) + '</div>';
+  var adm = admReport(r);
+  html += segCard(r) + adm.html + schoolYearCard(r) + paceCard(r) + campOpsCard(r) + channelCard(r) + marketCard(r) + notesCard(r) + '</div>';
 
   S.reportText = ['BÁO CÁO TỔNG THỂ QUẢNG CÁO FACEBOOK', p.label + ' (' + dlong(p.s) + ' – ' + dlong(p.e) + ') · ' + opt.label, 'Trường TH, THCS & THPT Ngôi Sao Hoàng Mai · Số liệu Meta đến hết ' + dlong(r.y)]
     .concat(warn.length ? ['Lưu ý: ' + warn.join(' ')] : [], verdict && verdict.kind ? ['Đánh giá tự động (theo chi phí/lead): ' + verdict.label] : [], ['', 'KẾT LUẬN CHÍNH'], facts.map(function (x) { return '• ' + x; }),
       ['', recs.ai ? 'VIỆC CẦN LÀM TIẾP THEO (theo phân tích của Claude, ' + (recs.ai.periodLabel || '30 ngày gần nhất') + ')' : 'VIỆC CẦN LÀM TIẾP THEO'], recs.list.map(function (x, i) { return (i + 1) + '. ' + x.t + (x.owner ? ' (' + x.owner + ')' : ''); }),
       r.alerts.length ? ['', 'CẢNH BÁO 7 NGÀY GẦN NHẤT'].concat(r.alerts.slice(0, 3).map(function (a) { return '• ' + a[1]; })) : [],
+      adm.lines.length ? ['', 'CHUYỂN ĐỔI TUYỂN SINH'].concat(adm.lines) : [],
       ['', leadDef(r), 'Xem đầy đủ: ' + location.origin + '/#bao-cao?p=' + encodeURIComponent(S.period) + '&a=' + encodeURIComponent(S.acct)]).join('\n');
   sec.innerHTML = html;
 }
@@ -1428,6 +1437,23 @@ function segCard(r) {
       (diff > 0.02 ? ' Tổng theo chiến dịch lệch ' + pct(diff, 0) + ' so với tổng tài khoản ở đầu báo cáo.' : '') + (r.matApprox ? ' Một số chiến dịch chỉ có số theo tháng nên số trong kỳ được ước tính theo chi tiêu từng ngày của tài khoản.' : '') + ' Chi phí/lead chỉ tính chiến dịch thu lead.' + '</p>'
     : '<div class="empty">' + (c.spend > 0 ? 'Chưa có số liệu theo chiến dịch cho kỳ này.' : 'Không có chi tiêu trong kỳ.') + '</div>';
   return repCard('Theo khối tuyển sinh', 'Khối nhận diện từ tên chiến dịch. Mỗi khối có chỉ tiêu và thị trường riêng: so chi phí/lead của một khối với chính nó qua các kỳ, không so giữa các khối.' + (arrows ? ' Mũi tên so với ' + esc(p.cmp) + '.' : r.cmpOk ? ' Kỳ trước chỉ có số theo tháng nên không so theo khối.' : ''), body, 'rep-break', 'segments');
+}
+/* Thẻ Chuyển đổi tuyển sinh trong Báo cáo tổng thể: chỉ có khi quản trị đã tải file tuyển sinh */
+function admReport(r) {
+  var sum = admSummary(); if (!sum) return { html: '', lines: [] };
+  var x = admCompute(sum, r.p), f = x.f, t = f.total;
+  if (!(t.leads > 0 || t.regExt > 0 || t.paidExt > 0)) return { html: '', lines: [] };
+  var show = f.rows.concat(f.extra);
+  var body = '<p class="rep-line">Lead Facebook <b>' + int(t.leads) + '</b> → đăng ký <b>' + int(t.regExt) + '</b>' + (t.leadToReg != null ? ' (' + pct(t.leadToReg, 1) + ' lead)' : '') + ' → đã đóng phí (ĐP) <b>' + int(t.paidExt) + '</b>' + (t.regToPaid != null ? ' (' + pct(t.regToPaid, 1) + ' số đăng ký' + (t.leadToPaid != null ? ', ' + pct(t.leadToPaid, 1) + ' lead' : '') + ')' : '') + '. ' +
+      (t.costPerPaid != null ? 'Chi phí quảng cáo cho mỗi học sinh đã đóng phí: <b>' + mny(t.costPerPaid) + '</b>.' : '') + '</p>' +
+    '<div class="tbl-wrap"><table class="rep-tbl adm-tbl"><thead><tr><th>Chương trình</th><th class="r">Lead</th><th class="r">Đăng ký</th><th class="r">ĐP</th><th class="r">Lead → ĐP</th><th class="r">Chi phí / ĐP</th></tr></thead><tbody>' +
+    show.map(function (q) { return '<tr><td>' + esc(q.label) + '<span class="ts">' + esc(q.k) + '</span></td><td class="r">' + int(q.leads) + '</td><td class="r">' + int(q.regExt) + '</td><td class="r"><b>' + int(q.paidExt) + '</b></td><td class="r">' + admRatio(q.leadToPaid) + '</td><td class="r">' + (q.costPerPaid != null ? mny(q.costPerPaid) : '—') + '</td></tr>'; }).join('') +
+    '<tr class="tot"><td><b>Tổng</b></td><td class="r">' + int(t.leads) + '</td><td class="r">' + int(t.regExt) + '</td><td class="r"><b>' + int(t.paidExt) + '</b></td><td class="r">' + admRatio(t.leadToPaid) + '</td><td class="r">' + (t.costPerPaid != null ? mny(t.costPerPaid) : '—') + '</td></tr></tbody></table></div>' +
+    '<p class="note-s">' + (x.mode === 'dated' ? 'Nhóm học sinh đăng ký trong kỳ; học sinh mới đăng ký có thể chưa kịp đóng phí. ' : 'Số tích luỹ cả mùa ' + esc(sum.season || '') + ' (lead Facebook từ ' + esc(dshort(x.s)) + '), không đổi theo kỳ đang chọn. ') +
+      'Không tính học sinh nội bộ (' + int(t.regInt) + ' đăng ký, ' + int(t.paidInt) + ' đã đóng phí). Đăng ký có thể đến cả từ nguồn ngoài Facebook nên tỷ lệ là ước tính gộp.</p>';
+  var lines = ['Lead Facebook → đăng ký → đã đóng phí (ĐP), ngoài học sinh nội bộ: ' + int(t.leads) + ' → ' + int(t.regExt) + ' → ' + int(t.paidExt) + (t.leadToPaid != null ? ' (' + pct(t.leadToPaid, 1) + ' lead)' : '') + (t.costPerPaid != null ? '; chi phí/ĐP ' + mny(t.costPerPaid) : '') + '.']
+    .concat(show.filter(function (q) { return q.leads > 0 || q.regExt > 0; }).map(function (q) { return '• ' + q.k + ': lead ' + int(q.leads) + ' → đăng ký ' + int(q.regExt) + ' → ĐP ' + int(q.paidExt) + (q.costPerPaid != null ? '; chi phí/ĐP ' + mny(q.costPerPaid) : ''); }));
+  return { html: repCard('Chuyển đổi tuyển sinh', 'Từ lead Facebook đến học sinh đã đóng phí (ĐP) · ' + esc(admPeriodLabel(x, r.p)), body, 'rep-break', 'admissions'), lines: lines };
 }
 function schoolYearCard(r) {
   var t = r.t, y = r.y, sy = D.schoolYearStart(t);
@@ -1757,6 +1783,146 @@ function themeBlock(list) {
   return h + '</tbody></table></div></div>';
 }
 
+/* ---------------- view: admissions (chuyển đổi tuyển sinh) ---------------- */
+var xlsxP = null;
+function loadXlsx() { // thư viện đọc Excel chỉ tải khi quản trị bấm tải file
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!xlsxP) xlsxP = new Promise(function (ok, no) {
+    var el = document.createElement('script'); el.src = 'vendor/xlsx.mini.min.js';
+    el.onload = function () { if (window.XLSX) ok(window.XLSX); else { xlsxP = null; no(new Error('Không tải được thư viện đọc Excel.')); } };
+    el.onerror = function () { xlsxP = null; no(new Error('Không tải được thư viện đọc Excel.')); };
+    document.head.appendChild(el);
+  });
+  return xlsxP;
+}
+function admSummary() { // số tổng hợp tuyển sinh đã lưu (chỉ số đếm, không có thông tin cá nhân)
+  var raw = S.docs && S.docs.admissions; if (!raw || !window.FBAdm) return null;
+  var v = FBAdm.validate(raw); if (!v.ok) return null;
+  v.summary.uploadedAt = raw.uploadedAt; v.summary.by = raw.by; return v.summary;
+}
+/* Có cả hai cột ngày: đếm theo khoảng thời gian đang chọn. Chưa có: số tích luỹ cả mùa, lead Facebook tính từ đầu năm học. */
+function admCompute(sum, p) {
+  var ids = acctOptions()[0].ids, mode = FBAdm.modeOf(sum), t = T();
+  var s = mode === 'dated' ? p.s : D.schoolYearStart(t), e = mode === 'dated' ? p.e : t;
+  if (e > t) e = t; if (s > e) s = e;
+  var fb = FBAdm.fbByProgram(C, S.mdl, ids, s, e);
+  return { sum: sum, mode: mode, s: s, e: e, fb: fb, f: FBAdm.funnel(sum, fb, s, e), ids: ids };
+}
+function admWhen(sum) {
+  if (!sum.uploadedAt) return '';
+  var d = new Date(sum.uploadedAt); if (isNaN(d)) return '';
+  return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }) + ' ' + d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
+}
+function admRatio(v) { return v == null ? '<span title="Dưới ' + FBAdm.MIN_BASE + ' học sinh hoặc lead: chưa đủ để tính tỷ lệ">—</span>' : v > 1 ? '<span title="Trên 100%: một phần học sinh đến từ nguồn ngoài Facebook (giới thiệu, sự kiện…) nên đăng ký nhiều hơn lead">' + pct(v, 1) + '</span>' : pct(v, 1); }
+function admUploadHtml() {
+  if (!(S.editor && typeof WEB !== 'undefined' && WEB && WEB.user)) return '';
+  return '<div class="adm-up"><button class="btn" type="button" data-adm-upload>Tải file tuyển sinh (.xlsx)</button><input type="file" id="admFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>' +
+    '<span class="ts">Tải file DATA TUYỂN SINH về từ Google Sheets (Tệp → Tải xuống → Microsoft Excel). Trang chỉ lưu số tổng hợp, không lưu tên, ngày sinh hay số điện thoại học sinh.</span></div>';
+}
+function admPeriodLabel(x, p) { return x.mode === 'dated' ? p.label + ' (' + dshort(x.s) + ' – ' + dshort(x.e) + ')' : 'Mùa tuyển sinh ' + (x.sum.season || '') + ' · tích luỹ đến ' + dshort(x.e); }
+function admTable(x) {
+  var f = x.f, show = f.rows.concat(f.extra);
+  var th = '<th>Chương trình</th><th class="r">Lead Facebook</th><th class="r">Đăng ký<span class="ts">ngoài nội bộ</span></th><th class="r">Đã đóng phí (ĐP)<span class="ts">ngoài nội bộ</span></th><th class="r">Lead → đăng ký</th><th class="r">Đăng ký → ĐP</th><th class="r">Lead → ĐP</th><th class="r">Chi tiêu Facebook</th><th class="r">Chi phí / đăng ký</th><th class="r">Chi phí / ĐP</th><th class="r">HS nội bộ<span class="ts">đăng ký · đóng phí</span></th>';
+  var row = function (r, cls) {
+    return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td>' + (cls ? '<b>' + esc(r.label) + '</b>' : esc(r.label) + '<span class="ts">' + esc(r.k) + '</span>') + '</td><td class="r">' + int(r.leads) + '</td><td class="r">' + int(r.regExt) + '</td><td class="r"><b>' + int(r.paidExt) + '</b></td>' +
+      '<td class="r">' + admRatio(r.leadToReg) + '</td><td class="r">' + admRatio(r.regToPaid) + '</td><td class="r">' + admRatio(r.leadToPaid) + '</td><td class="r">' + (r.spend > 0 ? mshort(r.spend) : '—') + '</td><td class="r">' + (r.costPerReg != null ? mny(r.costPerReg) : '—') + '</td><td class="r">' + (r.costPerPaid != null ? '<b>' + mny(r.costPerPaid) + '</b>' : '—') + '</td><td class="r">' + int(r.regInt) + ' · ' + int(r.paidInt) + '</td></tr>';
+  };
+  return '<div class="tbl-wrap"><table class="rep-tbl adm-tbl"><thead><tr>' + th + '</tr></thead><tbody>' + show.map(function (r) { return row(r); }).join('') + row(f.total, 'tot') + '</tbody></table></div>';
+}
+function admKhoiTable(sum) {
+  var keys = Object.keys(sum.khoi).sort(function (a, b) { return (parseInt(a.replace(/\D/g, ''), 10) || 99) - (parseInt(b.replace(/\D/g, ''), 10) || 99); });
+  return '<div class="tbl-wrap"><table class="rep-tbl adm-tbl"><thead><tr><th>Khối</th><th class="r">Đăng ký<span class="ts">ngoài nội bộ</span></th><th class="r">Đã đóng phí (ĐP)<span class="ts">ngoài nội bộ</span></th><th class="r">Đăng ký → ĐP</th><th class="r">HS nội bộ<span class="ts">đăng ký · đóng phí</span></th></tr></thead><tbody>' +
+    keys.map(function (k) { var o = sum.khoi[k], re = o.reg - o.regInt, pe = o.paid - o.paidInt; return '<tr><td>' + esc(k) + '</td><td class="r">' + int(re) + '</td><td class="r"><b>' + int(pe) + '</b></td><td class="r">' + admRatio(re >= FBAdm.MIN_BASE ? pe / re : null) + '</td><td class="r">' + int(o.regInt) + ' · ' + int(o.paidInt) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+}
+function admFunnelHtml(t) {
+  var steps = [['Lead Facebook', 'các chương trình đã ghép chiến dịch', t.leads, null], ['Đăng ký', 'ngoài học sinh nội bộ', t.regExt, t.leads >= FBAdm.MIN_BASE ? pct(t.leadToReg, 1) + ' / lead' : null], ['Đã đóng phí (ĐP)', 'ngoài học sinh nội bộ', t.paidExt, t.regExt >= FBAdm.MIN_BASE ? pct(t.regToPaid, 1) + ' / đăng ký' : null]];
+  var max = Math.max.apply(null, steps.map(function (s) { return s[2] || 0; }).concat([1]));
+  return '<div class="funnel">' + steps.map(function (s, i) {
+    return '<div class="fstep' + (i === 2 ? ' lead' : '') + '"><div class="nm">' + esc(s[0]) + '<small>' + esc(s[1]) + '</small></div><div class="bar2"><i style="width:' + Math.max(1.5, 100 * (s[2] || 0) / max).toFixed(1) + '%"></i></div><div class="vv">' + int(s[2]) + (s[3] ? '<small>' + esc(s[3]) + '</small>' : '') + '</div></div>';
+  }).join('') + '</div>';
+}
+/* Nhận định tự động từ số của các chương trình có đủ số mẫu */
+function admInsights(x) {
+  var f = x.f, out = [], MIN = FBAdm.MIN_BASE, name = function (r) { return r.label + ' (' + r.k + ')'; };
+  var by = function (key, dir, pool) { return pool.filter(function (r) { return r[key] != null; }).sort(function (a, b) { return dir * (a[key] - b[key]); }); };
+  if (f.total.regExt >= MIN) out.push(['info', 'Trong ' + int(f.total.regExt) + ' học sinh đăng ký ngoài nội bộ, ' + int(f.total.paidExt) + ' em đã đóng phí (' + pct(f.total.regToPaid, 1) + ').']);
+  var lp = by('leadToPaid', -1, f.rows); if (lp.length >= 2) out.push(['info', 'Tỷ lệ lead → đóng phí cao nhất: ' + name(lp[0]) + ' ' + pct(lp[0].leadToPaid, 1) + '; thấp nhất: ' + name(lp[lp.length - 1]) + ' ' + pct(lp[lp.length - 1].leadToPaid, 1) + '.']);
+  var cp = by('costPerPaid', 1, f.rows); if (cp.length >= 2) out.push(['info', 'Chi phí quảng cáo cho mỗi học sinh đã đóng phí thấp nhất: ' + name(cp[0]) + ' ' + mny(cp[0].costPerPaid) + '; cao nhất: ' + name(cp[cp.length - 1]) + ' ' + mny(cp[cp.length - 1].costPerPaid) + '.']);
+  f.rows.filter(function (r) { return r.leads >= 50 && r.leadToReg != null && r.leadToReg < 0.1; }).forEach(function (r) { out.push(['warn', name(r) + ': ' + int(r.leads) + ' lead nhưng chỉ ' + pct(r.leadToReg, 1) + ' thành đăng ký. Nên rà soát khâu liên hệ, tư vấn sau khi có lead.']); });
+  f.rows.filter(function (r) { return r.leadToReg != null && r.leadToReg > 1; }).forEach(function (r) { out.push(['info', name(r) + ': số đăng ký ngoài nội bộ nhiều hơn lead Facebook, nghĩa là một phần học sinh đến từ nguồn khác (giới thiệu, sự kiện, tìm kiếm…).']); });
+  f.rows.filter(function (r) { return r.regInt + r.regExt >= MIN && r.regInt / (r.regInt + r.regExt) > 0.5; }).forEach(function (r) { out.push(['info', name(r) + ': ' + int(r.regInt) + ' trên ' + int(r.regInt + r.regExt) + ' đăng ký là học sinh nội bộ nên các tỷ lệ từ lead Facebook chỉ tính phần học sinh bên ngoài (' + int(r.regExt) + ' em).']); });
+  return out.slice(0, 6);
+}
+function admissionsView(sec) {
+  var sum = admSummary(), head = '<div class="sec-title">Chuyển đổi tuyển sinh</div>';
+  if (!sum) {
+    sec.innerHTML = head + '<p class="sec-sub">Từ lead quảng cáo Facebook đến học sinh đăng ký và đã đóng phí (ĐP).</p><div class="card">' + admUploadHtml() +
+      '<div class="empty">Chưa có số liệu tuyển sinh. ' + (S.editor ? 'Tải file DATA TUYỂN SINH (Excel) bằng nút phía trên để xem tỷ lệ chuyển đổi.' : 'Quản trị viên cần tải file DATA TUYỂN SINH lên trang.') + '</div></div>';
+    return;
+  }
+  var p = currentPeriod(), x = admCompute(sum, p), f = x.f, t = f.total, ck = sum.checks || {}, ins = admInsights(x);
+  var html = head + '<p class="sec-sub">' + esc(admPeriodLabel(x, p)) + ' · Số tuyển sinh cập nhật ' + esc(admWhen(sum) || 'chưa rõ') + (S.editor && sum.by ? ' bởi ' + esc(sum.by) : '') + '. Lead và chi tiêu Facebook của các tài khoản tuyển sinh, ghép với chương trình theo tên chiến dịch (TS1, JS, TS6, TS10, HB).</p>';
+  html += admUploadHtml();
+  if (x.mode === 'season') html += '<div class="notice" style="margin:0 0 14px"><b>Chưa có theo thời gian</b><span>Tab Danh sách đăng ký chưa có cột <b>Ngày đăng ký</b> (và <b>Ngày đóng phí</b>), nên đây là số tích luỹ cả mùa và không đổi theo khoảng thời gian đang chọn. Thêm các cột này vào sheet rồi tải lại file để xem theo tuần, tháng và so với lead, chi tiêu cùng kỳ.</span></div>';
+  var kpi = function (label, icon, val, sub, extra) { return kpiTile('adm', label, icon, val, sub, '', null, 'var(--series)', extra); };
+  html += '<div class="kpis">' +
+    kpi('Lead Facebook', ICON.user, int(t.leads) + '<small>lead</small>', f.other.leads > 0 || f.other.spend > 0 ? 'chưa ghép chương trình: ' + int(f.other.leads) + ' lead, ' + mshort(f.other.spend) : 'các chương trình đã ghép', 'lead') +
+    kpi('Đăng ký', ICON.eye, int(t.regExt) + '<small>học sinh</small>', 'ngoài nội bộ' + (t.regInt ? ' · nội bộ ' + int(t.regInt) : '')) +
+    kpi('Đã đóng phí (ĐP)', ICON.ok, int(t.paidExt) + '<small>học sinh</small>', t.regExt >= FBAdm.MIN_BASE ? pct(t.regToPaid, 1) + (x.mode === 'dated' ? ' số đăng ký của kỳ' : ' số đăng ký') + ' · còn ' + int(t.regExt - t.paidExt) + ' chưa đóng phí' : 'chưa đủ số để tính tỷ lệ', 'lead') +
+    kpi('Lead → ĐP', ICON.cursor, t.leadToPaid == null ? '—' : pct(t.leadToPaid, 1), t.leadToReg == null ? 'lead → đăng ký chưa đủ số' : 'lead → đăng ký ' + pct(t.leadToReg, 1)) +
+    kpi('Chi phí / đăng ký', ICON.tag, t.costPerReg == null ? '—' : esc(NF.format(Math.round(t.costPerReg))) + '<small>₫</small>', t.spend > 0 ? 'chi tiêu ' + mshort(t.spend) + ' ÷ ' + int(t.regExt) + ' đăng ký' : 'chưa có chi tiêu') +
+    kpi('Chi phí / ĐP', ICON.wallet, t.costPerPaid == null ? '—' : esc(NF.format(Math.round(t.costPerPaid))) + '<small>₫</small>', t.spend > 0 ? 'chi tiêu ' + mshort(t.spend) + ' ÷ ' + int(t.paidExt) + ' học sinh' : 'chưa có chi tiêu', 'lead') + '</div>';
+  html += '<div class="grid" style="margin-top:16px"><div class="card s5"><div class="card-hd"><div><h2>Phễu chuyển đổi</h2><p>Từ lead Facebook đến học sinh đã đóng phí (ĐP), không tính học sinh nội bộ.</p></div></div>' + admFunnelHtml(t) +
+    '<p class="note-s">Đăng ký có thể đến cả từ nguồn khác ngoài quảng cáo (giới thiệu, sự kiện…), nên các tỷ lệ chỉ là ước tính gộp; chi phí cho mỗi học sinh đóng phí thấp hơn thực tế nếu một phần học sinh không đến từ Facebook.</p></div>' +
+    '<div class="card s7"><div class="card-hd"><div><h2>Nhận định tự động</h2><p>Chỉ nêu khi đủ số mẫu (từ ' + FBAdm.MIN_BASE + ' học sinh hoặc lead).</p></div></div>' +
+    (ins.length ? '<div class="alerts">' + ins.map(function (a) { return '<div class="al">' + tone(a[0], { warn: 'Theo dõi', info: 'Ghi nhận' }[a[0]] || 'Ghi nhận') + '<div><div class="t">' + esc(a[1]) + '</div></div></div>'; }).join('') + '</div>' : '<div class="empty">Chưa đủ số liệu để nhận định.</div>') + '</div>';
+  html += '<div class="card s12"><div class="card-hd"><div><h2>Chuyển đổi theo chương trình</h2><p>' + esc(admPeriodLabel(x, p)) + '. Lead → ĐP = học sinh đã đóng phí ngoài nội bộ ÷ lead Facebook của chương trình.</p></div></div>' + admTable(x) +
+    (x.fb.approx ? '<p class="note-s">Kỳ không trọn tháng: lead và chi tiêu của chiến dịch cũ hơn khoảng 2 tháng được ước tính từ số theo tháng.</p>' : '') +
+    (f.other.spend > 0 || f.other.leads > 0 ? '<p class="note-s">Chưa ghép chương trình (thương hiệu, trại hè… không mang mã TS1, JS, TS6, TS10, HB): ' + int(f.other.leads) + ' lead, chi tiêu ' + mny(f.other.spend) + '. Không tính vào các tỷ lệ trên.</p>' : '') + '</div>';
+  html += '<div class="card s12"><div class="card-hd"><div><h2>Theo khối</h2><p>Số tích luỹ cả mùa' + (x.mode === 'dated' ? ', không đổi theo khoảng thời gian đang chọn' : '') + '.</p></div></div>' + admKhoiTable(sum) + '</div>';
+  if (x.mode === 'dated') html += '<div class="card s12"><div class="card-hd"><div><h2>Theo thời gian</h2><p>Lead Facebook, đăng ký và đóng phí (ngoài nội bộ) trong cùng khoảng thời gian.' + (x.sum.hasPaidDate ? '' : ' Chưa có cột Ngày đóng phí nên đóng phí được tính theo ngày đăng ký của học sinh.') + '</p></div></div><div class="chart" id="chAdm"></div></div>';
+  var warn = [];
+  if (ck.paidNotInRegistration > 0) warn.push(int(ck.paidNotInRegistration) + ' học sinh trong các tab ĐP không có trong Danh sách đăng ký (chưa tính vào chương trình).');
+  if (ck.dupMdt > 0) warn.push(int(ck.dupMdt) + ' mã MDT bị trùng trong Danh sách đăng ký (chỉ tính một lần).');
+  if (x.mode === 'dated' && ck.regNoDate > 0) warn.push(int(ck.regNoDate) + ' học sinh chưa có Ngày đăng ký.');
+  if (x.sum.hasPaidDate && ck.paidNoDate > 0) warn.push(int(ck.paidNoDate) + ' học sinh đã đóng phí nhưng chưa có Ngày đóng phí.');
+  html += '</div>' + (warn.length ? '<p class="note-s">Lưu ý khi đọc file: ' + esc(warn.join(' ')) + '</p>' : '') +
+    '<p class="note-s">Tab ĐP đã đọc: ' + esc(Object.keys(sum.paidSheets).map(function (k) { return k + ' (' + int(sum.paidSheets[k]) + ')'; }).join(', ') || 'không có') + '. Đã đóng phí (ĐP) = học sinh có mặt trong các tab (ĐP)' + (sum.hasPaidDate ? ' hoặc có Ngày đóng phí' : '') + '. Học sinh nội bộ = cột HS nội bộ có mã. Chi phí tính trên chi tiêu của toàn bộ chiến dịch mang mã chương trình đó.' + (x.mode === 'dated' ? ' Theo kỳ: lấy nhóm học sinh đăng ký trong kỳ rồi xem bao nhiêu em trong nhóm đã đóng phí tính đến nay; học sinh mới đăng ký có thể chưa kịp đóng phí nên tỷ lệ của kỳ gần nhất thấp hơn thực tế.' : '') + '</p>';
+  sec.innerHTML = html;
+  if (x.mode === 'dated') admChart(x, p);
+}
+function admChart(x, p) {
+  var el = $('#chAdm'); if (!el) return;
+  var g = grainFor(p), key = function (d) { return g === 'month' ? d.slice(0, 7) : g === 'week' ? D.addDays(d, -((D.parseISO(d).getUTCDay() + 6) % 7)) : d; };
+  var ext = function (map) { var o = {}; Object.keys(map || {}).forEach(function (d) { if (d < x.s || d > x.e) return; var a = 0; Object.keys(map[d]).forEach(function (pg) { a += map[d][pg][0]; }); o[key(d)] = (o[key(d)] || 0) + a; }); return o; };
+  var reg = ext(x.sum.regByDay), paid = ext(x.sum.hasPaidDate ? x.sum.paidByDay : x.sum.regPaidByDay);
+  var rows = seriesRows({ s: x.s, e: x.e }, g, x.ids);
+  rows.forEach(function (r) { r.vals = { leads: r.r.leads, reg: reg[r.r.key] || 0, paid: paid[r.r.key] || 0 }; });
+  panelChart(el, rows, [
+    { key: 'leads', label: 'Lead Facebook', fmt: 'int', color: 'var(--lead)', type: 'bar', h: 90 },
+    { key: 'reg', label: 'Đăng ký', fmt: 'int', color: 'var(--series)', type: 'bar', h: 90 },
+    { key: 'paid', label: x.sum.hasPaidDate ? 'Đóng phí (theo ngày đóng phí)' : 'Đã đóng phí (theo ngày đăng ký)', fmt: 'int', color: 'var(--ok)', type: 'bar', h: 90 }
+  ], { aria: 'Lead Facebook, đăng ký và đóng phí theo thời gian' });
+}
+async function admUpload(file) {
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) { toast('File quá lớn (trên 20 MB). Hãy tải đúng file DATA TUYỂN SINH.', 8000); return; }
+  toast('Đang đọc file tuyển sinh…', 6000);
+  try {
+    var X = await loadXlsx(), r = FBAdm.readWorkbook(X, await file.arrayBuffer());
+    if (!r.ok) { toast(r.error, 9000); return; }
+    var t = await WEB.user.getIdToken();
+    var res = await fetch('/api/admissions', { method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ summary: r.summary }), cache: 'no-store' });
+    var j = await res.json().catch(function () { return {}; });
+    if (!res.ok || !j.ok) { toast(j.error || 'Không lưu được số liệu tuyển sinh.', 9000); return; }
+    var c = r.summary.checks, note = [];
+    if (!r.summary.hasRegDate || !r.summary.hasPaidDate) note.push('chưa có cột Ngày đăng ký/Ngày đóng phí');
+    if (c.paidNotInRegistration) note.push(c.paidNotInRegistration + ' học sinh ĐP không có trong danh sách đăng ký');
+    toast('Đã cập nhật: ' + int(r.summary.total.reg) + ' đăng ký, ' + int(r.summary.total.paid) + ' đã đóng phí' + (note.length ? ' (' + note.join('; ') + ')' : '') + '.', 10000);
+    await webLoad(true);
+  } catch (e) { toast('Không đọc được file: ' + (e && e.message ? e.message : 'định dạng không đúng.'), 9000); }
+}
+
 /* ---------------- view: audience ---------------- */
 function audience(sec) {
   var p = currentPeriod(), ids = acctIds();
@@ -1876,16 +2042,18 @@ function ask(q) {
   }).then(function () { btn.disabled = false; });
 }
 
-var VIEWS = { overview: overview, report: report, trend: trend, segments: segments, campaigns: campaigns, content: content, audience: audience, insights: insights };
+var VIEWS = { overview: overview, report: report, trend: trend, segments: segments, admissions: admissionsView, campaigns: campaigns, content: content, audience: audience, insights: insights };
 
 /* ---------------- events ---------------- */
 $('#tabs').addEventListener('click', function (e) { var b = e.target.closest('.tab'); if (!b) return; S.tab = b.dataset.tab; store('tab', S.tab); renderAll(); window.scrollTo({ top: 0 }); });
 $('#periodSeg').addEventListener('click', function (e) { var b = e.target.closest('button'); if (!b) return; S.period = b.dataset.p; store('period', S.period); renderAll(); });
+document.addEventListener('change', function (e) { var f = e.target; if (f && f.id === 'admFile') { var file = f.files && f.files[0]; f.value = ''; admUpload(file); } });
 $('#monthSel').addEventListener('change', function (e) { if (!e.target.value) return; S.period = e.target.value; store('period', S.period); renderAll(); });
 $('#acctSel').addEventListener('change', function (e) { S.acct = e.target.value; store('acct', S.acct); renderAll(); });
 $('#main').addEventListener('click', function (e) {
   var g = e.target.closest('[data-goto]'); if (g) { S.tab = g.dataset.goto; store('tab', S.tab); renderAll(); window.scrollTo({ top: 0 }); return; }
   var w = e.target.closest('[data-ai-write]'); if (w) { aiWrite(w); return; }
+  var au = e.target.closest('[data-adm-upload]'); if (au) { var fi = $('#admFile'); if (fi) fi.click(); return; }
   var cd = e.target.closest('[data-copy-daily]'); if (cd) { copyText(S.dailyText || '', 'Đã sao chép báo cáo ngày. Dán vào Zalo hoặc email để gửi.'); return; }
   if (e.target.closest('[data-rep-copy]')) { copyText(S.reportText || '', 'Đã sao chép tóm tắt báo cáo tổng thể. Dán vào Zalo hoặc email để gửi.'); return; }
   if (e.target.closest('[data-rep-print]')) { window.print(); return; }
