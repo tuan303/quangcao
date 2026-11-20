@@ -9,5 +9,8 @@ vercel.env
 *.xlsx
 *.xls
 *.xlsb
+*.xlsm
+*.ods
 *.csv
+*.tsv
 dev-docs.json

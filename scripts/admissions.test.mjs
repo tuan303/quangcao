@@ -3,9 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import '../fbads-core.js';
 import '../admissions.js';
+import { scanText, scanHistory, DATA_FILE } from './scan-history.mjs';
 const A = globalThis.FBAdm, C = globalThis.FBCore;
 
-const ZIP = new Uint8Array([0x50, 0x4b, 3, 4, 0, 0]); // đầu file .xlsx (zip)
+const ZIP = new Uint8Array([0x50, 0x4b, 3, 4, 0, 0, ...Buffer.from('xl/workbook.xml')]); // đầu file .xlsx (zip) có tệp xl/workbook.xml
 const HDR = ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Ngày sinh', 'Giới tính', 'Khối 27 28', 'Lớp', 'Trường học', 'Chiến dịch'];
 const stu = (mdt, internal, khoi, prog, extra = []) => [mdt, internal, 'TÊN HỌC SINH ' + mdt, '2016-01-01', 'Nam', khoi, null, 'Trường ABC', prog, ...extra];
 function sampleInput(withDates) {
@@ -252,8 +253,12 @@ test('windowOf: kỳ được cắt theo khoảng file có số đăng ký; kỳ
   assert.equal(w('2026-10-11', '2026-10-14').outside, true);             // sau ngày tải lên
   assert.equal(w('2026-09-20', '2026-09-30').clipped, false);
   const season = Object.assign(A.aggregate({ reg: regRows([], rows.map(r => r.slice(0, 5))), paid: [paidTab('X (ĐP)', [[1000, null, 'HS']])] }).summary, { uploadedAt: '2026-10-10T03:00:00Z' });
-  assert.deepEqual([A.windowOf(season, '2026-10-01', '2026-10-14', today).s, A.windowOf(season, '2026-10-01', '2026-10-14', today).e, A.windowOf(season, '2026-10-01', '2026-10-14', today).mode], ['2026-08-01', '2026-10-15', 'season']);
-  assert.deepEqual(A.windowOf(season, 'x', 'y', '2027-09-01'), { mode: 'season', s: '2026-08-01', e: '2027-07-31', outside: false, clipped: false, seasonStart: '2026-08-01' }); // sang năm học mới vẫn là mùa trong file
+  const ws = A.windowOf(season, '2026-10-01', '2026-10-14', today);
+  assert.deepEqual([ws.s, ws.e, ws.mode, ws.atUpload, ws.staleDays, ws.uploaded], ['2026-08-01', '2026-10-10', 'season', true, 5, '2026-10-10']);   // lead và chi tiêu chỉ tính đến ngày tải file
+  const fresh = A.windowOf(Object.assign({}, season, { uploadedAt: '2026-10-15T03:00:00Z' }), 'x', 'y', today); assert.deepEqual([fresh.e, fresh.atUpload, fresh.staleDays], ['2026-10-15', false, 0]);
+  const noUp = A.windowOf(Object.assign({}, season, { uploadedAt: undefined }), 'x', 'y', today); assert.deepEqual([noUp.e, noUp.staleDays], ['2026-10-15', null]);
+  const rolled = A.windowOf(Object.assign({}, season, { uploadedAt: '2027-08-20T03:00:00Z' }), 'x', 'y', '2027-09-01');   // sang năm học mới vẫn là mùa trong file, hết ở 31/07
+  assert.deepEqual([rolled.s, rolled.e, rolled.outside, rolled.atUpload], ['2026-08-01', '2027-07-31', false, false]);
 });
 
 test('programOf: chịu "TS 6", "TS-6", "học_bổng", khoảng trắng lạ; chiến dịch nhiều khối để ở chưa ghép', () => {
@@ -305,16 +310,159 @@ test('readWorkbook: chỉ nhận .xlsx, mở rộng ô gộp, đọc hệ ngày 
   assert.deepEqual(skipped.checks.paidTabsSkipped, ['ĐP LỚP 10']);
 });
 
-test('vệ sinh dữ liệu: kho mã không chứa số điện thoại, file Excel hay dữ liệu học sinh thật', async () => {
+/* ---- bổ sung sau rà soát độc lập vòng hai ---- */
+const rowsOfDates = (dates, start = 1000) => dates.map((d, i) => [start + i, null, 'HS', 'Khối 6', 'TS6', d]);
+const fakeX = (sheets) => ({ read: (buf, o) => o.bookSheets ? { SheetNames: Object.keys(sheets) } : { Sheets: sheets }, utils: { sheet_to_json: ws => ws } });
+
+test('aggregate: ngày sau hôm nay hoặc sớm hơn đầu mùa hơn ba tháng bị loại và được đếm; không có hôm nay thì không kiểm tra', () => {
+  const d = [...Array(40).fill('15/09/2026'), '15/09/2025', '05/10/2027', '01/05/2026', '30/04/2026'];   // 2 ngày gõ nhầm năm; 01/05 đúng ba tháng trước 01/08 vẫn nhận, 30/04 thì không
+  const reg = regRows(['Ngày đăng ký'], rowsOfDates(d)), paid = [paidTab('X (ĐP)', [[1000, null, 'HS']])];
+  const r = A.aggregate({ reg, paid, today: '2026-10-15' }).summary;
+  assert.deepEqual([r.checks.regBadDate, r.checks.regNoDate], [3, 3]);
+  assert.deepEqual(Object.keys(r.regByDay).sort(), ['2026-05-01', '2026-09-15']);
+  assert.ok(A.datedShare(r) > 0.9 && A.modeOf(r) === 'dated');
+  assert.equal(A.aggregate({ reg, paid }).summary.checks.regBadDate, 0);                   // không biết hôm nay: giữ nguyên mọi ngày đọc được
+  assert.equal(A.aggregate({ reg, paid, today: 'hôm nay' }).summary.checks.regBadDate, 0);  // hôm nay sai dạng: bỏ qua
+  // cột Ngày đóng phí cũng bị lọc như vậy
+  const pr = A.aggregate({ reg: regRows(['Ngày đóng phí'], [[1, null, 'A', 'Khối 6', 'TS6', '03/10/2027'], [2, null, 'B', 'Khối 6', 'TS6', '03/10/2026']]), paid: [paidTab('X (ĐP)', [[1, null, 'A']])], today: '2026-10-15' }).summary;
+  assert.deepEqual([pr.checks.paidBadDate, Object.keys(pr.paidByDay)], [1, ['2026-10-03']]);
+});
+
+test('coverage và windowOf: một ngày gõ nhầm năm còn sót trong số liệu đã lưu không kéo khoảng thời gian của báo cáo', () => {
+  const d = [...Array(40).fill('15/09/2026'), '15/09/2025', '05/10/2027'];
+  const stray = Object.assign(A.aggregate({ reg: regRows(['Ngày đăng ký'], rowsOfDates(d)), paid: [paidTab('X (ĐP)', [[1000, null, 'HS']])] }).summary, { uploadedAt: '2026-10-10T03:00:00Z' });   // không lọc lúc đọc: như số liệu lưu từ bản cũ
+  assert.deepEqual(A.coverage(stray, '2026-08-01', '2026-10-15'), { first: '2026-09-15', last: '2026-09-15', uploaded: '2026-10-10', from: '2026-08-01', to: '2026-10-10' });
+  const today = '2026-10-15', w = (a, b) => A.windowOf(stray, a, b, today);
+  assert.equal(w('2025-08-01', '2026-07-31').outside, true);        // năm học trước vẫn nằm ngoài, không thành "0 đăng ký"
+  assert.equal(w('2025-03-01', '2026-10-14').s, '2026-08-01');      // Toàn bộ không kéo lead về trước đầu mùa
+  assert.equal(w('2026-10-11', '2026-10-14').outside, true);
+  assert.equal(A.coverage(Object.assign({}, stray, { regByDay: { '2025-01-01': { TS6: [1, 0] } } }), '2026-08-01', today), null);   // chỉ còn ngày vô lý: không có khoảng nào
+  assert.equal(A.windowOf(Object.assign({}, stray, { regByDay: { '2025-01-01': { TS6: [1, 0] } } }), '2026-09-01', '2026-10-14', today).outside, true);
+});
+
+test('windowOf: mùa ghi trong file đã hết thì cắt ở 31/07; mùa chưa bắt đầu thì báo; nhãn mùa phải là hai năm liên tiếp', () => {
+  const mk = (season, dates) => Object.assign(A.aggregate({ reg: sheetOf(['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối ' + season, 'Chiến dịch', 'Ngày đăng ký'], rowsOfDates(dates).map(r => r.slice(0, 6))), paid: [paidTab('X (ĐP)', [[1000, null, 'HS']])] }).summary, { uploadedAt: '2026-10-14T03:00:00Z' });
+  const old = mk('26 27', [...Array(20).fill('10/08/2025'), ...Array(20).fill('19/07/2026')]);          // file của mùa 2026–27 cập nhật sau khi mùa kết thúc
+  assert.equal(old.season, '2026–27');
+  const wo = A.windowOf(old, '2026-09-15', '2026-10-14', '2026-10-15'); assert.equal(wo.outside, true);   // không hiện lead của mùa mới so với 0 đăng ký
+  assert.equal(A.windowOf(old, '2025-08-01', '2026-07-31', '2026-10-15').outside, false); assert.equal(wo.seasonMismatch, false);
+  const late = mk('26 27', Array(40).fill('15/09/2026')), wl = A.windowOf(late, '2026-09-15', '2026-10-14', '2026-10-15');   // đăng ký Sep 2026 mà tiêu đề còn ghi mùa 2026–27: quên đổi tiêu đề cột Khối
+  assert.deepEqual([wl.outside, wl.seasonMismatch], [true, true]); assert.match(A.packOf(C, C.model({}), [], late, '2026-10-15').school_year_to_date.note || '', /tiêu đề cột Khối|không có số chuyển đổi/);
+  const fut = mk('28 29', Array(40).fill('15/09/2026')), wf = A.windowOf(fut, '2026-09-01', '2026-10-14', '2026-10-15');
+  assert.equal(fut.season, '2028–29'); assert.deepEqual([wf.outside, wf.future], [true, true]);
+  assert.equal(A.windowOf(fut, '2026-09-01', '2026-10-14', '2028-09-01').future, false);                  // đến mùa đó thì bình thường
+  for (const h of ['26 28', '27 29', '12 13', '27-28x', 'Khối 5 6', '27-28']) assert.equal(A.aggregate({ reg: sheetOf(['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối ' + h, 'Chiến dịch'], [[1, null, 'A', 'Khối 6', 'TS6']]), paid: [paidTab('X (ĐP)', [[1, null, 'A']])] }).summary.season, h === '27-28' ? '2027–28' : '', h);
+});
+
+test('aggregate: tab (ĐP) của mùa khác để lại trong file không được cộng vào mùa này và được báo', () => {
+  const reg = regRows([], [[1, null, 'A', 'Khối 6', 'TS6'], [2, null, 'B', 'Khối 6', 'TS6'], [3, null, 'C', 'Khối 6', 'TS6']]);
+  const r = A.aggregate({ reg, paid: [paidTab('LỚP 6 2728 (ĐP)', [[1, null, 'A']]), paidTab('LỚP 6 2627 (ĐP)', [[2, null, 'B']]), paidTab('LỚP 10 (ĐP)', [[3, null, 'C']])] }).summary;
+  assert.deepEqual(Object.keys(r.paidSheets), ['LỚP 6 2728 (ĐP)', 'LỚP 10 (ĐP)']); assert.deepEqual(r.checks.paidTabsSkipped, ['LỚP 6 2627 (ĐP)']); assert.equal(r.total.paid, 2);
+  for (const [name, want] of [['LỚP 6 2728 (ĐP)', '2728'], ['HB 2728', '2728'], ['LỚP 10', ''], ['Lớp 2025', ''], ['x 20272028', ''], ['HB 2627 (ĐP)', '2627'], [null, '']]) assert.equal(A.seasonCodeOf(name), want, String(name));
+});
+
+test('programCode và programOf: "Học bổng", "TS 06", "JS26", "HB27" gộp vào mã chuẩn; mã lạ giữ riêng; chữ dài là chưa rõ', () => {
+  for (const [v, w] of [['TS6', 'TS6'], ['ts 6', 'TS6'], ['TS 06', 'TS6'], ['TS-10', 'TS10'], ['Học bổng', 'HB'], ['HB', 'HB'], ['hb27', 'HB'], ['JS26', 'JS'], ['Jolly Steps', 'JS'], ['SUKIEN', 'SUKIEN'], ['Sự kiện', 'SUKIEN'], ['Tuyển sinh lớp 1 đợt hai', 'KHAC'], ['', 'KHAC'], [null, 'KHAC']]) assert.equal(A.programCode(v), w, String(v));
+  for (const [n, w] of [['HB26', 'HB'], ['HB2027-LEAD', 'HB'], ['HB 27 | Form', 'HB'], ['HBO Max', null], ['CHB', null], ['hbx', null]]) assert.equal(A.programOf(n), w, n);
+  const r = A.aggregate({ reg: regRows([], [[1, null, 'A', 'Khối 6', 'Học bổng'], [2, null, 'B', 'Khối 6', 'TS 06'], [3, null, 'C', 'Khối 6', 'TS6']]), paid: [paidTab('X (ĐP)', [[1, null, 'A']])] }).summary;
+  assert.deepEqual(Object.keys(r.programs).sort(), ['HB', 'TS6']); assert.equal(r.programs.TS6.reg, 2);
+});
+
+test('funnel: mã chương trình ngoài năm chương trình và ô Chiến dịch trống hiện riêng, không cộng vào Tổng', () => {
+  const reg = regRows([], [...Array.from({ length: 12 }, (_, i) => [100 + i, null, 'HS', 'Khối 6', 'TS6']), ...Array.from({ length: 5 }, (_, i) => [200 + i, null, 'HS', 'Khối 6', 'SUKIEN']), ...Array.from({ length: 3 }, (_, i) => [300 + i, null, 'HS', 'Khối 6', null])]);
+  const s = A.aggregate({ reg, paid: [paidTab('X (ĐP)', [[100, null, 'HS'], [200, null, 'HS'], [201, null, 'HS'], [300, null, 'HS']])] }).summary;
+  const f = A.funnel(s, { TS6: { leads: 24, spend: 2.4e6, camps: 1 } }, '2026-08-01', '2026-10-15');
+  assert.deepEqual([f.total.regExt, f.total.paidExt, f.total.leadToReg, f.total.costPerReg], [12, 1, 0.5, 2.4e6 / 12]);   // chỉ năm chương trình
+  assert.deepEqual(f.extra.map(r => [r.k, r.regExt, r.paidExt]), [['SUKIEN', 5, 2]]); assert.deepEqual([f.unknown.regExt, f.unknown.paidExt], [3, 1]);
+  assert.deepEqual([f.apart.regExt, f.apart.paidExt, f.apart.codes, f.apart.blank], [8, 3, ['SUKIEN'], true]);
+  assert.equal(A.funnel(A.aggregate({ reg: regRows([], [[1, null, 'A', 'Khối 6', 'TS6']]), paid: [paidTab('X (ĐP)', [[1, null, 'A']])] }).summary, {}, '2026-08-01', '2026-10-15').apart.regExt, 0);
+});
+
+test('validate: chỉ nhận số thật, tổng khớp nhau, ngày có thật, nhãn mùa hợp lệ', () => {
+  const base = A.aggregate(sampleInput(true)).summary, mut = f => { const x = JSON.parse(JSON.stringify(base)); f(x); return A.validate(x); };
+  assert.ok(mut(() => {}).ok);
+  for (const [name, f] of Object.entries({
+    'số dạng chuỗi': x => { x.total.reg = '6'; }, 'null': x => { x.programs.TS6.reg = null; }, 'mảng': x => { x.programs.TS6.paid = [1]; }, 'số thập lục': x => { x.programs.TS6.reg = '0x10'; },
+    'tổng chương trình lệch': x => { x.programs.TS6.reg += 1; x.programs.TS6.paid += 1; }, 'tổng khối lệch': x => { x.khoi['Khối 6'].reg += 1; },
+    'ngày không có thật': x => { x.regByDay['2026-02-30'] = {}; }, 'tháng 99': x => { x.regByDay['2099-99-99'] = {}; }, 'ngày đóng phí không có thật': x => { x.paidByDay['2026-13-01'] = {}; },
+    'không có học sinh': x => { x.total = { reg: 0, regInt: 0, paid: 0, paidInt: 0 }; x.programs = { TS6: { reg: 0, regInt: 0, paid: 0, paidInt: 0 } }; x.khoi = { 'Khác': { reg: 0, regInt: 0, paid: 0, paidInt: 0 } }; }
+  })) assert.equal(mut(f).ok, false, name);
+  for (const [name, f, want] of [['mảng', x => { x.season = ['2027–28']; }, ''], ['hai năm không liên tiếp', x => { x.season = '2027–29'; }, ''], ['năm ngoài khoảng', x => { x.season = '2099–00'; }, ''], ['hợp lệ', x => { x.season = '2027–28'; }, '2027–28']]) assert.equal(mut(f).summary.season, want, name);
+  assert.deepEqual(Object.keys(mut(() => {}).summary).sort(), Object.keys(base).sort());
+});
+
+test('readWorkbook: file zip không phải .xlsx (.ods, .xlsb, .docx) bị từ chối trước khi đọc; ngày gõ nhầm năm bị loại theo ngày truyền vào', () => {
+  const never = { read: () => { throw new Error('không được gọi'); }, utils: {} };
+  for (const body of ['content.xml mimetype application/vnd.oasis.opendocument.spreadsheet', 'xl/workbook.bin', 'word/document.xml']) assert.match(A.readWorkbook(never, new Uint8Array([0x50, 0x4b, 3, 4, ...Buffer.from(body)])).error, /\.xlsx/, body);
+  assert.match(A.readWorkbook(never, new Uint8Array([0x50, 0x4b, 3, 4])).error, /\.xlsx/);
+  const reg = regRows(['Ngày đăng ký'], rowsOfDates([...Array(30).fill('15/09/2026'), '15/09/2025'])), paid = [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh'], [1000, null, 'HS']];
+  const ok = A.readWorkbook(fakeX({ 'Danh sách đăng ký': reg, 'LỚP 6 2728 (ĐP)': paid }), ZIP, '2026-10-15');
+  assert.ok(ok.ok); assert.equal(ok.summary.checks.regBadDate, 1); assert.deepEqual(Object.keys(ok.summary.regByDay), ['2026-09-15']);
+  assert.ok(A.readWorkbook(fakeX({ 'Danh sách đăng ký': reg, 'LỚP 6 2728 (ĐP)': paid }), ZIP).ok);               // không truyền ngày: lấy hôm nay của máy
+  assert.deepEqual(A.readWorkbook(fakeX({ 'Danh sách đăng ký': reg, 'LỚP 6 2728 (ĐP)': paid, 'LỚP 6 2627 (ĐP)': paid }), ZIP, '2026-10-15').summary.checks.paidTabsSkipped, ['LỚP 6 2627 (ĐP)']);
+  assert.match(A.readWorkbook(fakeX({ 'Danh sách đăng ký': reg, 'LỚP 6 2627 (ĐP)': paid }), ZIP, '2026-10-15').error, /tab \(ĐP\)/);   // chỉ còn tab của mùa khác: không có tab ĐP nào dùng được
+});
+
+test('packOf: Tổng chỉ gồm năm chương trình, phần ngoài Tổng nằm riêng; có tuổi file và ghi chú cắt theo ngày tải', () => {
+  const A1 = '895057262833914', day = '2026-10-10', dv = C.zero(); dv[C.MI.spend] = 3e6; dv[C.MI.impr] = 5000;
+  const v = C.zero(); v[C.MI.spend] = 3e6; v[C.MI.lead] = 30; v[C.MI.impr] = 5000;
+  const camp = { acct: A1, rows: { a: { n: 'TS6-LEAD | Form', obj: 'OUTCOME_LEADS', m: v } }, monthly: {} }, campd = { acct: A1, since: '2026-09-01', rows: { a: { [day]: v } } };
+  const m = C.model({ ['acct-' + A1]: { acct: A1, daily: { [day]: dv } }, ['camp-' + A1]: camp, ['campd-' + A1]: campd });
+  const reg = regRows([], [...Array.from({ length: 12 }, (_, i) => [100 + i, null, 'HS', 'Khối 6', 'TS6']), ...Array.from({ length: 5 }, (_, i) => [200 + i, null, 'HS', 'Khối 6', 'SUKIEN']), [300, null, 'HS', 'Khối 6', null]]);
+  const sum = Object.assign(A.aggregate({ reg, paid: [paidTab('X (ĐP)', [[100, null, 'HS'], [200, null, 'HS']])] }).summary, { uploadedAt: '2026-10-10T03:00:00Z' });
+  const p = A.packOf(C, m, [A1], sum, '2026-10-15'), b = p.school_year_to_date;
+  assert.equal(p.mode, 'season'); assert.equal(p.file_age_days, 5);
+  assert.deepEqual(b.programs.map(x => x.program), ['TS1', 'JS', 'TS6', 'TS10', 'HB']);
+  assert.equal(b.total.registered_external, 12); assert.deepEqual(b.programs_not_in_total.map(x => [x.program, x.registered_external]), [['SUKIEN', 5], ['KHAC', 1]]);
+  assert.equal(b.until, '2026-10-10'); assert.match(b.note, /ngày tải file/);
+  assert.ok(p.notes.some(n => /programs_not_in_total/.test(n)) && p.notes.some(n => /5 ngày trước/.test(n)));
+  assert.ok(!/unknown_program/.test(JSON.stringify(p)));
+});
+
+// Số điện thoại và email giả dựng lúc chạy (mỗi 'x' là một chữ số lấy lần lượt từ D) để chính file này không chứa chuỗi giống dữ liệu thật.
+const D = ['9', '1', '8', '3', '7', '4', '6', '5', '0', '2'];
+const ph = pattern => { let k = 0; return pattern.replace(/x/g, () => D[k++ % 10]); };
+const mail = (...parts) => parts.join('@');
+
+test('scanText: thấy số điện thoại và email thật, bỏ qua số giả, tiền, toạ độ và email ví dụ', () => {
+  assert.deepEqual(scanText('gọi ' + [ph('0xxx xxx xxx'), ph('+84 xxx.xxx.xxx'), ph('0xxxxxxxxx'), ph('xxxxxxxxx'), ph('0xx-xxx-xxxx')].join(', ')).map(x => x.kind), ['phone', 'phone', 'phone', 'phone', 'phone']);
+  assert.deepEqual(scanText('0900000000, 999999999, 109.664 ₫, 1.234.567.890, M3 5 12 10 8 6.5 3 4 1 7, 2026-10-15 3 5 7 9, 86400000, 20000001'), []);
+  assert.deepEqual(scanText('liên hệ ' + mail('a.b', 'truong.edu.vn')).map(x => x.kind), ['email']);
+  assert.deepEqual(scanText('admin@example.edu, x@example.com, 105@system.gserviceaccount.com'), []);
+  assert.ok(!JSON.stringify(scanText(ph('0xxxxxxxxx') + ' ' + mail('a.b', 'truong.edu.vn'))).match(/\d|truong|a\.b/), 'kết quả đã che chữ số và chữ');   // không in lại giá trị
+  assert.ok(DATA_FILE.test('x/DATA.XLSX') && DATA_FILE.test('a.ods') && DATA_FILE.test('a.xlsm') && DATA_FILE.test('a.tsv') && !DATA_FILE.test('a.js'));
+});
+
+test('scanHistory: thấy số điện thoại và file dữ liệu ở nhánh cũ chưa xoá, nói rõ nhánh nào; baseline bỏ qua chỗ đã chấp nhận', async () => {
+  const { execFileSync } = await import('node:child_process'), { mkdtempSync, writeFileSync, rmSync } = await import('node:fs'), { tmpdir } = await import('node:os'), { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'adm-hist-'));
+  try {
+    const g = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+    g('init', '-q', '-b', 'main'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 't'); g('config', 'commit.gpgsign', 'false');
+    writeFileSync(join(dir, 'a.js'), 'const x = 1;\n'); g('add', '.'); g('commit', '-q', '-m', 'sạch');
+    g('checkout', '-q', '-b', 'nhanh-cu'); const num = ph('0xxxxxxxxx'); writeFileSync(join(dir, 'leak.test.js'), "const p = '" + num + "';\n"); writeFileSync(join(dir, 'data.xlsx'), 'PK'); g('add', '-f', '.'); g('commit', '-q', '-m', 'lỡ đẩy'); g('checkout', '-q', 'main');
+    const r = scanHistory(dir, new Set());
+    assert.deepEqual(r.hits.map(h => h.kind + ':' + h.path).sort(), ['data-file:data.xlsx', 'phone:leak.test.js']);
+    assert.deepEqual(r.hits.find(h => h.kind === 'phone').refs, ['nhanh-cu']);
+    assert.ok(!JSON.stringify(r).includes(num));
+    const phoneHit = r.hits.find(h => h.kind === 'phone');
+    assert.equal(scanHistory(dir, new Set([phoneHit.blob + ':phone'])).hits.length, 1);
+    g('branch', '-q', '-D', 'nhanh-cu');                                                   // xoá nhánh cũ thì sạch
+    assert.equal(scanHistory(dir, new Set()).hits.length, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('vệ sinh dữ liệu: kho mã không chứa số điện thoại, email thật, file Excel hay dữ liệu học sinh thật', async () => {
   const { execFileSync } = await import('node:child_process');
   const { readFileSync, existsSync } = await import('node:fs');
   let files; try { files = execFileSync('git', ['ls-files', '-z'], { cwd: new URL('..', import.meta.url), encoding: 'utf8' }).split('\0').filter(Boolean); } catch { return; } // ngoài kho git thì bỏ qua
-  assert.deepEqual(files.filter(f => /\.(xlsx?|xlsb|csv|ods)$/i.test(f) || /(^|\/)dev-docs\.json$/.test(f)), [], 'không đưa file dữ liệu vào kho (kho công khai)');
-  const phone = /(^|[^0-9.])((?:\+?84|0)?[35789][0-9]{8})($|[^0-9.])/g;
+  assert.deepEqual(files.filter(f => DATA_FILE.test(f) || /(^|\/)dev-docs\.json$/.test(f)), [], 'không đưa file dữ liệu vào kho (kho công khai)');
+  const ignore = readFileSync(new URL('../.gitignore', import.meta.url), 'utf8');
+  for (const ext of ['xlsx', 'xls', 'xlsb', 'xlsm', 'ods', 'csv', 'tsv']) assert.ok(ignore.split('\n').includes('*.' + ext), '.gitignore thiếu *.' + ext);
   const hits = [];
   for (const f of files) {
-    if (/^(vendor\/|package-lock\.json$)/.test(f) || /\.(png|jpe?g|ico|woff2?)$/i.test(f) || !existsSync(new URL('../' + f, import.meta.url))) continue;
-    for (const m of readFileSync(new URL('../' + f, import.meta.url), 'utf8').matchAll(phone)) if (new Set(m[2].replace(/^\+?84/, '')).size > 2) hits.push(f + ': ' + m[2].slice(0, 3) + '…'); // số lặp chữ số (999999999, 0900000000) là dữ liệu giả
+    if (/^(vendor\/|package-lock\.json$)/.test(f) || /\.(png|jpe?g|gif|ico|woff2?)$/i.test(f) || !existsSync(new URL('../' + f, import.meta.url))) continue;
+    for (const h of scanText(readFileSync(new URL('../' + f, import.meta.url), 'utf8'))) hits.push(f + ': ' + h.kind + ' ' + h.shape);
   }
-  assert.deepEqual(hits, [], 'có chuỗi giống số điện thoại trong kho mã');
+  assert.deepEqual(hits, [], 'có chuỗi giống số điện thoại hoặc email thật trong kho mã');
 });

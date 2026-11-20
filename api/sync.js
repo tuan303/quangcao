@@ -205,7 +205,7 @@ async function run(req, res) {
     const syncstate = { hist, win, covered, pending, at: new Date().toISOString() };
     const gotFresh = Object.keys(fresh).length > 0;
     const meta = Object.assign({}, prevMeta, gotFresh ? {
-      v: C.VERSION, syncedAt: new Date().toISOString(), syncedBy: by, dataUntil: today, start: C.START,
+      v: C.VERSION, syncedAt: new Date().toISOString(), syncedBy: who.kind === 'cron' ? 'vercel-cron' : 'vercel-admin', dataUntil: today, start: C.START,
       accounts: C.ACCOUNTS.filter(a => accts.includes(a.id)), source: 'meta-api',
       fullAt: groups.includes('ads') && groups.includes('bd') && !failed.length && !skipped.length && !leadLoss.length ? new Date().toISOString() : (prevMeta.fullAt || null)
     } : {}, {

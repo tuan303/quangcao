@@ -14,7 +14,10 @@ export function safeError(e) {
   return 'Lỗi máy chủ. Xem log của hàm trên Vercel để biết chi tiết.';
 }
 export async function readJson(req, limit = 4 * 1024 * 1024) {
-  if (req.body && typeof req.body === 'object') return req.body;
+  if (req.body && typeof req.body === 'object') { // Vercel có thể đã đọc sẵn JSON: vẫn áp mức giới hạn của hàm
+    if (JSON.stringify(req.body).length > limit) throw Object.assign(new Error('Dữ liệu gửi lên quá lớn.'), { expose: true, status: 413 });
+    return req.body;
+  }
   const chunks = []; let size = 0;
   for await (const c of req) { size += c.length; if (size > limit) throw Object.assign(new Error('Dữ liệu gửi lên quá lớn.'), { expose: true, status: 413 }); chunks.push(c); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }

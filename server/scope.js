@@ -19,6 +19,21 @@ export function scopeDocs(C, docs, env) {
   }
   return out;
 }
+/** Phần của docs mà người chỉ xem không được thấy: thông báo lỗi thô của Meta và email của quản trị (người bấm đồng bộ, người tải số liệu tuyển sinh, người bấm viết phân tích). */
+export function redactForViewer(docs) {
+  if (!docs || typeof docs !== 'object') return docs;
+  let out = docs;
+  const patch = (id, p) => { out = Object.assign({}, out, { [id]: Object.assign({}, out[id], p) }); };
+  const m = docs.meta;
+  if (m && typeof m === 'object' && !Array.isArray(m)) {
+    const p = {};
+    if (/@/.test(String(m.syncedBy || ''))) p.syncedBy = null;
+    if (m.perAccount && typeof m.perAccount === 'object') p.perAccount = Object.fromEntries(Object.entries(m.perAccount).map(([a, x]) => [a, Object.assign({}, x, { error: null })]));
+    if (Object.keys(p).length) patch('meta', p);
+  }
+  for (const id of ['admissions', 'insights']) if (out[id] && typeof out[id] === 'object' && out[id].by) patch(id, { by: null });
+  return out;
+}
 /** Tài khoản để đồng bộ: META_AD_ACCOUNTS nếu có (chỉ những tài khoản đang kết nối), không thì toàn bộ FBCore.ACCOUNTS. */
 export function syncAccounts(C, env = process.env) {
   const allowed = C.ACCOUNTS.map(a => a.id);

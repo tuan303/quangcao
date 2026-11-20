@@ -5,6 +5,15 @@ import { authorize } from '../server/auth.js';
 import { send, safeError } from '../server/http.js';
 
 let cache = null; // { at, docs } – mỗi instance giữ 60 giây để nhiều người mở cùng lúc không đọc Firestore liên tục
+/* Tài liệu tuyển sinh luôn đi qua kiểm tra cấu trúc trước khi trả ra, dù được ghi bằng đường nào: chỉ số tổng hợp theo đúng dạng đã biết mới ra trang. */
+async function checkedAdmissions(docs) {
+  if (!docs.admissions) return docs;
+  await import('../admissions.js');
+  const raw = docs.admissions, v = globalThis.FBAdm.validate(raw), next = Object.assign({}, docs);
+  if (v.ok) next.admissions = Object.assign({}, v.summary, { uploadedAt: typeof raw.uploadedAt === 'string' ? raw.uploadedAt : null, by: typeof raw.by === 'string' ? raw.by : null });
+  else delete next.admissions;
+  return next;
+}
 export default async function handler(req, res) {
   if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'Chỉ hỗ trợ GET.' });
   try {
@@ -16,16 +25,11 @@ export default async function handler(req, res) {
       const { readAll } = await import('../server/store.js');
       await import('../fbads-core.js');
       const { scopeDocs } = await import('../server/scope.js');
-      cache = { at: Date.now(), docs: scopeDocs(globalThis.FBCore, await readAll(), process.env) }; // chỉ hai tài khoản đang kết nối
+      cache = { at: Date.now(), docs: await checkedAdmissions(scopeDocs(globalThis.FBCore, await readAll(), process.env)) }; // chỉ hai tài khoản đang kết nối
     }
     let docs = cache.docs;
-    // chi tiết lỗi đồng bộ (thông báo thô của Meta) chỉ dành cho quản trị
-    if (who.role !== 'admin' && docs.meta && docs.meta.perAccount) {
-      const perAccount = Object.fromEntries(Object.entries(docs.meta.perAccount).map(([a, x]) => [a, Object.assign({}, x, { error: null })]));
-      docs = Object.assign({}, docs, { meta: Object.assign({}, docs.meta, { perAccount }) });
-    }
-    // email người tải số liệu tuyển sinh và người bấm viết phân tích chỉ dành cho quản trị
-    if (who.role !== 'admin') for (const id of ['admissions', 'insights']) if (docs[id] && docs[id].by) docs = Object.assign({}, docs, { [id]: Object.assign({}, docs[id], { by: null }) });
+    // thông báo lỗi thô của Meta và email của quản trị (người đồng bộ, người tải số liệu tuyển sinh, người viết phân tích) chỉ dành cho quản trị
+    if (who.role !== 'admin') { const { redactForViewer } = await import('../server/scope.js'); docs = redactForViewer(docs); }
     send(res, 200, { ok: true, docs, me: { email: who.email, role: who.role }, sync: { meta: !!String(process.env.META_ACCESS_TOKEN || '').trim(), ai: !!String(process.env.ANTHROPIC_API_KEY || '').trim() } });
   } catch (e) {
     console.error('[data]', e);
