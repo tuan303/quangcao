@@ -156,5 +156,5 @@ export async function readAdmissionsSheet(sheetId, { pickTabs, env = process.env
   const same = tabs.paidNames.filter(n => { const c = typeof A.seasonCodeOf === 'function' ? A.seasonCodeOf(n, true) : ''; return !(seasonCode && c && c !== seasonCode); });
   if (same.length > MAX_TABS) throw fail('Sheet có quá nhiều tab (ĐP) của mùa này (' + same.length + '). Hãy ẩn hoặc xoá bớt tab không dùng.');
   const rows = await readTabs(same);
-  return { title: String(meta.properties && meta.properties.title || '').slice(0, 120), reg, paid: tabs.paidNames.map(n => ({ name: n, rows: rows[n] || [] })), skipped: tabs.skipped, tabs: [tabs.regName].concat(same), otherSeasonTabs: tabs.paidNames.length - same.length };
+  return { title: String(meta.properties && meta.properties.title || '').slice(0, 120), reg, paid: tabs.paidNames.map(n => ({ name: n, rows: rows[n] || [] })), skipped: tabs.skipped, tabs: [tabs.regName].concat(same), otherSeasonTabs: tabs.paidNames.length - same.length, otherSeasonNames: tabs.paidNames.filter(n => same.indexOf(n) < 0) };
 }

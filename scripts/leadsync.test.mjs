@@ -676,3 +676,20 @@ test('runLeadSync: khi Sheet vừa đủ SĐT (cổng độ phủ mở) thì cá
     assert.deepEqual(store.docs.fbmatch.days['2026-10-01']['111111'], [9, 0, 0, 1, 0, 1, 0]); assert.equal(store.docs.fbmatch.lowCovUntil, undefined);
   } finally { f.restore(); G.resetTokenCache(); }
 });
+
+test('checkSetup: tab (ĐP) của mùa hiện tại bị trống vẫn báo ✗ (chỉ tab của mùa khác mới được miễn); bước độ phủ chỉ xanh khi cả học sinh ngoài nội bộ lẫn học sinh đã đóng phí đủ 90% SĐT/email', async () => {
+  G.resetTokenCache(); const data = sheetData(); data.meta.sheets.push({ properties: { sheetId: 8, title: 'LỚP 6 2627 (ĐP)' } }, { properties: { sheetId: 9, title: 'LỚP 7 2728 (ĐP)' } });
+  data.values['LỚP 6 2627 (ĐP)'] = [[], ['MDT', 'Họ tên học sinh'], [1, 'X']]; data.values['LỚP 7 2728 (ĐP)'] = [];                      // tab mùa này nhưng trống
+  const f = stubFetch([...googleRoutes(data), ...graphRoutes()]);
+  try {
+    const r = await S.checkSetup({ env: ENV, today: TODAY }), by = id => r.sheet.steps.find(s => s.id === id);
+    assert.equal(by('paid-LỚP 6 2627 (ĐP)').ok, true); assert.equal(by('paid-LỚP 7 2728 (ĐP)').ok, false);
+    assert.equal(by('coverage').ok, false);
+  } finally { f.restore(); G.resetTokenCache(); }
+  // học sinh đã đóng phí đủ 100% SĐT nhưng học sinh ngoài nội bộ chỉ 80% (một em chưa đóng phí thiếu SĐT): số đăng ký bị ẩn nên bước độ phủ chưa đạt; đủ cả hai thì đạt
+  const mk = withGap => { const d = sheetData(); d.values['Danh sách đăng ký'][6][5] = '0' + phn(40); if (withGap) d.values['Danh sách đăng ký'].push([6, '', 'HỌC SINH SÁU', 'Khối 1', 'TS1', '', '', '', ser('2026-10-10'), '']); else d.values['Danh sách đăng ký'].push([6, '', 'HỌC SINH SÁU', 'Khối 1', 'TS1', '0' + phn(41), '', '', ser('2026-10-10'), '']); return d; };
+  for (const [gap, want] of [[true, false], [false, true]]) {
+    G.resetTokenCache(); const g = stubFetch([...googleRoutes(mk(gap)), ...graphRoutes()]);
+    try { const r = await S.checkSetup({ env: ENV, today: TODAY }); assert.equal(r.sheet.steps.find(s => s.id === 'coverage').ok, want, JSON.stringify(r.sheet.steps.find(s => s.id === 'coverage'))); } finally { g.restore(); G.resetTokenCache(); }
+  }
+});

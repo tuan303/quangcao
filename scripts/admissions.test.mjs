@@ -686,8 +686,8 @@ test('phoneKeys: số thứ tự hay nhãn ngắn dính liền trước số ("1
   for (const v of ['1234 5678', '12 34 56', '1. 2. 3. 4. 5. 6. 7. 8. 9.', '1. 2. 3. 4']) assert.deepEqual(A.phoneKeys(v), [], v);
 });
 test('HS nội bộ: dấu tích (✓ ✔ √ ☑ ✅ ●) là nội bộ; "Không có", "Không phải", "chưa có", "Không nội bộ", "Ngoài" không phải', () => {
-  const vals = [['✓', true], ['✔', true], ['√', true], ['☑', true], ['✅', true], ['●', true], ['✓✓', true], ['Có', true], ['Nội bộ', true], ['Con GV', true],
-    ['Không có', false], ['Không phải', false], ['chưa có', false], ['Chưa', false], ['Không nội bộ', false], ['Ngoài', false], ['Ngoài trường', false], ['ko có', false]];
+  const vals = [['✓', true], ['✔', true], ['√', true], ['☑', true], ['✅', true], ['●', true], ['✓✓', true], ['✔️', true], ['☑️', true], ['🗸', true], ['Có', true], ['Nội bộ', true], ['Con GV', true], ['Khổng Văn A', true],
+    ['Không có', false], ['Không phải', false], ['chưa có', false], ['Chưa', false], ['Không nội bộ', false], ['Ngoài', false], ['Ngoài trường', false], ['ko có', false], ['Bên ngoài', false], ['Học sinh ngoài', false], ['HS ngoài', false], ['✗', false], ['❌', false]];
   const reg = [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch'], ...vals.map(([v], i) => [i + 1, v, 'HS ' + i, 'Khối 6', 'TS6'])];
   const r = A.aggregate({ reg, paid: [paidTab('X (ĐP)', [[1, null, 'HS']])], collect: true, today: '2026-11-20' }); assert.ok(r.ok, r.error);
   vals.forEach(([v, want], i) => assert.equal(r.students[i + 1].int, want, JSON.stringify(v)));
@@ -699,4 +699,12 @@ test('columnsOf: cột tên học sinh nhận cả "Tên học sinh", "Học sin
   }  // cột họ tên phụ huynh đứng TRƯỚC cột "Họ và tên" chung của học sinh: không được lấy cột phụ huynh làm cột tên
   const reg2 = [[], ['MDT', 'HS nội bộ', 'Họ tên phụ huynh', 'Họ và tên', 'Khối 27 28', 'Chiến dịch'], [1, '', '', 'A', 'Khối 6', 'TS6'], [2, '', 'PH B', 'B', 'Khối 6', 'TS6'], [3, '', '', 'C', 'Khối 6', 'TS6'], [4, '', '', 'D', 'Khối 6', 'TS6']];
   const r2 = A.aggregate({ reg: reg2, paid: [paidTab('LỚP 6 2728 (ĐP)', [[1, null, 'A']])], today: '2026-11-20' }); assert.ok(r2.ok, r2.error); assert.equal(r2.summary.total.reg, 4);
+});
+
+test('columnsOf: cột chỉ ghi "HS" hay "Học sinh" (hay là cột trạng thái hồ sơ) không đè lên cột họ tên thật; chỉ dùng khi không có cột nào khác', () => {
+  const run = hdr => { const reg = [[], hdr, ...Array.from({ length: 20 }, (_, i) => hdr.map(h => h === 'MDT' ? i + 1 : h === 'Khối 27 28' ? 'Khối 6' : h === 'Chiến dịch' ? 'TS6' : h === 'HS nội bộ' ? '' : h === 'HS' ? (i % 5 < 2 ? 'Đủ' : i % 5 < 3 ? 'Thiếu' : '') : 'HS ' + i))];
+    const r = A.aggregate({ reg, paid: [paidTab('LỚP 6 2728 (ĐP)', [[1, null, 'A']])], today: '2026-11-20' }); assert.ok(r.ok, r.error); return r.summary.total.reg; };
+  assert.equal(run(['MDT', 'HS nội bộ', 'Họ và tên', 'HS', 'Khối 27 28', 'Chiến dịch']), 20);
+  assert.equal(run(['MDT', 'HS nội bộ', 'HS', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch']), 20);
+  assert.equal(run(['MDT', 'HS nội bộ', 'Họ tên', 'Học sinh', 'Khối 27 28', 'Chiến dịch']), 20);
 });
