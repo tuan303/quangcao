@@ -667,7 +667,7 @@ test('columnsOf: tên cột SĐT/email có đuôi số hoặc dính liền vẫn
   const info = h => A.columnsInfo([['MDT', h]]);
   for (const h of ['SĐT', 'SĐT bố', 'SĐT 1', 'SĐT1', 'SĐT2', 'SĐTbố', 'Phone 1', 'Phone1', 'Zalo', 'Số ĐT', 'ĐT mẹ', 'ĐT', 'Điện thoại PH', 'Số điện thoại', 'Di động', 'Mobile', 'Họ tên và SĐT phụ huynh', 'Họ tên PH + Zalo']) assert.equal(info(h).phones, 1, h);
   for (const h of ['Email', 'Email 1', 'Email1', 'Gmail', 'E-mail ưu tiên', 'Thư điện tử']) assert.equal(info(h).emails, 1, h);
-  for (const h of ['Mã ĐT', 'Ngày ĐT', 'Mã DT', 'Ưu tiên', 'Họ tên phụ huynh', 'Trường học', 'Ghi chú', 'Hotline', 'Điện thoại trường', 'Điện thoại giáo viên', 'SĐT tư vấn viên', 'Số ĐT nhân viên', 'Email nhà trường', 'Email giáo viên']) assert.equal(info(h).phones + info(h).emails, 0, h);   // cột của trường, giáo viên, tư vấn viên không phải liên hệ của phụ huynh
+  for (const h of ['Mã ĐT', 'Ngày ĐT', 'Mã DT', 'Ưu tiên', 'Họ tên phụ huynh', 'Trường học', 'Ghi chú', 'Hotline', 'Điện thoại trường', 'Điện thoại giáo viên', 'SĐT tư vấn viên', 'Số ĐT nhân viên', 'Email nhà trường', 'Email giáo viên', 'Gửi mail nhắc nộp hồ sơ TT', 'Ngày gửi mail']) assert.equal(info(h).phones + info(h).emails, 0, h);   // cột của trường, giáo viên, tư vấn viên không phải liên hệ của phụ huynh
   assert.deepEqual(A.columnsInfo([['MDT', 'SĐT bố', 'SĐT mẹ', 'Email ưu tiên']]).phoneHeaders, ['SĐT bố', 'SĐT mẹ']);               // tên cột (không phải nội dung ô) được trả về để quản trị kiểm tra
 });
 test('HS nội bộ: mã, TRUE, "x", "Có" là nội bộ; trống, FALSE, 0, "Không", "No", "N/A", "Loading...", ô lỗi (#N/A, #REF!) không phải (không để cả lớp thành nội bộ)', () => {

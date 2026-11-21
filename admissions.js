@@ -124,7 +124,7 @@
       // Cột liên hệ của phụ huynh: nhận mọi tên có SĐT/điện thoại/zalo/email (kể cả đuôi số "SĐT1", ghép "Họ tên và SĐT phụ huynh"), trừ cột của trường, giáo viên, tư vấn viên (số dùng chung cho nhiều học sinh).
       if (!/(^| )(truong|nha truong|giao vien|gv|tu van|nhan vien|can bo|tuyen sinh|hotline)( |$)/.test(n)) {
         if (/(^| )(sdt\w*|so dien thoai|dien thoai|so dt|dt (bo|me|ph|phu huynh|uu tien|hs|hoc sinh)|di dong|didong|phone\d*|zalo|tel|mobile)( |$)/.test(n) || (/(^| )dt( |$)/.test(n) && !/(^| )(ma|ngay|han|gio|loai)( |$)/.test(n))) { (c.phones || (c.phones = [])).push(j); (c.phoneHeaders || (c.phoneHeaders = [])).push(String(header[j]).replace(/\s+/g, ' ').trim().slice(0, 30)); }
-        if (/(^| )(email\d*|e mail|mail\d*|gmail|thu dien tu)( |$)/.test(n)) { (c.emails || (c.emails = [])).push(j); (c.emailHeaders || (c.emailHeaders = [])).push(String(header[j]).replace(/\s+/g, ' ').trim().slice(0, 30)); }
+        if (/(^| )(email\d*|e mail|mail\d*|gmail|thu dien tu)( |$)/.test(n) && !/(^| )(gui|nhac)( |$)/.test(n)) {      // không nhận cột trạng thái như "Gửi mail nhắc nộp hồ sơ" (c.emails || (c.emails = [])).push(j); (c.emailHeaders || (c.emailHeaders = [])).push(String(header[j]).replace(/\s+/g, ' ').trim().slice(0, 30)); }
       }
       if (n === 'mdt' && c.mdt == null) c.mdt = j;
       else if (isInternalHeader(n) && c.internal == null) c.internal = j;
