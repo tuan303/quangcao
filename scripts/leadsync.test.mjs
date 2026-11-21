@@ -39,7 +39,7 @@ const googleRoutes = sheet => [
     return json({ access_token: 'gtok', expires_in: 3600 });
   },
   u => u.host === 'sheets.googleapis.com' && u.pathname === '/v4/spreadsheets/' + SHEET && (sheet.metaError ? json({ error: sheet.metaError.error }, sheet.metaError.status) : json(sheet.meta)),
-  u => u.host === 'sheets.googleapis.com' && u.pathname === '/v4/spreadsheets/' + SHEET + '/values:batchGet' && json({ valueRanges: u.searchParams.getAll('ranges').map(r => ({ range: r, values: sheet.values[r.replace(/^'|'$/g, '').replace(/''/g, "'")] || [] })) })
+  u => u.host === 'sheets.googleapis.com' && u.pathname === '/v4/spreadsheets/' + SHEET + '/values:batchGet' && json({ valueRanges: u.searchParams.getAll('ranges').map(r => { const v = sheet.values[r.replace(/^'|'$/g, '').replace(/''/g, "'")]; return v && v.length ? { range: r, values: v } : { range: r }; }) })
 ];
 
 /* ---- bộ dữ liệu giả: mùa 2027–28, hôm nay 20/11/2026 ---- */
@@ -151,7 +151,8 @@ test('readAdmissionsSheet: chọn tab Danh sách đăng ký và tab (ĐP), đọ
     assert.equal(b.reg[3][4], 'TS6');                                   // dòng 4 cột Chiến dịch trống nhưng thuộc ô gộp với dòng 3
     assert.equal(b.paid.length, 2); assert.equal(typeof b.reg[2][8], 'number');
     const batch = f.calls.find(c => c.u.pathname.endsWith('values:batchGet')).u.searchParams;
-    assert.equal(batch.get('valueRenderOption'), 'UNFORMATTED_VALUE'); assert.equal(batch.get('dateTimeRenderOption'), 'SERIAL_NUMBER'); assert.deepEqual(batch.getAll('ranges'), ["'Danh sách đăng ký'", "'LỚP 6 2728 (ĐP)'", "'LỚP 10 2728 (ĐP)'"]);
+    assert.equal(batch.get('valueRenderOption'), 'UNFORMATTED_VALUE'); assert.equal(batch.get('dateTimeRenderOption'), 'SERIAL_NUMBER'); assert.deepEqual(batch.getAll('ranges'), ["'Danh sách đăng ký'"]);              // lần 1: chỉ tab đăng ký, để biết mùa
+    const second = f.calls.filter(c => c.u.pathname.endsWith('values:batchGet'))[1].u.searchParams; assert.deepEqual(second.getAll('ranges'), ["'LỚP 6 2728 (ĐP)'", "'LỚP 10 2728 (ĐP)'"]); assert.equal(b.otherSeasonTabs, 0);
     assert.ok(f.calls.every(c => c.u.host !== 'sheets.googleapis.com' || c.init.method == null || c.init.method === 'GET'), 'chỉ đọc');
     assert.ok(f.calls.filter(c => c.u.host === 'sheets.googleapis.com').every(c => c.init.headers.Authorization === 'Bearer gtok'));
   } finally { f.restore(); G.resetTokenCache(); }
@@ -222,9 +223,10 @@ test('explainMeta và checkLeads: thiếu quyền, token hết hạn; kiểm tra
 
 /* ================= Điều phối ================= */
 test('leadSyncConfig: cần cả ADMISSIONS_SHEET_ID và META_ACCESS_TOKEN', () => {
-  assert.deepEqual(S.leadSyncConfig(ENV), { sheet: true, meta: true, ready: true });
-  assert.deepEqual(S.leadSyncConfig({ META_ACCESS_TOKEN: 'x' }), { sheet: false, meta: true, ready: false });
-  assert.deepEqual(S.leadSyncConfig({ ADMISSIONS_SHEET_ID: SHEET, META_ACCESS_TOKEN: '  ' }), { sheet: true, meta: false, ready: false });
+  assert.deepEqual(S.leadSyncConfig(ENV), { sheet: true, sheetSet: true, meta: true, ready: true });
+  assert.deepEqual(S.leadSyncConfig({ META_ACCESS_TOKEN: 'x' }), { sheet: false, sheetSet: false, meta: true, ready: false });
+  assert.deepEqual(S.leadSyncConfig({ ADMISSIONS_SHEET_ID: SHEET, META_ACCESS_TOKEN: '  ' }), { sheet: true, sheetSet: true, meta: false, ready: false });
+  assert.deepEqual(S.leadSyncConfig({ ADMISSIONS_SHEET_ID: 'https://docs.google.com/khong-phai-sheet', META_ACCESS_TOKEN: 'x' }), { sheet: false, sheetSet: true, meta: true, ready: false });   // đã đặt nhưng sai dạng: khác với chưa đặt
 });
 
 test('runLeadSync: từ Google Sheet và lead đến số tổng hợp; chỉ ghi số, không có SĐT/email/họ tên; trạng thái ghi lại', async () => {
@@ -304,7 +306,7 @@ test('checkSetup: báo từng bước cho quản trị — cột SĐT, độ ph�
   G.resetTokenCache(); const f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
   try {
     const r = await S.checkSetup({ env: ENV, today: TODAY });
-    assert.deepEqual(r.serviceAccount, { email: SA.client_email, projectId: SA.project_id }); assert.deepEqual(r.config, { sheet: true, meta: true, ready: true });
+    assert.deepEqual(r.serviceAccount, { email: SA.client_email, projectId: SA.project_id }); assert.deepEqual(r.config, { sheet: true, sheetSet: true, meta: true, ready: true });
     const by = id => r.sheet.steps.find(s => s.id === id);
     assert.ok(by('read').ok && /DATA TUYỂN SINH/.test(by('read').text)); assert.ok(by('reg').ok); assert.ok(by('phones-reg').ok && /2 cột SĐT, 1 cột email/.test(by('phones-reg').text));
     assert.ok(by('paid-LỚP 10 2728 (ĐP)').ok && /1 cột SĐT/.test(by('paid-LỚP 10 2728 (ĐP)').text)); assert.equal(by('skipped').ok, false);
@@ -344,4 +346,101 @@ test('fetchLeads: một tài khoản quảng cáo không liệt kê được Tra
     assert.ok(chk.steps.some(s => s.id === 'pages' && !s.ok && /META_PAGE_IDS/.test(s.text)));
     const ok = await L.fetchLeads({ token: 'tok-test', accts: ['895057262833914', '1870132100153072'], sinceDay: '2026-08-22', env: { META_PAGE_IDS: PAGE } }); assert.equal(ok.source, 'META_PAGE_IDS'); assert.equal(ok.leads.length, 6);
   } finally { f.restore(); }
+});
+
+test('readAdmissionsSheet: tab (ĐP) của mùa cũ để lại trong file không bị tải về (vẫn được báo là tab của mùa khác); giới hạn tab chỉ tính tab cùng mùa; tên tab có dấu nháy được rào đúng', async () => {
+  const d = sheetData(); const old = ['LỚP 6 2627 (ĐP)', 'LỚP 10 2526 (ĐP)', "LỚP 1 2627 (ĐP)'x"]; for (const n of old) { d.meta.sheets.push({ properties: { sheetId: 50 + old.indexOf(n), title: n } }); d.values[n] = [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh'], [1, '', NAMES[0]]]; }
+  for (let i = 0; i < 40; i++) { const a = [25, 26, 29, 30, 31][i % 5]; d.meta.sheets.push({ properties: { sheetId: 100 + i, title: 'HB ' + a + (a + 1) + ' nhóm ' + i + ' (ĐP)' } }); }   // 40 tab ĐP của các mùa khác (2526, 2627, 2930…): trước đây vượt giới hạn 30 và làm hỏng cả lần cập nhật
+  G.resetTokenCache(); let f = stubFetch(googleRoutes(d));
+  try {
+    const b = await G.readAdmissionsSheet(SHEET, { pickTabs: A.pickTabs, env: ENV });
+    const asked = f.calls.filter(c => c.u.pathname.endsWith('values:batchGet')).flatMap(c => c.u.searchParams.getAll('ranges'));
+    assert.deepEqual(asked, ["'Danh sách đăng ký'", "'LỚP 6 2728 (ĐP)'", "'LỚP 10 2728 (ĐP)'"]);
+    const other = 2 + 40; assert.equal(b.otherSeasonTabs, other);
+    assert.equal(b.paid.length, 2 + other); assert.equal(b.paid.filter(p => !p.rows.length).length, other);
+    const ag = A.aggregate({ reg: b.reg, paid: b.paid, skipped: b.skipped, today: TODAY }); assert.ok(ag.ok); assert.equal(ag.summary.total.paid, 4);                  // 4 = 2 em ở tab ĐP + 2 em có Ngày đóng phí
+    assert.ok(ag.summary.checks.paidTabsSkipped.length > 0);                                                                                           // aggregate vẫn báo có tab của mùa khác
+  } finally { f.restore(); G.resetTokenCache(); }
+  // tên tab có dấu nháy: nháy đơn được nhân đôi trong A1
+  const d2 = sheetData(); d2.meta.sheets.push({ properties: { sheetId: 7, title: "LỚP 1 2728 (ĐP)" } }); d2.meta.sheets[1].properties.title = "LỚP 6 2728 (ĐP)";
+  G.resetTokenCache(); f = stubFetch(googleRoutes(d2));
+  try { await G.readAdmissionsSheet(SHEET, { pickTabs: n => ({ regName: 'Danh sách đăng ký', paidNames: ["O'Brien 2728 (ĐP)"], skipped: [] }), env: ENV }); const q = f.calls.filter(c => c.u.pathname.endsWith('values:batchGet')).flatMap(c => c.u.searchParams.getAll('ranges')); assert.ok(q.includes("'O''Brien 2728 (ĐP)'")); } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('Google: lấy token thử lại khi 429/5xx/mất kết nối rồi báo đúng loại lỗi; đọc Sheet thử lại 5xx và làm mới token khi 401; hết lượt thì báo lỗi rõ', async t => {
+  G.setRetryScale(0.001); t.after(() => G.setRetryScale(1));                              // thu ngắn các lần chờ giữa các lần thử lại
+  const tokenOk = { access_token: 'gtok', expires_in: 3600 };
+  let n = 0; G.resetTokenCache();
+  let f = stubFetch([u => u.host === 'oauth2.googleapis.com' && (++n < 3 ? json({ error: { code: 503, status: 'UNAVAILABLE' } }, 503) : json(tokenOk))]);
+  try { assert.equal(await G.accessToken(ENV), 'gtok'); assert.equal(n, 3); } finally { f.restore(); G.resetTokenCache(); }
+  n = 0; f = stubFetch([u => u.host === 'oauth2.googleapis.com' && (++n, json({ error: { code: 503, status: 'UNAVAILABLE' } }, 503))]);
+  try { await assert.rejects(() => G.accessToken(ENV), e => /tạm thời lỗi/.test(e.message) && !/object Object/.test(e.message) && e.expose === true); assert.equal(n, 3); } finally { f.restore(); G.resetTokenCache(); }
+  f = stubFetch([u => u.host === 'oauth2.googleapis.com' && json({ error: 'invalid_grant' }, 400)]);
+  try { await assert.rejects(() => G.accessToken(ENV), /khoá service account/); } finally { f.restore(); G.resetTokenCache(); }
+  await assert.rejects(() => G.accessToken({ FIREBASE_SERVICE_ACCOUNT: JSON.stringify(Object.assign({}, SA, { private_key: 'khong phai khoa' })) }), e => /private_key/.test(e.message) && e.status === 501);
+  // đọc Sheet: 401 một lần thì xin token mới rồi đọc lại
+  G.resetTokenCache(); let tokens = 0, metaCalls = 0;
+  f = stubFetch([u => u.host === 'oauth2.googleapis.com' && (++tokens, json(tokenOk)), u => u.host === 'sheets.googleapis.com' && u.pathname === '/v4/spreadsheets/' + SHEET && (++metaCalls === 1 ? json({ error: { code: 401, message: 'expired' } }, 401) : json({ properties: { title: 'x' }, sheets: [{ properties: { sheetId: 1, title: 'Ghi chú' } }] }))]);
+  try { await assert.rejects(() => G.readAdmissionsSheet(SHEET, { pickTabs: A.pickTabs, env: ENV }), /Danh sách đăng ký/); assert.equal(tokens, 2); assert.equal(metaCalls, 2); } finally { f.restore(); G.resetTokenCache(); }
+  // 500 hai lần rồi đọc được
+  G.resetTokenCache(); metaCalls = 0;
+  f = stubFetch([u => u.host === 'oauth2.googleapis.com' && json(tokenOk), u => u.host === 'sheets.googleapis.com' && (++metaCalls < 3 ? json({ error: { code: 500 } }, 500) : json({ properties: { title: 'x' }, sheets: [{ properties: { sheetId: 1, title: 'Ghi chú' } }] }))]);
+  try { await assert.rejects(() => G.readAdmissionsSheet(SHEET, { pickTabs: A.pickTabs, env: ENV }), /Danh sách đăng ký/); assert.equal(metaCalls, 3); } finally { f.restore(); G.resetTokenCache(); }
+  // 429 liên tục: báo giới hạn
+  G.resetTokenCache(); f = stubFetch([u => u.host === 'oauth2.googleapis.com' && json(tokenOk), u => u.host === 'sheets.googleapis.com' && json({ error: { code: 429 } }, 429)]);
+  try { await assert.rejects(() => G.readAdmissionsSheet(SHEET, { pickTabs: A.pickTabs, env: ENV }), e => /giới hạn/.test(e.message) && e.status === 429); } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('expandMerges không tạo dòng ảo dưới dòng dữ liệu cuối; sheetIdFrom nhận cả đường dẫn /u/1/d/', () => {
+  const rows = [[], ['MDT', 'Chiến dịch'], [1, 'TS6'], [2, '']];
+  G.expandMerges(rows, [{ startRowIndex: 2, endRowIndex: 40, startColumnIndex: 1, endColumnIndex: 2 }]);
+  assert.equal(rows.length, 4); assert.equal(rows[3][1], 'TS6');
+  assert.equal(G.sheetIdFrom('https://docs.google.com/spreadsheets/u/1/d/' + SHEET + '/edit'), SHEET); assert.equal(G.sheetIdFrom('https://docs.google.com/spreadsheets/d/' + SHEET), SHEET);
+  const r = A.aggregate({ reg: [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch'], [1, '', 'A', 'Khối 6', 'TS6']], paid: [{ name: 'X 2728 (ĐP)', rows: [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh'], [1, '', 'A']] }], today: TODAY }); assert.equal(r.summary.checks.skippedReg, 0);
+});
+
+test('runLeadSync: Sheet đọc kém hẳn lần trước (mất tab ĐP, số học sinh tụt, phủ SĐT tụt, tỷ lệ nội bộ nhảy) thì không ghi đè và không đóng băng số hụt; ghi đè được khi quản trị xác nhận', async () => {
+  // lần chạy khoẻ: lấy số đã gộp làm "lần trước"
+  G.resetTokenCache(); let store = memStore(), f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
+  try { await S.runLeadSync({ env: ENV, today: TODAY, store }); } finally { f.restore(); G.resetTokenCache(); }
+  const healthy = JSON.parse(JSON.stringify(store.docs)), tabKey = 'LỚP 6 2728 (ĐP)';
+  assert.ok(healthy.admissions.paidSheets[tabKey] > 0);
+  const degrade = {
+    'tab ĐP bị xoá trống': d => { d.values[tabKey] = []; },
+    'tab ĐP bị đổi tên': d => { d.meta.sheets[1].properties.title = 'Bản sao của ' + tabKey; d.values['Bản sao của ' + tabKey] = d.values[tabKey]; delete d.values[tabKey]; },
+    'cột SĐT mất tiêu đề': d => { d.values['LỚP 10 2728 (ĐP)'][1][3] = 'Liên hệ'; d.values['Danh sách đăng ký'][1][5] = 'A'; d.values['Danh sách đăng ký'][1][6] = 'B'; d.values['Danh sách đăng ký'][1][7] = 'C'; }
+  };
+  for (const [name, fn] of Object.entries(degrade)) {
+    const d = sheetData(); fn(d); G.resetTokenCache(); store = memStore(healthy); f = stubFetch([...googleRoutes(d), ...graphRoutes()]);
+    try {
+      await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 409 && e.canForce === true && /khác hẳn lần trước|không thấy số điện thoại/i.test(e.message) || e.status === 422, name);
+      assert.deepEqual(store.docs.fbmatch, healthy.fbmatch, name); assert.deepEqual(store.docs.admissions, healthy.admissions, name); assert.equal(store.docs.leadsync.ok, false, name);
+    } finally { f.restore(); G.resetTokenCache(); }
+  }
+  // quản trị xác nhận ghi đè: chạy được
+  const d = sheetData(); degrade['tab ĐP bị xoá trống'](d); G.resetTokenCache(); store = memStore(healthy); f = stubFetch([...googleRoutes(d), ...graphRoutes()]);
+  try { const r = await S.runLeadSync({ env: ENV, today: TODAY, store, force: true }); assert.equal(r.ok, true); assert.ok(!(tabKey in store.docs.admissions.paidSheets)); } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('runLeadSync: không có SĐT/email nào trong Sheet thì dừng với hướng dẫn (không ghi số 0); ID Sheet đã đặt nhưng sai dạng được báo đúng', async () => {
+  const noPhone = sheetData(); noPhone.values['LỚP 10 2728 (ĐP)'][1][3] = 'Liên hệ'; noPhone.values['Danh sách đăng ký'][1][5] = 'A'; noPhone.values['Danh sách đăng ký'][1][6] = 'B'; noPhone.values['Danh sách đăng ký'][1][7] = 'C';
+  G.resetTokenCache(); let store = memStore(), f = stubFetch([...googleRoutes(noPhone), ...graphRoutes()]);
+  try { await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 422 && /Không thấy số điện thoại hay email/.test(e.message) && e.stage === 'sheet'); assert.equal(store.docs.fbmatch, undefined); assert.equal(f.calls.filter(c => c.u.host === 'graph.facebook.com').length, 0); } finally { f.restore(); G.resetTokenCache(); }
+  await assert.rejects(() => S.runLeadSync({ env: Object.assign({}, ENV, { ADMISSIONS_SHEET_ID: 'khong phai sheet' }), today: TODAY, store: memStore() }), e => e.status === 501 && /không đúng dạng/.test(e.message));
+});
+
+test('degradedReasons: ngưỡng so với lần trước — tab ĐP mất, đăng ký/đóng phí giảm trên 30%, tỷ lệ nội bộ đổi trên 20 điểm, phủ SĐT giảm trên 20 điểm; mẫu nhỏ (dưới 20) không kết luận', () => {
+  const sum = (reg, regInt, paid, sheets) => ({ total: { reg, regInt, paid, paidInt: 0 }, paidSheets: Object.fromEntries(sheets.map(s => [s, 1])) });
+  const cov = (ext, extWithPhone, paidExt, paidExtWithPhone) => ({ ext, extWithPhone, paidExt, paidExtWithPhone });
+  const base = sum(1000, 300, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc = cov(700, 600, 560, 540);
+  assert.deepEqual(S.degradedReasons(base, sum(1000, 300, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc, cov(700, 600, 560, 540)), []);
+  assert.deepEqual(S.degradedReasons(base, sum(1010, 290, 790, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)', 'LỚP 10 (ĐP)']), bc, cov(705, 640, 560, 545)), []);                 // thêm tab, biến động nhỏ: ổn
+  assert.match(S.degradedReasons(base, sum(1000, 300, 600, ['LỚP 1 (ĐP)']), bc, bc).join(';'), /không còn đọc được tab ĐP "LỚP 6 \(ĐP\)"/);
+  assert.match(S.degradedReasons(base, sum(600, 180, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc, bc).join(';'), /đăng ký giảm từ 1000 xuống 600/);
+  assert.match(S.degradedReasons(base, sum(1000, 300, 500, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc, bc).join(';'), /đã đóng phí giảm từ 800 xuống 500/);
+  assert.match(S.degradedReasons(base, sum(1000, 950, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc, bc).join(';'), /nội bộ đổi từ 30% sang 95%/);                           // cả cột HS nội bộ bỗng có giá trị
+  assert.match(S.degradedReasons(base, sum(1000, 300, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc, cov(700, 100, 560, 540)).join(';'), /có SĐT\/email giảm từ 86% xuống 14%/);
+  assert.match(S.degradedReasons(base, sum(1000, 300, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc, cov(700, 600, 560, 100)).join(';'), /đã đóng phí có SĐT\/email giảm/);
+  assert.deepEqual(S.degradedReasons(sum(10, 2, 8, ['A (ĐP)']), sum(3, 3, 1, []), cov(10, 9, 8, 8), cov(3, 0, 1, 0)), [S.degradedReasons(sum(10, 2, 8, ['A (ĐP)']), sum(3, 3, 1, []), null, null)[0]]);   // mẫu dưới 20: chỉ còn lý do mất tab
+  assert.deepEqual(S.degradedReasons(null, sum(1, 0, 1, []), null, cov(1, 1, 1, 1)), []);                                                           // chưa có số cũ: không so
 });

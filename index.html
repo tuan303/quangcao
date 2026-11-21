@@ -2001,9 +2001,9 @@ async function fbmRun(force) {
     toast('Đang đọc Google Sheet và lead Facebook rồi đối chiếu… (khoảng 30–90 giây, cứ để trang mở)', 90000);
     var r = await fbmCall('run', force ? { force: true } : {});
     if (!r.ok) {
-      if (r.status === 409 && /thấp hơn hẳn/.test(r.j.error || '') && !force) {
+      if (r.status === 409 && r.j.canForce && !force) {
         fbmBusy = false; if (b) b.disabled = false;
-        if (window.confirm(r.j.error + '\n\nGhi đè bằng số mới?')) return fbmRun(true);
+        if (window.confirm(r.j.error + '\n\nChỉ ghi đè nếu bạn chắc số mới là đúng. Ghi đè bằng số mới?')) return fbmRun(true);
         toast('Đã huỷ, giữ nguyên số liệu cũ.', 6000); return;
       }
       toast((r.j.stage ? '[' + ({ sheet: 'Google Sheet', meta: 'Facebook', match: 'Đối chiếu', write: 'Ghi số liệu' }[r.j.stage] || r.j.stage) + '] ' : '') + (r.j.error || 'Không cập nhật được.'), 14000);

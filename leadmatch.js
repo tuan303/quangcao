@@ -17,7 +17,7 @@
 
   var PROGRAMS = ['TS1', 'JS', 'TS6', 'TS10', 'HB', 'OTHER'];   // OTHER: chiến dịch không ghép được chương trình
   var MAX_SIBLINGS = 6;          // một số điện thoại khớp quá nhiều học sinh: số dùng chung, không khớp
-  var KEEP_DAYS = 85;            // Meta chỉ cho đọc lead trong 90 ngày; lead cũ hơn mốc này giữ nguyên số của lần đồng bộ trước
+  var KEEP_DAYS = 88;            // Meta chỉ cho đọc lead trong 90 ngày (lần đọc lấy từ 90 ngày trước); ngày cũ hơn 88 ngày mới đóng băng, để còn vài lần chạy sửa được nếu một lần đọc bị hụt
   var ORGANIC = 'organic', NONE = 'none';
   /* Ô số liệu theo ngày điền form × chiến dịch, thứ tự cố định:
    *  l  phụ huynh (gia đình) điền form        i  chỉ khớp học sinh nội bộ          b  chỉ khớp học sinh đã đăng ký trước form

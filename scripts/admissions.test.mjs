@@ -364,19 +364,19 @@ test('aggregate: tab (ĐP) của mùa khác để lại trong file không đư�
 });
 
 test('programCode và programOf: "Học bổng", "TS 06", "JS26", "HB27" gộp vào mã chuẩn; mã lạ giữ riêng; chữ dài là chưa rõ', () => {
-  for (const [v, w] of [['TS6', 'TS6'], ['ts 6', 'TS6'], ['TS 06', 'TS6'], ['TS-10', 'TS10'], ['Học bổng', 'HB'], ['HB', 'HB'], ['hb27', 'HB'], ['JS26', 'JS'], ['Jolly Steps', 'JS'], ['SUKIEN', 'SUKIEN'], ['Sự kiện', 'SUKIEN'], ['Tuyển sinh lớp 1 đợt hai', 'KHAC'], ['', 'KHAC'], [null, 'KHAC']]) assert.equal(A.programCode(v), w, String(v));
+  for (const [v, w] of [['TS6', 'TS6'], ['ts 6', 'TS6'], ['TS 06', 'TS6'], ['TS-10', 'TS10'], ['Học bổng', 'HB'], ['HB', 'HB'], ['hb27', 'HB'], ['JS26', 'JS'], ['Jolly Steps', 'JS'], ['SK2', 'SK2'], ['sk 2', 'SK2'], ['TS12', 'TS12'], ['SUKIEN', 'KHAC'], ['Sự kiện', 'KHAC'], ['Lan', 'KHAC'], ['chị Hà', 'KHAC'], ['Hương', 'KHAC'], ['12345', 'KHAC'], ['#N/A', 'KHAC'], ['Loading...', 'KHAC'], ['ABCDEF1', 'KHAC'], ['TS1234', 'KHAC'], ['Tuyển sinh lớp 1 đợt hai', 'KHAC'], ['', 'KHAC'], [null, 'KHAC']]) assert.equal(A.programCode(v), w, String(v)); // chữ tự do (tên, ghi chú, ô lỗi) không bao giờ thành mã được lưu
   for (const [n, w] of [['HB26', 'HB'], ['HB2027-LEAD', 'HB'], ['HB 27 | Form', 'HB'], ['HBO Max', null], ['CHB', null], ['hbx', null]]) assert.equal(A.programOf(n), w, n);
   const r = A.aggregate({ reg: regRows([], [[1, null, 'A', 'Khối 6', 'Học bổng'], [2, null, 'B', 'Khối 6', 'TS 06'], [3, null, 'C', 'Khối 6', 'TS6']]), paid: [paidTab('X (ĐP)', [[1, null, 'A']])] }).summary;
   assert.deepEqual(Object.keys(r.programs).sort(), ['HB', 'TS6']); assert.equal(r.programs.TS6.reg, 2);
 });
 
 test('funnel: mã chương trình ngoài năm chương trình và ô Chiến dịch trống hiện riêng, không cộng vào Tổng', () => {
-  const reg = regRows([], [...Array.from({ length: 12 }, (_, i) => [100 + i, null, 'HS', 'Khối 6', 'TS6']), ...Array.from({ length: 5 }, (_, i) => [200 + i, null, 'HS', 'Khối 6', 'SUKIEN']), ...Array.from({ length: 3 }, (_, i) => [300 + i, null, 'HS', 'Khối 6', null])]);
+  const reg = regRows([], [...Array.from({ length: 12 }, (_, i) => [100 + i, null, 'HS', 'Khối 6', 'TS6']), ...Array.from({ length: 5 }, (_, i) => [200 + i, null, 'HS', 'Khối 6', 'SK2']), ...Array.from({ length: 3 }, (_, i) => [300 + i, null, 'HS', 'Khối 6', null])]);
   const s = A.aggregate({ reg, paid: [paidTab('X (ĐP)', [[100, null, 'HS'], [200, null, 'HS'], [201, null, 'HS'], [300, null, 'HS']])] }).summary;
   const f = A.funnel(s, { TS6: { leads: 24, spend: 2.4e6, camps: 1 } }, '2026-08-01', '2026-10-15');
   assert.deepEqual([f.total.regExt, f.total.paidExt, f.total.leadToReg, f.total.costPerReg], [12, 1, 0.5, 2.4e6 / 12]);   // chỉ năm chương trình
-  assert.deepEqual(f.extra.map(r => [r.k, r.regExt, r.paidExt]), [['SUKIEN', 5, 2]]); assert.deepEqual([f.unknown.regExt, f.unknown.paidExt], [3, 1]);
-  assert.deepEqual([f.apart.regExt, f.apart.paidExt, f.apart.codes, f.apart.blank], [8, 3, ['SUKIEN'], true]);
+  assert.deepEqual(f.extra.map(r => [r.k, r.regExt, r.paidExt]), [['SK2', 5, 2]]); assert.deepEqual([f.unknown.regExt, f.unknown.paidExt], [3, 1]);
+  assert.deepEqual([f.apart.regExt, f.apart.paidExt, f.apart.codes, f.apart.blank], [8, 3, ['SK2'], true]);
   assert.equal(A.funnel(A.aggregate({ reg: regRows([], [[1, null, 'A', 'Khối 6', 'TS6']]), paid: [paidTab('X (ĐP)', [[1, null, 'A']])] }).summary, {}, '2026-08-01', '2026-10-15').apart.regExt, 0);
 });
 
@@ -410,12 +410,12 @@ test('packOf: Tổng chỉ gồm năm chương trình, phần ngoài Tổng nằ
   const v = C.zero(); v[C.MI.spend] = 3e6; v[C.MI.lead] = 30; v[C.MI.impr] = 5000;
   const camp = { acct: A1, rows: { a: { n: 'TS6-LEAD | Form', obj: 'OUTCOME_LEADS', m: v } }, monthly: {} }, campd = { acct: A1, since: '2026-09-01', rows: { a: { [day]: v } } };
   const m = C.model({ ['acct-' + A1]: { acct: A1, daily: { [day]: dv } }, ['camp-' + A1]: camp, ['campd-' + A1]: campd });
-  const reg = regRows([], [...Array.from({ length: 12 }, (_, i) => [100 + i, null, 'HS', 'Khối 6', 'TS6']), ...Array.from({ length: 5 }, (_, i) => [200 + i, null, 'HS', 'Khối 6', 'SUKIEN']), [300, null, 'HS', 'Khối 6', null]]);
+  const reg = regRows([], [...Array.from({ length: 12 }, (_, i) => [100 + i, null, 'HS', 'Khối 6', 'TS6']), ...Array.from({ length: 5 }, (_, i) => [200 + i, null, 'HS', 'Khối 6', 'SK2']), [300, null, 'HS', 'Khối 6', null]]);
   const sum = Object.assign(A.aggregate({ reg, paid: [paidTab('X (ĐP)', [[100, null, 'HS'], [200, null, 'HS']])] }).summary, { uploadedAt: '2026-10-10T03:00:00Z' });
   const p = A.packOf(C, m, [A1], sum, '2026-10-15'), b = p.school_year_to_date;
   assert.equal(p.mode, 'season'); assert.equal(p.file_age_days, 5);
   assert.deepEqual(b.programs.map(x => x.program), ['TS1', 'JS', 'TS6', 'TS10', 'HB']);
-  assert.equal(b.total.registered_external, 12); assert.deepEqual(b.programs_not_in_total.map(x => [x.program, x.registered_external]), [['SUKIEN', 5], ['KHAC', 1]]);
+  assert.equal(b.total.registered_external, 12); assert.deepEqual(b.programs_not_in_total.map(x => [x.program, x.registered_external]), [['SK2', 5], ['KHAC', 1]]);
   assert.equal(b.until, '2026-10-10'); assert.match(b.note, /ngày tải file/);
   assert.ok(p.notes.some(n => /programs_not_in_total/.test(n)) && p.notes.some(n => /5 ngày trước/.test(n)));
   assert.ok(!/unknown_program/.test(JSON.stringify(p)));
@@ -512,7 +512,7 @@ test('aggregate: mọi tab (ĐP) thuộc mùa khác thì báo rõ mã mùa thay 
   assert.equal(tabs.ok, false); assert.match(tabs.error, /21 tab/); assert.match(tabs.error, /gộp bớt/);
   assert.ok(A.aggregate({ reg, paid: Array.from({ length: 13 }, (_, i) => paidTab('LỚP ' + (i + 1) + ' 2728 (ĐP)', [[1, null, 'A']])) }).ok);   // mỗi khối một tab: 13 tab vẫn nhận
   // tính chất: mọi kết quả ok:true của aggregate đều qua validate()
-  const progs = ['TS1', 'JS', 'TS6', 'TS10', 'HB', 'SUKIEN', null, 'Học bổng', 'TS 06'];
+  const progs = ['TS1', 'JS', 'TS6', 'TS10', 'HB', 'SK2', null, 'Học bổng', 'TS 06'];
   for (let k = 0; k < 40; k++) {
     const rows = Array.from({ length: 5 + k }, (_, i) => [100 + i, i % 5 === 0 ? 7 : null, 'HS', 'Khối ' + (1 + (i * 3 + k) % 12), progs[(i * 7 + k) % progs.length], k % 3 ? '1' + (i % 9) + '/09/2026' : null]);
     const r = A.aggregate({ reg: regRows(['Ngày đăng ký'], rows), paid: [paidTab('X 2728 (ĐP)', rows.filter((_, i) => i % 2 === 0).map(x => x.slice(0, 3)))], today: '2026-10-15' });
@@ -652,4 +652,27 @@ test('aggregate({collect:true}): lấy SĐT/email từ mọi cột SĐT, Zalo, e
   const plain = A.aggregate({ reg, paid, today: '2026-11-20' });
   assert.equal(plain.students, undefined);                                                         // không yêu cầu thì không trả học sinh
   assert.deepEqual(JSON.parse(JSON.stringify(plain.summary)), JSON.parse(JSON.stringify(r.summary))); // collect không đổi số tổng hợp
+});
+
+test('phoneKeys: nhiều số trong một ô (cách bằng dấu cách, gạch, "và", "&", ngoặc, "Bố:/Mẹ:"), số kèm ghi chú có chữ số; không biến ngày, mã, chữ thường thành số', () => {
+  const a = phn(21), b = phn(22), c = phn(23), A0 = '0' + a, B0 = '0' + b;
+  for (const v of [A0 + ' ' + B0, A0 + ' - ' + B0, A0 + '-' + B0, A0 + ' và ' + B0, A0 + ' & ' + B0, A0 + ' (bố) ' + B0 + ' (mẹ)', 'Bố: ' + A0 + ' Mẹ: ' + B0, '+84' + a + ' / ' + B0, '84' + a + ' ' + B0, A0 + '\n' + B0, A0 + ', ' + B0 + '; ' + '0' + c])
+    assert.deepEqual(A.phoneKeys(v).slice(0, 2), [a, b], String(v));
+  assert.deepEqual(A.phoneKeys(A0 + ', ' + B0 + '; 0' + c), [a, b, c]);
+  for (const v of [A0 + ' (gọi sau 5h)', A0 + ' ext 12', A0 + ' (zalo 2)', A0 + ' (24/7)', A0 + ' 5', 'Zalo ' + A0, A0 + ' – gọi giờ hành chính']) assert.deepEqual(A.phoneKeys(v), [a], String(v));
+  assert.equal(A.phoneKeys(Array.from({ length: 9 }, (_, i) => '0' + phn(40 + i)).join(' ')).length, 6);                    // tối đa 6 khoá mỗi ô
+  for (const v of ['12/03/2016', '2016-03-12', '01/10/2026 10:15', '12345', 'MS' + '2023' + '0001', 'khối 6, lớp 6A2', '(24/7)', '2026', 'abc', '']) assert.deepEqual(A.phoneKeys(v), [], String(v));
+});
+test('columnsOf: tên cột SĐT/email có đuôi số hoặc dính liền vẫn nhận; "Mã ĐT", "Ngày ĐT" không phải cột SĐT', () => {
+  const info = h => A.columnsInfo([['MDT', h]]);
+  for (const h of ['SĐT', 'SĐT bố', 'SĐT 1', 'SĐT1', 'SĐT2', 'SĐTbố', 'Phone 1', 'Phone1', 'Zalo', 'Số ĐT', 'ĐT mẹ', 'ĐT', 'Điện thoại PH', 'Số điện thoại', 'Di động', 'Mobile', 'Hotline']) assert.equal(info(h).phones, 1, h);
+  for (const h of ['Email', 'Email 1', 'Email1', 'Gmail', 'E-mail ưu tiên', 'Thư điện tử']) assert.equal(info(h).emails, 1, h);
+  for (const h of ['Mã ĐT', 'Ngày ĐT', 'Mã DT', 'Ưu tiên', 'Họ tên phụ huynh', 'Trường học', 'Ghi chú']) assert.equal(info(h).phones + info(h).emails, 0, h);
+});
+test('HS nội bộ: mã, TRUE, "x", "Có" là nội bộ; trống, FALSE, 0, "Không", "No", "N/A", "Loading...", ô lỗi (#N/A, #REF!) không phải (không để cả lớp thành nội bộ)', () => {
+  const vals = [[7, true], [20000001, true], [true, true], ['x', true], ['Có', true], ['HS-NB', true], ['001', true], [null, false], ['', false], ['  ', false], [false, false], ['FALSE', false], ['false', false], [0, false], ['0', false], ['Không', false], ['không', false], ['KHONG', false], ['No', false], ['N', false], ['n/a', false], ['#N/A', false], ['#REF!', false], ['#VALUE!', false], ['Loading...', false], ['-', false]];
+  const reg = [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch'], ...vals.map(([v], i) => [i + 1, v, 'HS ' + i, 'Khối 6', 'TS6'])];
+  const r = A.aggregate({ reg, paid: [paidTab('X (ĐP)', [[1, null, 'HS']])], collect: true, today: '2026-11-20' }); assert.ok(r.ok, r.error);
+  vals.forEach(([v, want], i) => assert.equal(r.students[i + 1].int, want, JSON.stringify(v)));
+  assert.equal(r.summary.total.regInt, vals.filter(x => x[1]).length);
 });

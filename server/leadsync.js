@@ -12,7 +12,7 @@ const fail = (message, extra = {}) => Object.assign(new Error(message), { expose
 /** Đã cấu hình đủ để chạy tự động chưa. */
 export function leadSyncConfig(env = process.env) {
   const sheet = !!sheetIdFrom(env.ADMISSIONS_SHEET_ID), meta = !!String(env.META_ACCESS_TOKEN || '').trim();
-  return { sheet, meta, ready: sheet && meta };
+  return { sheet, sheetSet: !!String(env.ADMISSIONS_SHEET_ID || '').trim(), meta, ready: sheet && meta };
 }
 async function libs() {
   await import('../fbads-core.js'); await import('../admissions.js'); await import('../leadmatch.js');
@@ -24,6 +24,26 @@ function leadsFrom(match, from) {
   return n;
 }
 
+/** Sheet đọc lần này kém hẳn lần trước cho cùng mùa → danh sách lý do (rỗng nếu ổn): tab ĐP mất, số học sinh tụt, phủ SĐT tụt, tỷ lệ nội bộ nhảy.
+ *  Một tab bị đổi tên, bị xoá trống khi dán, cột SĐT bị sửa tiêu đề… sẽ cho số "đọc được" nhưng hụt: không được ghi đè số đúng (và không được đóng băng số hụt). */
+export function degradedReasons(prevAdm, sum, prevCov, cov) {
+  const out = [], pct = x => Math.round(x * 100) + '%', rate = (a, b) => b > 0 ? a / b : 0;
+  if (prevAdm) {
+    const lost = Object.keys(prevAdm.paidSheets || {}).filter(k => !(k in (sum.paidSheets || {})));
+    if (lost.length) out.push('không còn đọc được tab ĐP ' + lost.slice(0, 3).map(s => '"' + s + '"').join(', '));
+    if (prevAdm.total.reg >= 20 && sum.total.reg < prevAdm.total.reg * 0.7) out.push('số học sinh đăng ký giảm từ ' + prevAdm.total.reg + ' xuống ' + sum.total.reg);
+    if (prevAdm.total.paid >= 20 && sum.total.paid < prevAdm.total.paid * 0.7) out.push('số học sinh đã đóng phí giảm từ ' + prevAdm.total.paid + ' xuống ' + sum.total.paid);
+    const a = rate(prevAdm.total.regInt, prevAdm.total.reg), b = rate(sum.total.regInt, sum.total.reg);
+    if (prevAdm.total.reg >= 20 && Math.abs(a - b) > 0.2) out.push('tỷ lệ học sinh nội bộ đổi từ ' + pct(a) + ' sang ' + pct(b));
+  }
+  if (prevCov && cov) {
+    const a = rate(prevCov.extWithPhone, prevCov.ext), b = rate(cov.extWithPhone, cov.ext), c = rate(prevCov.paidExtWithPhone, prevCov.paidExt), d = rate(cov.paidExtWithPhone, cov.paidExt);
+    if (prevCov.ext >= 20 && b < a - 0.2) out.push('học sinh có SĐT/email giảm từ ' + pct(a) + ' xuống ' + pct(b));
+    if (prevCov.paidExt >= 20 && d < c - 0.2) out.push('học sinh đã đóng phí có SĐT/email giảm từ ' + pct(c) + ' xuống ' + pct(d));
+  }
+  return out;
+}
+
 /**
  * Chạy một lần cập nhật đầy đủ.
  * @param {{by?:string, env?:object, force?:boolean}} opt  force: bỏ qua kiểm tra "số lead giảm bất thường" (chỉ quản trị bấm tay)
@@ -31,11 +51,11 @@ function leadsFrom(match, from) {
  */
 export async function runLeadSync({ by = 'cron', env = process.env, force = false, today: todayArg, store = { readDocs, writeDocs } } = {}) {
   const started = Date.now(), cfg = leadSyncConfig(env);
-  if (!cfg.sheet) throw fail('Chưa đặt ADMISSIONS_SHEET_ID (đường dẫn hoặc ID của Google Sheet DATA TUYỂN SINH) trên Vercel.', { status: 501 });
+  if (!cfg.sheet) throw fail(cfg.sheetSet ? 'ADMISSIONS_SHEET_ID trên Vercel không đúng dạng: dán đường dẫn (…/spreadsheets/d/<mã>/…) hoặc mã của Google Sheet DATA TUYỂN SINH, không kèm dấu cách hay ký tự lạ.' : 'Chưa đặt ADMISSIONS_SHEET_ID (đường dẫn hoặc ID của Google Sheet DATA TUYỂN SINH) trên Vercel.', { status: 501 });
   if (!cfg.meta) throw fail('Chưa cấu hình META_ACCESS_TOKEN nên chưa lấy được lead Facebook.', { status: 501 });
   const { C, A, M } = await libs();
   const today = A.isDayKey(todayArg) ? todayArg : C.dates.todayVN();
-  const prevDocs = await store.readDocs(['leadsync', 'fbmatch']);
+  const prevDocs = await store.readDocs(['leadsync', 'fbmatch', 'admissions']);
   const lock = prevDocs.leadsync && prevDocs.leadsync.runningUntil ? Date.parse(prevDocs.leadsync.runningUntil) : 0;
   if (lock > Date.now()) throw fail('Đang có một lần cập nhật khác chạy. Đợi vài phút rồi thử lại.', { status: 409, busy: true });
   const base = { v: 1, at: new Date().toISOString(), by: String(by).slice(0, 20) };
@@ -46,6 +66,7 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     const ag = A.aggregate({ reg: book.reg, paid: book.paid, skipped: book.skipped, collect: true, today });
     if (!ag.ok) throw fail('Google Sheet: ' + ag.error, { status: 422 });
     const vs = A.validate(ag.summary); if (!vs.ok) throw fail('Số tổng hợp từ Google Sheet không hợp lệ: ' + vs.error, { status: 422 });
+    if (!Object.values(ag.students).some(s => (s.ph && s.ph.length) || (s.em && s.em.length))) throw fail('Không thấy số điện thoại hay email nào của học sinh trong Google Sheet nên chưa đối chiếu được. Thêm cột SĐT bố, SĐT mẹ (hoặc SĐT ưu tiên) vào tab Danh sách đăng ký và các tab ĐP; nếu đã có, kiểm tra tên cột (nút “Kiểm tra kết nối” cho biết số cột SĐT nhận ra ở từng tab).', { status: 422 });
     // Mùa tuyển sinh đọc từ tiêu đề cột Khối ("Khối 27 28"). Gõ nhầm năm (hoặc mất chữ mùa) không được làm mất số đã gộp của mùa đang chạy: dừng và nói rõ thay vì bắt đầu lại.
     const span = A.seasonSpan(vs.summary), prevSeason = prevDocs.fbmatch && typeof prevDocs.fbmatch.season === 'string' ? prevDocs.fbmatch.season : '';
     if (span && (today < A.addDays(span.start, -92) || today > A.addDays(span.end, 92))) throw fail('Mùa tuyển sinh ghi ở tiêu đề cột Khối của Sheet (' + vs.summary.season + ') không khớp với ngày hôm nay (' + today + '). Hãy kiểm tra năm trong tiêu đề; chưa cập nhật để không ghi đè số liệu đang đúng.', { status: 422 });
@@ -58,7 +79,13 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     next.season = vs.summary.season || '';
     const pv = prevDocs.fbmatch && M.validate(prevDocs.fbmatch), prev = pv && pv.ok && pv.match.season === next.season ? pv.match : null;
     const from = M.windowFrom(today), before = leadsFrom(prev, from), after = leadsFrom(next, from);
-    if (!force && prev && before >= 20 && after < before * 0.7) throw fail('Số lead đọc được lần này (' + after + ') thấp hơn hẳn lần trước (' + before + ') cho cùng khoảng ngày nên chưa ghi đè. Kiểm tra quyền đọc lead của token Meta và các biểu mẫu; nếu đúng là số mới, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409 });
+    if (!force && prev && before >= 20 && after < before * 0.7) throw fail('Số lead đọc được lần này (' + after + ') thấp hơn hẳn lần trước (' + before + ') cho cùng khoảng ngày nên chưa ghi đè. Kiểm tra quyền đọc lead của token Meta và các biểu mẫu; nếu đúng là số mới, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true });
+    // Sheet đọc kém hẳn lần trước (cùng mùa): dừng trước khi ghi đè hay đóng băng số hụt
+    if (!force) {
+      const pa = prevDocs.admissions && A.validate(prevDocs.admissions), prevAdm = pa && pa.ok && pa.summary.season === vs.summary.season ? pa.summary : null;
+      const why = degradedReasons(prevAdm, vs.summary, prev && prev.cov, next.cov);
+      if (why.length) throw fail('Google Sheet đọc lần này khác hẳn lần trước (' + why.join('; ') + ') nên chưa ghi đè số liệu đang đúng. Kiểm tra tab và tên cột trong Sheet (có thể một tab bị đổi tên, bị xoá trống hoặc cột SĐT bị sửa tiêu đề); nếu thay đổi là đúng, quản trị bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true });
+    }
     const merged = M.mergeMatch(prev, next, from); merged.syncedAt = new Date().toISOString();
     const vm = M.validate(merged); if (!vm.ok) throw fail('Kết quả đối chiếu không hợp lệ: ' + vm.error, { status: 500 });
     stage = 'write';

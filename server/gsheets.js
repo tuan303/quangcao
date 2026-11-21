@@ -9,13 +9,15 @@ const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const API = 'https://sheets.googleapis.com/v4/spreadsheets/';
 const MAX_ROWS = 60000, MAX_TABS = 30, TIMEOUT_MS = 25000;
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+let retryScale = 1; // chỉ kiểm thử đổi: thu ngắn các lần chờ giữa các lần thử lại
+export function setRetryScale(x) { retryScale = x; }
+const sleep = ms => new Promise(r => setTimeout(r, ms * retryScale));
 const fail = (message, extra = {}) => Object.assign(new Error(message), { expose: true, status: 502 }, extra);
 
 /** Id Sheet từ id trần hoặc đường dẫn docs.google.com/spreadsheets/d/<id>/…; không hợp lệ → ''. */
 export function sheetIdFrom(v) {
   const s = String(v == null ? '' : v).trim().replace(/^['"]|['"]$/g, '');
-  const m = s.match(/\/spreadsheets\/d\/([A-Za-z0-9_-]{20,})/) || s.match(/^([A-Za-z0-9_-]{20,})$/);
+  const m = s.match(/\/spreadsheets\/(?:u\/\d+\/)?d\/([A-Za-z0-9_-]{20,})/) || s.match(/^([A-Za-z0-9_-]{20,})$/);
   return m ? m[1] : '';
 }
 /** Email và dự án của service account (để hướng dẫn chia sẻ Sheet); null khi chưa cấu hình. Không trả khoá riêng. */
@@ -41,18 +43,23 @@ export async function accessToken(env = process.env) {
   if (cached && cached.exp - Date.now() > 300000) return cached.token;
   const sa = getServiceAccount(env);
   if (!sa) throw fail('Chưa cấu hình service account (FIREBASE_SERVICE_ACCOUNT) nên chưa đọc được Google Sheet.', { status: 501 });
-  let out;
-  try {
-    out = await fetchJson(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + encodeURIComponent(buildJwt(sa)) });
-  } catch (e) { throw fail('Không kết nối được Google để lấy quyền đọc (' + String(e && e.name === 'TimeoutError' ? 'hết thời gian chờ' : e && e.message || e).slice(0, 80) + ').'); }
-  const { res, j } = out;
-  if (!res.ok || !j || !j.access_token) {
-    const code = j && j.error;
+  let jwt;
+  try { jwt = buildJwt(sa); } catch (e) { throw fail('Khoá riêng (private_key) trong FIREBASE_SERVICE_ACCOUNT không đọc được. Dán lại nguyên nội dung file JSON của service account.', { status: 501 }); }
+  for (let attempt = 0; ; attempt++) {
+    let out;
+    try { out = await fetchJson(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + encodeURIComponent(jwt) }); }
+    catch (e) {
+      if (attempt < 2) { await sleep(800 * (attempt + 1)); continue; }
+      throw fail('Không kết nối được Google để lấy quyền đọc (' + (e && e.name === 'TimeoutError' ? 'hết thời gian chờ' : 'mất kết nối') + ').');
+    }
+    const { res, j } = out;
+    if (res.ok && j && j.access_token) { cached = { token: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 }; return cached.token; }
+    if ((res.status === 429 || res.status >= 500) && attempt < 2) { await sleep(1200 * (attempt + 1)); continue; }
+    const code = j && typeof j.error === 'string' ? j.error : '';
     throw fail(code === 'invalid_grant' ? 'Google từ chối khoá service account (khoá đã bị xoá hoặc thu hồi, hoặc đồng hồ máy chủ lệch). Tạo khoá mới cho service account rồi cập nhật FIREBASE_SERVICE_ACCOUNT.'
+      : res.status >= 500 || res.status === 429 ? 'Google tạm thời lỗi khi cấp quyền đọc (' + res.status + '). Thử lại sau vài phút.'
       : 'Google từ chối cấp quyền đọc cho service account (' + String(code || res.status).slice(0, 40) + ').');
   }
-  cached = { token: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 };
-  return cached.token;
 }
 
 /** Lỗi của Sheets API → câu tiếng Việt nói rõ cần làm gì (không kèm nội dung Sheet). */
@@ -93,7 +100,7 @@ async function sheetsGet(path, params, sa, env) {
 export function expandMerges(rows, merges) {
   if (!Array.isArray(merges) || !merges.length || merges.length > 5000) return rows;
   for (const m of merges) {
-    const sr = m.startRowIndex || 0, er = m.endRowIndex || 0, sc = m.startColumnIndex || 0, ec = m.endColumnIndex || 0;
+    const sr = m.startRowIndex || 0, ec = m.endColumnIndex || 0, sc = m.startColumnIndex || 0, er = Math.min(m.endRowIndex || 0, rows.length); // không tạo dòng ảo dưới dòng dữ liệu cuối (Google bỏ các dòng trống cuối)
     if (er <= sr || ec <= sc || (er - sr) * (ec - sc) > 100000 || er > MAX_ROWS) continue;
     const tl = rows[sr] && rows[sr][sc];
     if (tl == null || tl === '') continue;
@@ -112,25 +119,35 @@ export function expandMerges(rows, merges) {
  */
 export async function readAdmissionsSheet(sheetId, { pickTabs, env = process.env } = {}) {
   const id = sheetIdFrom(sheetId); if (!id) throw fail('ADMISSIONS_SHEET_ID không hợp lệ (dán đường dẫn hoặc ID của Google Sheet).', { status: 501 });
-  const sa = serviceAccountInfo(env);
+  const sa = serviceAccountInfo(env), A = globalThis.FBAdm || {};
   const meta = await sheetsGet(id, [['fields', 'properties.title,sheets(properties(sheetId,title),merges)']], sa, env);
   const sheets = (meta.sheets || []).filter(s => s && s.properties && typeof s.properties.title === 'string');
-  if (sheets.length > MAX_TABS * 4) throw fail('Sheet có quá nhiều tab (' + sheets.length + ').');
+  if (sheets.length > 400) throw fail('Sheet có quá nhiều tab (' + sheets.length + ').');
   const names = sheets.map(s => s.properties.title);
-  const pick = typeof pickTabs === 'function' ? pickTabs : globalThis.FBAdm && globalThis.FBAdm.pickTabs;
+  const pick = typeof pickTabs === 'function' ? pickTabs : A.pickTabs;
   const tabs = pick && pick(names);
   if (!tabs) throw fail('Không thấy tab "Danh sách đăng ký" trong Google Sheet này.');
-  const want = [tabs.regName].concat(tabs.paidNames); if (want.length > MAX_TABS) throw fail('Sheet có quá nhiều tab (ĐP) (' + want.length + ').');
-  const q = ['majorDimension', 'ROWS'], params = [q, ['valueRenderOption', 'UNFORMATTED_VALUE'], ['dateTimeRenderOption', 'SERIAL_NUMBER']];
-  for (const n of want) params.push(['ranges', "'" + n.replace(/'/g, "''") + "'"]);
-  const got = await sheetsGet(id + '/values:batchGet', params, sa, env);
-  const ranges = got.valueRanges || [];
-  if (ranges.length !== want.length) throw fail('Google Sheets trả về số tab không khớp yêu cầu.');
-  const rowsOf = (i, name) => {
-    const rows = (ranges[i] && ranges[i].values || []).slice();
-    if (rows.length > MAX_ROWS) throw fail('Tab "' + name.slice(0, 40) + '" quá dài (' + rows.length + ' dòng).');
-    const sh = sheets.find(s => s.properties.title === name);
-    return expandMerges(rows, sh && sh.merges);
+  const readTabs = async list => { // một lần gọi batchGet cho các tab; trả về { tên tab: các dòng (đã mở rộng ô gộp) }
+    if (!list.length) return {};
+    const params = [['majorDimension', 'ROWS'], ['valueRenderOption', 'UNFORMATTED_VALUE'], ['dateTimeRenderOption', 'SERIAL_NUMBER']];
+    for (const n of list) params.push(['ranges', "'" + n.replace(/'/g, "''") + "'"]);
+    const got = await sheetsGet(id + '/values:batchGet', params, sa, env), ranges = got.valueRanges || [];
+    if (ranges.length !== list.length) throw fail('Google Sheets trả về số tab không khớp yêu cầu.');
+    const out = {};
+    list.forEach((name, i) => {
+      const rows = (ranges[i] && ranges[i].values || []).slice();
+      if (rows.length > MAX_ROWS) throw fail('Tab "' + name.slice(0, 40) + '" quá dài (' + rows.length + ' dòng).');
+      const sh = sheets.find(s => s.properties.title === name);
+      out[name] = expandMerges(rows, sh && sh.merges);
+    });
+    return out;
   };
-  return { title: String(meta.properties && meta.properties.title || '').slice(0, 120), reg: rowsOf(0, tabs.regName), paid: tabs.paidNames.map((n, i) => ({ name: n, rows: rowsOf(i + 1, n) })), skipped: tabs.skipped, tabs: want };
+  // Đọc tab Danh sách đăng ký trước để biết mùa (tiêu đề cột Khối), rồi chỉ tải các tab (ĐP) của đúng mùa đó: tab của mùa cũ để lại trong file không bị tải về
+  // (aggregate() vẫn thấy tên chúng để báo "tab của mùa khác", nhưng không có dòng nào).
+  const reg = (await readTabs([tabs.regName]))[tabs.regName];
+  const seasonCode = typeof A.seasonOfRegRows === 'function' ? A.seasonOfRegRows(reg) : '';
+  const same = tabs.paidNames.filter(n => { const c = typeof A.seasonCodeOf === 'function' ? A.seasonCodeOf(n, true) : ''; return !(seasonCode && c && c !== seasonCode); });
+  if (same.length > MAX_TABS) throw fail('Sheet có quá nhiều tab (ĐP) của mùa này (' + same.length + '). Hãy ẩn hoặc xoá bớt tab không dùng.');
+  const rows = await readTabs(same);
+  return { title: String(meta.properties && meta.properties.title || '').slice(0, 120), reg, paid: tabs.paidNames.map(n => ({ name: n, rows: rows[n] || [] })), skipped: tabs.skipped, tabs: [tabs.regName].concat(same), otherSeasonTabs: tabs.paidNames.length - same.length };
 }

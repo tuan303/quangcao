@@ -47,10 +47,23 @@
     if (n <= 2) return '';
     return d.length === 9 && /^[35789]/.test(d) ? d : d.length === 10 && d.charAt(0) === '2' ? d : '';
   }
-  /** Mọi khoá điện thoại trong một ô (có thể ghi hai số cách nhau bằng , ; / | hoặc xuống dòng). */
+  /** Mọi khoá điện thoại trong một ô: một số, hoặc nhiều số cách nhau bằng dấu phẩy, chấm phẩy, gạch chéo, xuống dòng, chữ ("và", "Bố:", "Mẹ:"), ngoặc,
+   *  hoặc chỉ dấu cách/gạch nối giữa hai số; số kèm ghi chú (có chữ hoặc chữ số, như "gọi sau 5h", "ext 12") vẫn lấy được số. Tối đa 6 khoá mỗi ô. */
   function phoneKeys(v) {
-    if (typeof v === 'string' && /[,;\/|\n]/.test(v)) { var out = []; v.split(/[,;\/|\n]+/).forEach(function (t) { var k = phoneKey(t); if (k && out.indexOf(k) < 0) out.push(k); }); return out; }
-    var k = phoneKey(v); return k ? [k] : [];
+    if (v == null || typeof v === 'boolean') return [];
+    if (typeof v === 'number') { var k0 = phoneKey(v); return k0 ? [k0] : []; }
+    var out = [], push = function (k) { if (k && out.indexOf(k) < 0 && out.length < 6) out.push(k); };
+    String(v).split(/[^\d\s.\-()+]+/).forEach(function (tok) { // đoạn gồm chữ số và dấu thường nằm trong một số: cách, chấm, gạch, ngoặc, cộng
+      var d = tok.replace(/\D/g, ''); if (d.length < 9) return;
+      var k = phoneKey(tok); if (k) { push(k); return; }
+      // hai số trở lên viết liền hoặc cách nhau (từ 18 chữ số), hoặc một số kèm chữ số ghi chú thừa (11–13 chữ số, bắt đầu bằng 0 hoặc 84): bóc lần lượt từng số hợp lệ từ đầu chuỗi
+      if (d.length < 18 && !(d.length <= 13 && /^(0|84)/.test(d))) return;
+      for (var guard = 0; d.length >= 9 && guard < 6; guard++) {
+        var took = 0; [10, 11, 9, 12, 13].some(function (len) { if (d.length < len) return false; var c = phoneKey(d.slice(0, len)); if (c) { push(c); took = len; return true; } return false; });
+        if (!took) break; d = d.slice(took);
+      }
+    });
+    return out;
   }
   /** Khoá email: chữ thường, đúng dạng, tối đa 120 ký tự; ngược lại ''. */
   function emailKey(v) { if (typeof v !== 'string') return ''; var t = v.trim().toLowerCase(); return t.length <= 120 && /^[^\s@,;<>()]+@[^\s@,;<>()]+\.[a-z]{2,}$/.test(t) ? t : ''; }
@@ -91,6 +104,14 @@
     for (var i = 0; i < Math.min(rows.length, 20); i++) { var r = rows[i]; if (!r) continue; for (var j = 0; j < r.length; j++) if (norm(r[j]) === 'mdt') return i; }
     return -1;
   }
+  /* Ô cột HS nội bộ → có phải học sinh nội bộ. Mã (số dương), TRUE, và chữ khác phủ định ("x", "có", tên…) là nội bộ; trống, FALSE, 0, "không", "no", "n/a", ô lỗi của bảng tính (#N/A, #REF!…) thì không. */
+  function isInternalCell(v) {
+    if (v == null || v === false) return false;
+    if (v === true) return true;
+    if (typeof v === 'number') return isFinite(v) && v > 0;
+    var s = String(v).trim(); if (!s || s.charAt(0) === '#') return false;
+    var n = norm(s); return !!n && !/^(false|no|n|khong|ko|k|0|none|null|na|n a|loading|error|chua)$/.test(n);
+  }
   function isInternalHeader(n) { return /(^| )(hs|h s|hoc sinh) ?(noi bo|nb)( |$)/.test(n) || /^(hsnb|noi bo)( |$)/.test(n); }
   function columnsOf(header) {
     var c = {};
@@ -104,8 +125,8 @@
         if (c.name == null || (strict && !c.nameStrict)) { c.name = j; c.nameStrict = strict; }
       }
       else if (n === 'chien dich' && c.program == null) c.program = j;
-      else if (/(^| )(sdt|so dien thoai|dien thoai|dt|di dong|didong|phone|zalo|tel)( |$)/.test(n)) (c.phones || (c.phones = [])).push(j);
-      else if (/(^| )(email|e mail|mail)( |$)/.test(n)) (c.emails || (c.emails = [])).push(j);
+      else if (/(^| )(sdt\w*|so dien thoai|dien thoai|so dt|dt (bo|me|ph|phu huynh|uu tien|hs|hoc sinh)|di dong|didong|phone\d*|zalo|tel|mobile|hotline)( |$)/.test(n) || (/(^| )dt( |$)/.test(n) && !/(^| )(ma|ngay|han|gio|loai)( |$)/.test(n))) (c.phones || (c.phones = [])).push(j);
+      else if (/(^| )(email\d*|e mail|mail\d*|gmail|thu dien tu)( |$)/.test(n)) (c.emails || (c.emails = [])).push(j);
       else if (/(^| )ngay (nhan )?(dang k[yi]|dk)( |$)/.test(n) && c.regDate == null) c.regDate = j;
       else if (/(^| )ngay ((dong|nop|thu) (hoc )?phi|dp|da dong phi)( |$)/.test(n) && c.paidDate == null) c.paidDate = j;
     }
@@ -126,11 +147,12 @@
   }
 
   /* Ô Chiến dịch của học sinh → mã chương trình. Hiểu cùng cách với tên chiến dịch Facebook ("Học bổng", "TS 6", "HB27" đều gộp vào mã chuẩn);
-   * mã lạ ngắn (≤ 8 ký tự) giữ nguyên làm mã riêng, ô trống hoặc chữ dài là "chưa rõ". */
+   * mã lạ giữ nguyên làm mã riêng chỉ khi có dạng mã (1–5 chữ cái rồi 1–3 chữ số, ví dụ "TS12", "SK1"); ô trống, tên người, ghi chú, số trần, ô lỗi (#N/A) là "chưa rõ".
+   * (Mã này được lưu lại, nên chữ tự do gõ vào ô Chiến dịch không được thành mã.) */
   function programCode(v) {
     var k = programOf(v); if (k) return k;
     var s = fold(v).toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^TS0+(?=\d)/, 'TS');
-    return s && s.length <= 8 ? s : UNKNOWN;
+    return /^[A-Z]{1,5}\d{1,3}$/.test(s) ? s : UNKNOWN;
   }
   /** Mã mùa bốn chữ số ("2728") trong tên tab hay tiêu đề cột, mùa 2025–26 đến 2036–37. Nhận 2027-2028, 2027-28, 202728, 20272028 (tin cậy cao), 2728 liền (trung bình)
    *  và cặp trần 27 28, 27-28, 27.28, 27/28, 27—28… (thấp: dấu ngăn là 1–4 ký tự không phải chữ hay số). Nhiều ứng viên: lấy loại tin cậy cao hơn, cùng loại thì lấy cái đứng sau.
@@ -207,7 +229,7 @@
       var rd = '', pd = '', t;
       if (c.regDate != null) { t = dayOf(r[c.regDate]); rd = t[0]; if (t[1]) regBad++; }
       if (c.paidDate != null) { t = dayOf(r[c.paidDate]); pd = t[0]; if (t[1]) paidBad++; }
-      students[id] = { p: programCode(r[c.program]), k: c.khoi != null ? khoiLabel(r[c.khoi]) : 'Khác', int: c.internal != null && !blank(r[c.internal]) && r[c.internal] !== false, rd: rd, pd: pd, paid: false };
+      students[id] = { p: programCode(r[c.program]), k: c.khoi != null ? khoiLabel(r[c.khoi]) : 'Khác', int: c.internal != null && isInternalCell(r[c.internal]), rd: rd, pd: pd, paid: false };
       if (collect) { students[id].ph = []; students[id].em = []; gather(students[id], r, c); }
       n++;
     }
@@ -298,6 +320,11 @@
     var paidNames = names.filter(function (n) { return n !== regName && /(^| )dp$/.test(norm(n)); });
     var skipped = names.filter(function (n) { return n !== regName && paidNames.indexOf(n) < 0 && /(^| )(dp|da dong phi)( |$)/.test(norm(n)); });
     return { regName: regName, paidNames: paidNames, skipped: skipped };
+  }
+  /** Mã mùa ("2728") ghi ở tiêu đề cột Khối của tab Danh sách đăng ký; rỗng khi không đọc được. Dùng để chỉ đọc các tab (ĐP) của đúng mùa này. */
+  function seasonOfRegRows(rows) {
+    var h = findHeader(rows || []); if (h < 0) return '';
+    var c = columnsOf(rows[h]); return c.khoiHeader ? seasonCodeOf(c.khoiHeader) : '';
   }
   /** Cột nào được nhận ra ở một tab (chỉ đếm, không có nội dung ô): dùng cho phần kiểm tra kết nối. null khi không thấy dòng tiêu đề có cột MDT. */
   function columnsInfo(rows) {
@@ -566,7 +593,7 @@
   var api = {
     PROGRAMS: PROGRAMS, UNKNOWN: UNKNOWN, MIN_BASE: MIN_BASE, MIN_DATED: MIN_DATED, fold: fold, norm: norm, parseDate: parseDate, mdtKey: mdtKey, programOf: programOf, aggregate: aggregate,
     readWorkbook: readWorkbook, validate: validate, fbByProgram: fbByProgram, funnel: funnel, modeOf: modeOf, datedShare: datedShare, coverage: coverage, windowOf: windowOf, seasonSpan: seasonSpan, packOf: packOf,
-    programCode: programCode, seasonCodeOf: seasonCodeOf, addDays: addDays, pickTabs: pickTabs, columnsInfo: columnsInfo, vnDate: vnDate, isDayKey: isDay, phoneKey: phoneKey, phoneKeys: phoneKeys, emailKey: emailKey, emailKeys: emailKeys
+    programCode: programCode, seasonCodeOf: seasonCodeOf, addDays: addDays, pickTabs: pickTabs, seasonOfRegRows: seasonOfRegRows, columnsInfo: columnsInfo, vnDate: vnDate, isDayKey: isDay, phoneKey: phoneKey, phoneKeys: phoneKeys, emailKey: emailKey, emailKeys: emailKeys
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.FBAdm = api;

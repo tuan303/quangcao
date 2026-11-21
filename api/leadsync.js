@@ -30,6 +30,6 @@ async function run(req, res) {
     return send(res, 400, { ok: false, error: 'action phải là "run" hoặc "check".' });
   } catch (e) {
     console.error('[leadsync]', e && e.expose ? e.message : e);
-    send(res, e.busy ? 409 : e.status && e.status < 600 ? e.status : 500, { ok: false, error: safeError(e), stage: e && e.stage || undefined });
+    send(res, e.busy ? 409 : e.status && e.status < 600 ? e.status : 500, { ok: false, error: safeError(e), stage: e && e.stage || undefined, canForce: e && e.canForce === true ? true : undefined });
   }
 }
