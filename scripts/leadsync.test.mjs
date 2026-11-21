@@ -814,3 +814,22 @@ test('runLeadSync: sau một đợt gián đoạn, các ngày còn sống ở l�
     await withNet(sheetData(), {}, async () => { assert.equal((await run(memStore({ fbmatch: mk(8) }))).ok, true); });
   });
 }
+
+test('safelog: chuỗi trong ngoặc kép kéo dài qua nhiều dòng không lọt vào log qua phần ngăn xếp; tên và mã lỗi cũng qua bộ lọc', () => {
+  const k = phn(7), e = new Error('ghi that bai "Nguyen\nVan A" ' + k + '\nten.phu.huynh@example.com'); e.code = 'ten.phu.huynh@example.com'; e.name = 'Loi "Tran Thi B"';
+  const line = describeUnknown(e);
+  assert.ok(!/Nguyen|Van A|Tran|Thi B|example\.com/.test(line) && !line.includes(k), line);
+  assert.match(line, /^Loi "…" \| @ \| ghi that bai "…"/); assert.match(line, / @ \s*at /);
+  const frames = line.slice(line.lastIndexOf(' @ ') + 3); assert.ok(frames === '' || /^at /.test(frames), frames);
+});
+
+test('checkLeads: đọc thử mọi biểu mẫu có lead (không chỉ 8 đầu), báo đỏ khi một biểu mẫu thứ chín không đọc được hoặc khi vượt giới hạn số biểu mẫu của lần đọc thật', async () => {
+  const mkForms = n => Array.from({ length: n }, (_, i) => ({ id: 'q' + i, status: 'ACTIVE', leads_count: 3, created_time: OLD }));
+  const routes = (forms, badId) => [u => u.host === 'graph.facebook.com' && /\/q\d+\/leads$/.test(u.pathname) && (u.pathname.endsWith('/' + badId + '/leads') ? json({ error: { code: 200, message: '(#200) quyền' } }, 403) : json({ data: [] })), ...graphRoutes({ forms })];
+  let f = stubFetch(routes(mkForms(12), 'q9'));
+  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false, JSON.stringify(s)); } finally { f.restore(); }
+  f = stubFetch(routes(mkForms(L.MAX_FORMS + 1), 'khong-co'));
+  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false); assert.match(s.text, /vượt giới hạn/); } finally { f.restore(); }
+  f = stubFetch(routes(mkForms(L.MAX_FORMS + 1), 'khong-co'));
+  try { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && /Lưu trữ hoặc xoá các biểu mẫu cũ/.test(e.message)); } finally { f.restore(); }
+});

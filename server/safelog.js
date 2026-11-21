@@ -1,4 +1,5 @@
 // Ghi log lỗi bất ngờ mà không lộ dữ liệu: tên lỗi, mã, thông điệp đã xoá phần trong ngoặc kép, dãy chữ số/ngày/số điện thoại (kể cả viết cách nhau) và email, cùng hai dòng đầu của ngăn xếp.
 // Dùng cho mọi chỗ in lỗi không do mình viết (lỗi của thư viện, Firestore, mã). Tên người viết trơn trong thông điệp không thể nhận ra được nên không bao giờ được ghép nội dung ô vào thông điệp lỗi.
 export const scrub = s => String(s).replace(/"[^"]*"/g, '"…"').replace(/\d[\d\s.\-()+/]{4,}\d/g, '#').replace(/\d{6,}/g, '#').replace(/[^\s@"'<>]+@[^\s@"'<>]+/g, '@').slice(0, 160);
-export const describeUnknown = e => [e && e.name, e && e.code, scrub(e && e.message || '')].filter(Boolean).join(' | ') + ' @ ' + String(e && e.stack || '').split('\n').slice(1, 3).map(s => s.trim().slice(0, 100)).join(' <- ');
+// Chỉ lấy các dòng khung gọi thật của ngăn xếp ("at …"): một thông điệp nhiều dòng không được lọt vào log qua phần ngăn xếp; tên lỗi và mã cũng qua bộ lọc.
+export const describeUnknown = e => [e && scrub(String(e.name || '')).slice(0, 40), e && e.code != null && scrub(String(e.code)).slice(0, 40), scrub(e && e.message || '')].filter(Boolean).join(' | ') + ' @ ' + String(e && e.stack || '').split('\n').filter(l => /^\s*at /.test(l)).slice(0, 2).map(l => scrub(l.trim()).slice(0, 100)).join(' <- ');

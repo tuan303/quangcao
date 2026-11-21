@@ -101,15 +101,26 @@
     var HUB = 4, byKey = Object.create(null), hub = Object.create(null), hubOnly = 0;
     var keysOf = function (l) { return l.ph.map(function (k) { return 'p' + k; }).concat(l.em.map(function (k) { return 'e' + k; })); };
     dated.forEach(function (l, i) { keysOf(l).forEach(function (k) { (byKey[k] || (byKey[k] = [])).push(i); }); });
-    // Khoá dùng chung (địa chỉ giữ chỗ, số của văn phòng hay của người môi giới) không xác định một phụ huynh. Bằng chứng một người khác: lead có một khoá RIÊNG (khoá khác mà không lead nào khác chứa khoá k có).
-    // Từ HUB lead như vậy trở lên thì k là khoá dùng chung. Một phụ huynh điền cùng một form nhiều lần (chỉ một số điện thoại, hay cùng số kèm cùng email) không có khoá riêng nên không bị coi là nhiều người;
-    // hai khoá luôn đi cùng nhau (số và email của người môi giới) đều có khoá riêng ở mỗi lead (số của từng phụ huynh) nên đều bị nhận ra.
+    // Khoá dùng chung (địa chỉ giữ chỗ, số của văn phòng hay của người môi giới) không xác định một phụ huynh: các lead chứa khoá k thuộc từ HUB người khác nhau trở lên. Số người = số nhóm lead nối với nhau bằng một khoá KHÁC k,
+    // không tính khoá có mặt ở MỌI lead của k (khoá đi kèm của chính người môi giới, không nói lead nào cùng người). Phụ huynh điền cùng một form nhiều lần (chỉ một số, hay cùng số kèm cùng email) không có khoá nào để nhận ra người khác nên là một người.
+    // Cộng thêm cách đếm theo khoá riêng (lead có một khoá khác mà không lead nào khác của k có) để vẫn nhận ra các khoá chỉ đi cùng nhau một phần.
     Object.keys(byKey).forEach(function (k) {
       var L = byKey[k]; if (L.length < HUB) return;
-      var cnt = Object.create(null), people = 0;
+      var cnt = Object.create(null);
       L.forEach(function (li) { keysOf(dated[li]).forEach(function (o) { if (o !== k) cnt[o] = (cnt[o] || 0) + 1; }); });
-      L.forEach(function (li) { if (keysOf(dated[li]).some(function (o) { return o !== k && cnt[o] === 1; })) people++; });
-      if (people >= HUB) hub[k] = 1;
+      var u = L.map(function (_, j) { return j; }), f2 = function (j) { while (u[j] !== j) { u[j] = u[u[j]]; j = u[j]; } return j; }, owner = Object.create(null), has = L.map(function () { return false; }), priv = 0;
+      L.forEach(function (li, j) {
+        var own = false;
+        keysOf(dated[li]).forEach(function (o) {
+          if (o === k) return;
+          if (cnt[o] === 1) own = true;
+          if (cnt[o] >= L.length) return;                                           // có ở mọi lead của k: không phân biệt người
+          has[j] = true; if (owner[o] == null) owner[o] = j; else { var a = f2(owner[o]), b = f2(j); if (a !== b) u[a] = b; }
+        });
+        if (own) priv++;
+      });
+      var roots = Object.create(null); L.forEach(function (_, j) { if (has[j]) roots[f2(j)] = 1; });
+      if (Object.keys(roots).length >= HUB || priv >= HUB) hub[k] = 1;
     });
     var P = [], uf = [], keyOwner = Object.create(null), noContact = all.length - dated.length;
     var find = function (i) { while (uf[i] !== i) { uf[i] = uf[uf[i]]; i = uf[i]; } return i; };

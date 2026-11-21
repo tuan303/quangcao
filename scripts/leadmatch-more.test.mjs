@@ -110,6 +110,19 @@ test('K12: packOf: by_program lists only programmes with parents (spend alone do
     r = M.matchLeads([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => M.leadFromGraph({ id: 'g' + i, created_time: at('2026-10-01'), campaign_id: '111111', campaign_name: 'TS6-LEAD', field_data: [{ name: 'phone_number', values: ['0' + phn(200 + i)] }, { name: 'zalo', values: ['0' + agent] }, { name: 'email', values: [agentMail] }] })), {});
     assert.equal(r.leads.parents, 10); assert.equal(r.leads.hubKeys, 2);
   });
+  test('khoá dùng chung: nhiều gia đình cùng gõ một địa chỉ giữ chỗ, mỗi gia đình điền form hai lần với số riêng, vẫn bị nhận ra (không gộp người lạ); hai người dùng chung thì không', () => {
+    const shared = 'chung.nhau@example.com', fam = n => [phn(300 + n)], S = {};
+    const lead = (id, day, phone) => mk(id, day, [phone], [shared]);
+    const four = []; for (let n = 1; n <= 4; n++) { four.push(lead('a' + n, '2026-10-0' + n, fam(n)[0])); four.push(lead('b' + n, '2026-10-1' + n, fam(n)[0])); }                // 4 gia đình × 2 lần điền
+    let r = M.matchLeads(four, S); assert.equal(r.leads.hubKeys, 1); assert.equal(r.leads.parents, 4);
+    r = M.matchLeads(four.filter(l => !/[34]$/.test(l.id)), S); assert.equal(r.leads.hubKeys, 0); assert.equal(r.leads.parents, 1);   // chỉ hai gia đình: dưới ngưỡng, nối thành một người
+  });
+  test('khoá dùng chung: bốn lead cùng một địa chỉ giữ chỗ, hai trong số đó thuộc cùng một gia đình (chung một số khác) → vẫn là khoá dùng chung và ra 3 người, không gộp cả bốn làm một', () => {
+    const shared = 'giu.cho@example.com', fam = phn(500), S = {};
+    const L4 = [mk('a', '2026-10-01', [phn(501), fam], [shared]), mk('b', '2026-10-02', [phn(502), fam], [shared]), mk('c', '2026-10-03', [phn(503)], [shared]), mk('d', '2026-10-04', [phn(504)], [shared])];
+    let r = M.matchLeads(L4, S); assert.equal(r.leads.hubKeys, 1); assert.equal(r.leads.parents, 3);
+    r = M.matchLeads(L4.slice(0, 3), S); assert.equal(r.leads.hubKeys, 0); assert.equal(r.leads.parents, 1);               // chỉ ba lead: dưới ngưỡng, vẫn nối làm một
+  });
   test('khoá dùng chung không được dùng để tra học sinh (học sinh mang email chung không khớp với các phụ huynh không liên quan)', () => {
     const hub = 'thongtin.chung@example.com', S = { 1: st('TS6', { paid: true, em: [hub], rd: '2026-10-20', pd: '2026-10-25' }) };
     const r = M.matchLeads([1, 2, 3, 4, 5].map(i => mk('h' + i, '2026-10-0' + i, [phn(100 + i)], [hub])), S);
