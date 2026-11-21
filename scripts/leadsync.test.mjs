@@ -821,6 +821,8 @@ test('safelog: chuỗi trong ngoặc kép kéo dài qua nhiều dòng không l�
   assert.ok(!/Nguyen|Van A|Tran|Thi B|example\.com/.test(line) && !line.includes(k), line);
   assert.match(line, /^Loi "…" \| @ \| ghi that bai "…"/); assert.match(line, / @ \s*at /);
   const frames = line.slice(line.lastIndexOf(' @ ') + 3); assert.ok(frames === '' || /^at /.test(frames), frames);
+  const e2 = new Error('x'); e2.stack = 'Error: x\n    at ham (/srv/' + k + '/a.js:1:2)\n    at khac (ten.phu.huynh@example.com:3:4)';                    // số hay email nằm trong khung gọi cũng bị lọc
+  const l2 = describeUnknown(e2); assert.ok(!l2.includes(k) && !/example\.com/.test(l2), l2);
 });
 
 test('checkLeads: đọc thử mọi biểu mẫu có lead (không chỉ 8 đầu), báo đỏ khi một biểu mẫu thứ chín không đọc được hoặc khi vượt giới hạn số biểu mẫu của lần đọc thật', async () => {
@@ -829,7 +831,11 @@ test('checkLeads: đọc thử mọi biểu mẫu có lead (không chỉ 8 đầ
   let f = stubFetch(routes(mkForms(12), 'q9'));
   try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false, JSON.stringify(s)); } finally { f.restore(); }
   f = stubFetch(routes(mkForms(L.MAX_FORMS + 1), 'khong-co'));
-  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false); assert.match(s.text, /vượt giới hạn/); } finally { f.restore(); }
+  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false); assert.match(s.text, /vượt giới hạn/); assert.ok(!/Mới đọc thử/.test(s.text), s.text); } finally { f.restore(); }
+  f = stubFetch(routes(mkForms(L.MAX_FORMS), 'khong-co'));                                                           // đúng 60 biểu mẫu: đọc thử đủ cả 60 và báo xanh
+  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, true, JSON.stringify(s)); assert.match(s.text, new RegExp('ở ' + L.MAX_FORMS + ' biểu mẫu')); } finally { f.restore(); }
+  f = stubFetch(routes(mkForms(5), 'khong-co'));                                                                       // sắp hết giờ: không báo xanh khi chưa đọc thử được biểu mẫu nào
+  try { const s = (await withDeadline(async () => { setDeadline(Date.now() + 6000); return L.checkLeads({ token: 'tok-test', accts: [], env: ENV }); })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false, JSON.stringify(s)); assert.match(s.text, /Mới đọc thử 0\/5 biểu mẫu/); } finally { f.restore(); }
   f = stubFetch(routes(mkForms(L.MAX_FORMS + 1), 'khong-co'));
   try { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && /Lưu trữ hoặc xoá các biểu mẫu cũ/.test(e.message)); } finally { f.restore(); }
 });

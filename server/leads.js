@@ -2,12 +2,13 @@
 // Cần token System User (META_ACCESS_TOKEN) có thêm quyền đọc lead: leads_retrieval, pages_show_list, pages_read_engagement, pages_manage_ads,
 // và người dùng hệ thống được gán Trang (có quyền Truy cập khách hàng tiềm năng). Meta chỉ giữ lead 90 ngày: số điện thoại, email trong lead
 // chỉ nằm trong bộ nhớ lúc đối chiếu, không bao giờ ghi vào kho số liệu hay log.
-import { graph, allPages } from './meta.js';
+import { graph, allPages, msLeft } from './meta.js';
 
 const LEAD_FIELDS = ['id', 'created_time', 'ad_id', 'adset_id', 'campaign_id', 'campaign_name', 'form_id', 'is_organic', 'field_data'];
 const DROPPABLE = ['campaign_id', 'campaign_name', 'adset_id', 'is_organic']; // trường Graph có thể từ chối (#100): bỏ đi và thử lại
 const MAX_LEADS = 40000, MAX_PAGES_PER_FORM = 300;
 export const MAX_FORMS = 60;                                    // số biểu mẫu có lead tối đa của một lần đọc (đọc tuần tự trong hạn mức thời gian)
+const PROBE_MARGIN_MS = 8000;                                    // không bắt đầu đọc thử biểu mẫu mới khi còn dưới 8 giây (Kiểm tra kết nối)
 const FORMS_HINT = ' Lưu trữ hoặc xoá các biểu mẫu cũ không còn dùng trong Meta (Quản lý Trang → Công cụ quảng cáo khách hàng tiềm năng), rồi thử lại.';
 const FORM_GONE = new Set([100, 200, 10, 299]);   // lỗi chắc chắn của riêng một biểu mẫu (không còn / không đọc được): chỉ khi đó mới được bỏ qua biểu mẫu đã lưu trữ
 const PAGE_HINT = ' Nếu Trang này không phải của trường, đặt biến META_PAGE_IDS = ID Trang của trường (nhiều Trang cách nhau bằng dấu phẩy) để bỏ qua các Trang khác.';
@@ -149,7 +150,7 @@ export async function checkLeads({ token, accts = [], env = process.env }) {
   try { found = await pagesOf({ token, accts, env }); } catch (e) { add('pages', false, e && e.expose ? e.message : explainMeta(e, 'danh sách Trang')); return out; }
   if (!found.pages.length) { add('pages', false, found.errors[0] || 'Không tìm thấy Trang Facebook nào. Đặt META_PAGE_IDS hoặc gán Trang cho người dùng hệ thống.'); return out; }
   add('pages', true, 'Thấy ' + found.pages.length + ' Trang (nguồn: ' + found.source + ').');
-  let probed = 0, withLeads = 0, notProbed = 0; const problems = [], MAX_PROBES = 40;                      // đọc thử tối đa 40 biểu mẫu để không quá lâu
+  let probed = 0, withLeads = 0, notProbed = 0; const problems = [];                                      // đọc thử đủ mọi biểu mẫu mà lần cập nhật thật đọc (tối đa MAX_FORMS), dừng khi sắp hết giờ
   for (const p of found.pages) {
     let pt, fl;
     const hint = found.source !== 'META_PAGE_IDS' ? PAGE_HINT : '';
@@ -161,7 +162,7 @@ export async function checkLeads({ token, accts = [], env = process.env }) {
     // đọc thử một lead của từng biểu mẫu có lead, theo đúng quy tắc của lần cập nhật thật (kể cả giới hạn số biểu mẫu)
     for (const f of fl.filter(x => !(x.leads_count === 0 || x.leads_count === '0'))) {
       withLeads++;
-      if (probed >= MAX_PROBES) { notProbed++; continue; }
+      if (probed >= MAX_FORMS || msLeft() < PROBE_MARGIN_MS) { notProbed++; continue; }
       try {
         const r = await graph(f.id + '/leads', { fields: 'id,created_time', limit: 1 }, pt.token); probed++;
         if (!(r.data || []).length && formRecent(f)) problems.push('Biểu mẫu mới tạo báo có ' + (Number(f.leads_count) || 0) + ' lead nhưng Meta không trả lead nào: ' + NO_LEADS_HINT);
@@ -171,9 +172,11 @@ export async function checkLeads({ token, accts = [], env = process.env }) {
       }
     }
   }
-  if (withLeads > MAX_FORMS) problems.unshift('Có ' + withLeads + ' biểu mẫu có lead, vượt giới hạn ' + MAX_FORMS + ' của một lần đọc: mọi lần cập nhật sẽ dừng.' + FORMS_HINT);
-  if (problems.length) add('leads', false, problems[0] + (problems.length > 1 ? ' (và ' + (problems.length - 1) + ' biểu mẫu khác cùng lỗi)' : ''));
-  else if (probed) add('leads', true, 'Đọc thử lead thành công ở ' + probed + ' biểu mẫu' + (notProbed ? ' (chưa thử ' + notProbed + ' biểu mẫu còn lại để không quá lâu)' : '') + '.');
+  const over = withLeads > MAX_FORMS, cut = !over && notProbed > 0 ? ' Mới đọc thử ' + probed + '/' + withLeads + ' biểu mẫu có lead trước khi hết thời gian nên chưa xác nhận được các biểu mẫu còn lại: bấm Kiểm tra kết nối lại (hoặc Cập nhật ngay: lần cập nhật báo rõ biểu mẫu nào không đọc được).' : '';
+  if (over) problems.unshift('Có ' + withLeads + ' biểu mẫu có lead, vượt giới hạn ' + MAX_FORMS + ' của một lần đọc: mọi lần cập nhật sẽ dừng.' + FORMS_HINT);
+  if (problems.length) add('leads', false, problems[0] + (problems.length > 1 ? ' (và ' + (problems.length - 1) + ' biểu mẫu khác cùng lỗi)' : '') + cut);
+  else if (cut) add('leads', false, cut.trim());
+  else if (probed) add('leads', true, 'Đọc thử lead thành công ở ' + probed + ' biểu mẫu.');
   else add('leads', false, 'Chưa có biểu mẫu nào có lead để đọc thử.');
   return out;
 }
