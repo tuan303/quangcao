@@ -687,7 +687,8 @@ test('phoneKeys: số thứ tự hay nhãn ngắn dính liền trước số ("1
 });
 test('HS nội bộ: dấu tích (✓ ✔ √ ☑ ✅ ●) là nội bộ; "Không có", "Không phải", "chưa có", "Không nội bộ", "Ngoài" không phải', () => {
   const vals = [['✓', true], ['✔', true], ['√', true], ['☑', true], ['✅', true], ['●', true], ['✓✓', true], ['✔️', true], ['☑️', true], ['🗸', true], ['Có', true], ['Nội bộ', true], ['Con GV', true], ['Khổng Văn A', true],
-    ['Không có', false], ['Không phải', false], ['chưa có', false], ['Chưa', false], ['Không nội bộ', false], ['Ngoài', false], ['Ngoài trường', false], ['ko có', false], ['Bên ngoài', false], ['Học sinh ngoài', false], ['HS ngoài', false], ['✗', false], ['❌', false]];
+    ['Không có', false], ['Không phải', false], ['chưa có', false], ['Chưa', false], ['Không nội bộ', false], ['Ngoài', false], ['Ngoài trường', false], ['ko có', false], ['Bên ngoài', false], ['Học sinh ngoài', false], ['HS ngoài', false], ['✗', false], ['❌', false],
+    ['Không tìm thấy', false], ['Không tồn tại', false], ['Không rõ', false], ['Chưa rõ', false], ['Không thuộc', false], ['Không áp dụng', false], ['Chưa xác nhận', false], ['Cháu ngoại cô Lan', true], ['Con ngoại GV', true], ['Nguyễn Ngoại', true]];
   const reg = [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch'], ...vals.map(([v], i) => [i + 1, v, 'HS ' + i, 'Khối 6', 'TS6'])];
   const r = A.aggregate({ reg, paid: [paidTab('X (ĐP)', [[1, null, 'HS']])], collect: true, today: '2026-11-20' }); assert.ok(r.ok, r.error);
   vals.forEach(([v, want], i) => assert.equal(r.students[i + 1].int, want, JSON.stringify(v)));
@@ -707,4 +708,12 @@ test('columnsOf: cột chỉ ghi "HS" hay "Học sinh" (hay là cột trạng th
   assert.equal(run(['MDT', 'HS nội bộ', 'Họ và tên', 'HS', 'Khối 27 28', 'Chiến dịch']), 20);
   assert.equal(run(['MDT', 'HS nội bộ', 'HS', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch']), 20);
   assert.equal(run(['MDT', 'HS nội bộ', 'Họ tên', 'Học sinh', 'Khối 27 28', 'Chiến dịch']), 20);
+});
+
+test('columnsOf: cột chỉ ghi "Học sinh"/"HS" vẫn là cột tên khi có cột "Họ tên …" của người khác (giáo viên, người giới thiệu, người nhà, ba, anh/chị)', () => {
+  for (const other of ['Họ tên GVCN', 'Họ tên giáo viên', 'Họ tên người giới thiệu', 'Họ tên người nhà', 'Họ tên ba', 'Họ tên anh/chị', 'Họ tên người đại diện']) {
+    const hdr = ['MDT', 'Học sinh', other, 'HS nội bộ', 'Khối 27 28', 'Chiến dịch'];
+    const reg = [[], hdr, ...Array.from({ length: 20 }, (_, i) => [i + 1, 'HS ' + i, i % 2 ? 'Người ' + i : '', '', 'Khối 6', 'TS6'])];
+    const r = A.aggregate({ reg, paid: [paidTab('LỚP 6 2728 (ĐP)', [[1, null, 'A']])], today: '2026-11-20' }); assert.ok(r.ok, r.error); assert.equal(r.summary.total.reg, 20, other);
+  }
 });

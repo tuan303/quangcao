@@ -124,9 +124,9 @@
     if (typeof v === 'number') return isFinite(v) && v > 0;
     var s = String(v).trim(); if (!s || s.charAt(0) === '#') return false;
     if (/^[✓✔√☑✅●\u{1F5F8}\u{1F5F9}]+$/u.test(s.replace(/[\uFE0E\uFE0F\u200B-\u200D]/g, ''))) return true;   // dấu tích (kể cả dạng emoji ✔️ ☑️ có ký tự chọn kiểu): norm() sẽ xoá hết ký hiệu nên xét trước
-    var n = norm(s);
-    // phủ định: từ khoá chỉ đứng một mình, hoặc mở đầu một cụm phủ định quen thuộc ("Không có", "Không phải", "chưa có"…); "ngoài" ở bất kỳ đâu ("Bên ngoài", "HS ngoài"). Không lật mọi chữ mở đầu bằng "Không…" (họ Khổng).
-    return !!n && !/^(false|no|n|khong|ko|k|0|none|null|na|n a|loading|error|chua|ngoai)$/.test(n) && !/^(khong|ko|chua) (co|phai|la|noi bo|nb|xac dinh|biet)( |$)/.test(n) && !/(^| )ngoai( |$)/.test(n);
+    var n = norm(s), tt = s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();   // tt giữ dấu: "không" khác họ "Khổng", "ngoài" (bên ngoài) khác "ngoại" (cháu ngoại)
+    // phủ định: từ khoá đứng một mình, hoặc chữ mở đầu "Không/Ko/Chưa…" với mọi phần sau ("Không có", "Không tìm thấy", "Chưa rõ"…); "ngoài" ở bất kỳ đâu ("Bên ngoài", "HS ngoài")
+    return !!n && !/^(false|no|n|khong|ko|k|0|none|null|na|n a|loading|error|chua|ngoai)$/.test(n) && !/^(không|khong|ko|chưa|chua)( |$)/.test(tt) && !/(^| )(ngoài|ngoai)( |$)/.test(tt);
   }
   function isInternalHeader(n) { return /(^| )(hs|h s|hoc sinh) ?(noi bo|nb)( |$)/.test(n) || /^(hsnb|noi bo)( |$)/.test(n); }
   function columnsOf(header) {
@@ -145,7 +145,7 @@
       else if (/^ho (va )?ten/.test(n) || /^(ten (hoc sinh|hs)|hoc sinh|hs)$/.test(n)) { // ưu tiên cột họ tên của học sinh, không lấy cột của phụ huynh ("Họ tên phụ huynh", "Họ tên và SĐT phụ huynh")
         // hạng 2: "Họ tên học sinh", "Tên học sinh", "Tên HS"; hạng 1: "Họ tên", "Họ và tên" chung; hạng 0: chỉ "HS" hay "Học sinh" (có thể là cột trạng thái hồ sơ): chỉ dùng khi không có cột nào khác
         var rank = /^ho (va )?ten (hoc sinh|hs)( |$)/.test(n) || /^ten (hoc sinh|hs)$/.test(n) ? 2 : /^ho (va )?ten/.test(n) ? 1 : 0;
-        var parentish = rank < 2 && /(^| )(phu huynh|ph|bo|me|cha|giam ho|nguoi than|lien he|sdt\w*|zalo|dien thoai)( |$)/.test(n);
+        var parentish = rank < 2 && /(^| )(phu huynh|ph|bo|me|cha|ba|giam ho|nguoi than|nguoi nha|lien he|gioi thieu|dai dien|giao vien|gv|gvcn|tu van|nhan vien|can bo|anh|chi|sdt\w*|zalo|dien thoai)( |$)/.test(n);
         if (!parentish && (c.name == null || rank > (c.nameRank || 0))) { c.name = j; c.nameRank = rank; }
       }
       else if (n === 'chien dich' && c.program == null) c.program = j;
