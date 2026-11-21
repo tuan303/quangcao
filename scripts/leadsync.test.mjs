@@ -546,6 +546,13 @@ test('degradedReasons: ngưỡng so với lần trước — tab ĐP mất, đă
   assert.match(S.degradedReasons(base, sum(1000, 300, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc, cov(700, 600, 560, 100)).join(';'), /đã đóng phí có SĐT\/email giảm/);
   assert.deepEqual(S.degradedReasons(sum(10, 2, 8, ['A (ĐP)']), sum(3, 3, 1, []), cov(10, 9, 8, 8), cov(3, 0, 1, 0)), [S.degradedReasons(sum(10, 2, 8, ['A (ĐP)']), sum(3, 3, 1, []), null, null)[0]]);   // mẫu dưới 20: chỉ còn lý do mất tab
   assert.deepEqual(S.degradedReasons(null, sum(1, 0, 1, []), null, cov(1, 1, 1, 1)), []);                                                           // chưa có số cũ: không so
+  // cột ngày bị đổi tên/xoá: số cũ có cột ngày mà số mới không có, hoặc tỷ lệ học sinh có Ngày đăng ký tụt
+  const dated = Object.assign({}, base, { hasRegDate: true, hasPaidDate: true }), same = Object.assign({}, sum(1000, 300, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), { hasRegDate: true, hasPaidDate: true });
+  assert.deepEqual(S.degradedReasons(dated, same, bc, bc), []);
+  assert.match(S.degradedReasons(dated, Object.assign({}, same, { hasRegDate: false }), bc, bc).join(';'), /cột Ngày đăng ký không còn đọc được/);
+  assert.match(S.degradedReasons(dated, Object.assign({}, same, { hasPaidDate: false }), bc, bc).join(';'), /cột Ngày đóng phí không còn đọc được/);
+  const dc = Object.assign({}, bc, { extWithRegDate: 690 });
+  assert.match(S.degradedReasons(dated, same, dc, Object.assign({}, bc, { extWithRegDate: 100 })).join(';'), /có Ngày đăng ký giảm từ 99% xuống 14%/); assert.deepEqual(S.degradedReasons(dated, same, dc, Object.assign({}, bc, { extWithRegDate: 650 })), []);
 });
 
 test('maybeLeadSync: còn mới trong 12 giờ thì bỏ qua, quá 12 giờ hoặc lần trước lỗi thì chạy; chưa cấu hình thì bỏ qua êm', async () => {
@@ -570,4 +577,32 @@ test('runLeadSync: lỗi bất ngờ được ghi log (tên, mã, thông điệp
   assert.ok(!/\d{6,}/.test(logs[0]) && !/example\.com|ten\.phu\.huynh/.test(logs[0]), logs[0]);
   assert.equal(store.docs.fbmatch, undefined); assert.equal(store.docs.leadsync.ok, false); assert.equal(store.docs.leadsync.stage, 'write'); assert.match(store.docs.leadsync.error, /Xem log/);
   nope(allText(store), PII);
+});
+
+test('readAdmissionsSheet: tab biểu đồ (sheetType OBJECT) có chữ ĐP không bị đọc; bộ lọc trường có sheetType', async () => {
+  G.resetTokenCache(); const data = sheetData(); data.meta.sheets.push({ properties: { sheetId: 9, title: 'Biểu đồ ĐP', sheetType: 'OBJECT' } });
+  const f = stubFetch(googleRoutes(data));
+  try {
+    const b = await G.readAdmissionsSheet(ENV.ADMISSIONS_SHEET_ID, { pickTabs: A.pickTabs, env: ENV });
+    assert.ok(!b.tabs.includes('Biểu đồ ĐP')); assert.ok(!b.paid.some(p => p.name === 'Biểu đồ ĐP'));
+    const asked = f.calls.filter(c => c.u.pathname.endsWith('values:batchGet')).flatMap(c => c.u.searchParams.getAll('ranges')); assert.ok(!asked.some(r => /Biểu đồ/.test(r)));
+    assert.match(f.calls.find(c => c.u.pathname === '/v4/spreadsheets/' + SHEET).u.searchParams.get('fields'), /sheetType/);
+  } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('runLeadSync: dòng ở tab ĐP không nối được với Danh sách đăng ký được đếm vào cov.unlinkedPaid (không có nội dung)', async () => {
+  G.resetTokenCache(); const data = sheetData(); data.values['LỚP 6 2728 (ĐP)'].push([99, '', 'HỌC SINH CHƯA ĐĂNG KÝ']);
+  const store = memStore(), f = stubFetch([...googleRoutes(data), ...graphRoutes()]);
+  try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store })).ok, true); } finally { f.restore(); G.resetTokenCache(); }
+  assert.equal(store.docs.fbmatch.cov.unlinkedPaid, 1); assert.ok(globalThis.FBMatch.validate(store.docs.fbmatch).ok); assert.equal(globalThis.FBMatch.attribution(store.docs.fbmatch).unlinkedPaid, 1);
+  nope(allText(store), ['CHƯA ĐĂNG KÝ']);
+});
+
+test('checkSetup: tab (ĐP) của mùa khác bị bỏ qua có chủ ý thì không hiện ✗', async () => {
+  G.resetTokenCache(); const data = sheetData(); data.meta.sheets.push({ properties: { sheetId: 8, title: 'LỚP 6 2627 (ĐP)' } }); data.values['LỚP 6 2627 (ĐP)'] = [[], ['MDT', 'Họ tên học sinh'], [1, 'X']];
+  const f = stubFetch([...googleRoutes(data), ...graphRoutes()]);
+  try {
+    const r = await S.checkSetup({ env: ENV, today: TODAY }), old = r.sheet.steps.find(s => s.id === 'paid-LỚP 6 2627 (ĐP)');
+    assert.ok(old && old.ok === true && /mùa khác/.test(old.text), JSON.stringify(old));
+  } finally { f.restore(); G.resetTokenCache(); }
 });

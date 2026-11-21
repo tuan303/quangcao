@@ -55,15 +55,24 @@
     if (v == null || typeof v === 'boolean') return [];
     if (typeof v === 'number') { var k0 = phoneKey(v); return k0 ? [k0] : []; }
     var out = [], push = function (k) { if (k && out.indexOf(k) < 0 && out.length < 6) out.push(k); };
-    String(v).split(/[^\d\s.\-()+]+/).forEach(function (tok) { // đoạn gồm chữ số và dấu thường nằm trong một số: cách, chấm, gạch, ngoặc, cộng
-      var d = tok.replace(/\D/g, ''); if (d.length < 9) return;
-      var k = phoneKey(tok); if (k) { push(k); return; }
+    // các khoá trong một đoạn toàn chữ số và dấu nằm trong một số (cách, chấm, gạch, ngoặc, cộng)
+    var inToken = function (tok) {
+      var d = tok.replace(/\D/g, ''); if (d.length < 9) return [];
+      var k = phoneKey(tok); if (k) return [k];
       // hai số trở lên viết liền hoặc cách nhau (từ 18 chữ số), hoặc một số kèm chữ số ghi chú thừa (11–13 chữ số, bắt đầu bằng 0 hoặc 84): bóc lần lượt từng số hợp lệ từ đầu chuỗi
-      if (d.length < 18 && !(d.length <= 13 && /^(0|84)/.test(d))) return;
+      if (d.length < 18 && !(d.length <= 13 && /^(0|84)/.test(d))) return [];
+      var got = [];
       for (var guard = 0; d.length >= 9 && guard < 6; guard++) {
-        var took = 0; [10, 11, 9, 12, 13].some(function (len) { if (d.length < len) return false; var c = phoneKey(d.slice(0, len)); if (c) { push(c); took = len; return true; } return false; });
+        var took = 0; [10, 11, 9, 12, 13].some(function (len) { if (d.length < len) return false; var c = phoneKey(d.slice(0, len)); if (c) { got.push(c); took = len; return true; } return false; });
         if (!took) break; d = d.slice(took);
       }
+      return got;
+    };
+    // xuống dòng là dấu ngăn giữa các số; số thứ tự hay nhãn ngắn dính liền trước số ("1. 09…", "(1) 09…", "17h30 09…", "ĐT1 09…") thì bỏ lần lượt tối đa hai nhóm chữ số đầu có 1–3 chữ số
+    String(v).split(/[\r\n]+|[^\d\s.\-()+]+/).forEach(function (tok) {
+      var ks = inToken(tok);
+      if (!ks.length) { var gr = tok.match(/\d+/g) || []; for (var g = 1; g <= 2 && g < gr.length && gr[g - 1].length <= 3 && !ks.length; g++) ks = inToken(gr.slice(g).join(' ')); }
+      ks.forEach(push);
     });
     return out;
   }
@@ -114,7 +123,8 @@
     if (v === true) return true;
     if (typeof v === 'number') return isFinite(v) && v > 0;
     var s = String(v).trim(); if (!s || s.charAt(0) === '#') return false;
-    var n = norm(s); return !!n && !/^(false|no|n|khong|ko|k|0|none|null|na|n a|loading|error|chua)$/.test(n);
+    if (/^[✓✔√☑✅●]+$/.test(s)) return true;                                           // dấu tích: norm() sẽ xoá hết ký hiệu nên xét trước
+    var n = norm(s); return !!n && !/^(false|no|n|khong|ko|k|0|none|null|na|n a|loading|error|chua|ngoai)$/.test(n) && !/^(khong|ko|chua|ngoai) /.test(n);   // "Không có", "Không phải", "chưa có", "Ngoài trường"…
   }
   function isInternalHeader(n) { return /(^| )(hs|h s|hoc sinh) ?(noi bo|nb)( |$)/.test(n) || /^(hsnb|noi bo)( |$)/.test(n); }
   function columnsOf(header) {
@@ -130,9 +140,10 @@
       if (n === 'mdt' && c.mdt == null) c.mdt = j;
       else if (isInternalHeader(n) && c.internal == null) c.internal = j;
       else if (/^khoi/.test(n) && c.khoi == null) { c.khoi = j; c.khoiHeader = String(header[j]); }
-      else if (/^ho (va )?ten/.test(n)) { // ưu tiên cột họ tên của học sinh, không lấy cột họ tên phụ huynh
-        var strict = /^ho (va )?ten (hoc sinh|hs)( |$)/.test(n);
-        if (c.name == null || (strict && !c.nameStrict)) { c.name = j; c.nameStrict = strict; }
+      else if (/^ho (va )?ten/.test(n) || /^(ten (hoc sinh|hs)|hoc sinh|hs)$/.test(n)) { // ưu tiên cột họ tên của học sinh, không lấy cột của phụ huynh ("Họ tên phụ huynh", "Họ tên và SĐT phụ huynh")
+        var strict = /^ho (va )?ten (hoc sinh|hs)( |$)/.test(n) || /^(ten (hoc sinh|hs)|hoc sinh|hs)$/.test(n);
+        var parentish = !strict && /(^| )(phu huynh|ph|bo|me|cha|giam ho|nguoi than|lien he|sdt\w*|zalo|dien thoai)( |$)/.test(n);
+        if (!parentish && (c.name == null || (strict && !c.nameStrict))) { c.name = j; c.nameStrict = strict; }
       }
       else if (n === 'chien dich' && c.program == null) c.program = j;
       else if (/(^| )ngay (nhan )?(dang k[yi]|dk)( |$)/.test(n) && c.regDate == null) c.regDate = j;

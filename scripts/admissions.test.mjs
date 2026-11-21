@@ -677,3 +677,26 @@ test('HS nội bộ: mã, TRUE, "x", "Có" là nội bộ; trống, FALSE, 0, "K
   vals.forEach(([v, want], i) => assert.equal(r.students[i + 1].int, want, JSON.stringify(v)));
   assert.equal(r.summary.total.regInt, vals.filter(x => x[1]).length);
 });
+
+test('phoneKeys: số thứ tự hay nhãn ngắn dính liền trước số ("1. 09…", "(1) 09…", "17h30 09…", "ĐT1 09…") và danh sách nhiều dòng vẫn lấy được số; số bị tách nhóm không thành số khác', () => {
+  const a = phn(71), b = phn(72), A0 = '0' + a, B0 = '0' + b;
+  assert.deepEqual(A.phoneKeys('1. ' + A0 + '\n2. ' + B0), [a, b]); assert.deepEqual(A.phoneKeys('1) ' + A0 + '; 2) ' + B0), [a, b]); assert.deepEqual(A.phoneKeys('(1) ' + A0), [a]);
+  assert.deepEqual(A.phoneKeys('ĐT1 ' + A0 + ' ĐT2 ' + B0), [a, b]); assert.deepEqual(A.phoneKeys('17h30 ' + A0), [a]); assert.deepEqual(A.phoneKeys('1\n' + A0), [a]);
+  assert.deepEqual(A.phoneKeys('1. ' + A0 + ' ' + B0), [a, b]);                                         // nhãn ngắn rồi hai số cách nhau bằng dấu cách
+  for (const v of ['1234 5678', '12 34 56', '1. 2. 3. 4. 5. 6. 7. 8. 9.', '1. 2. 3. 4']) assert.deepEqual(A.phoneKeys(v), [], v);
+});
+test('HS nội bộ: dấu tích (✓ ✔ √ ☑ ✅ ●) là nội bộ; "Không có", "Không phải", "chưa có", "Không nội bộ", "Ngoài" không phải', () => {
+  const vals = [['✓', true], ['✔', true], ['√', true], ['☑', true], ['✅', true], ['●', true], ['✓✓', true], ['Có', true], ['Nội bộ', true], ['Con GV', true],
+    ['Không có', false], ['Không phải', false], ['chưa có', false], ['Chưa', false], ['Không nội bộ', false], ['Ngoài', false], ['Ngoài trường', false], ['ko có', false]];
+  const reg = [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch'], ...vals.map(([v], i) => [i + 1, v, 'HS ' + i, 'Khối 6', 'TS6'])];
+  const r = A.aggregate({ reg, paid: [paidTab('X (ĐP)', [[1, null, 'HS']])], collect: true, today: '2026-11-20' }); assert.ok(r.ok, r.error);
+  vals.forEach(([v, want], i) => assert.equal(r.students[i + 1].int, want, JSON.stringify(v)));
+});
+test('columnsOf: cột tên học sinh nhận cả "Tên học sinh", "Học sinh", "Tên HS"; cột họ tên/SĐT của phụ huynh không bao giờ thành cột tên (học sinh có ô phụ huynh trống không bị bỏ)', () => {
+  for (const [nameHdr, parentHdr] of [['Tên học sinh', 'Họ tên và SĐT phụ huynh'], ['Học sinh', 'Họ tên PH'], ['Tên HS', 'Họ tên bố'], ['Họ tên học sinh', 'Họ tên phụ huynh'], ['Họ tên học sinh', 'Họ tên mẹ']]) {
+    const reg = [[], ['MDT', 'HS nội bộ', nameHdr, 'Khối 27 28', 'Chiến dịch', parentHdr], [1, '', 'A', 'Khối 6', 'TS6', ''], [2, '', 'B', 'Khối 6', 'TS6', 'Phụ huynh B'], [3, '', 'C', 'Khối 6', 'TS6', ''], [4, '', 'D', 'Khối 6', 'TS6', '']];
+    const r = A.aggregate({ reg, paid: [paidTab('LỚP 6 2728 (ĐP)', [[1, null, 'A']])], today: '2026-11-20' }); assert.ok(r.ok, r.error); assert.equal(r.summary.total.reg, 4, nameHdr + ' / ' + parentHdr);
+  }  // cột họ tên phụ huynh đứng TRƯỚC cột "Họ và tên" chung của học sinh: không được lấy cột phụ huynh làm cột tên
+  const reg2 = [[], ['MDT', 'HS nội bộ', 'Họ tên phụ huynh', 'Họ và tên', 'Khối 27 28', 'Chiến dịch'], [1, '', '', 'A', 'Khối 6', 'TS6'], [2, '', 'PH B', 'B', 'Khối 6', 'TS6'], [3, '', '', 'C', 'Khối 6', 'TS6'], [4, '', '', 'D', 'Khối 6', 'TS6']];
+  const r2 = A.aggregate({ reg: reg2, paid: [paidTab('LỚP 6 2728 (ĐP)', [[1, null, 'A']])], today: '2026-11-20' }); assert.ok(r2.ok, r2.error); assert.equal(r2.summary.total.reg, 4);
+});

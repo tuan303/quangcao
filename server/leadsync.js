@@ -38,11 +38,16 @@ export function degradedReasons(prevAdm, sum, prevCov, cov) {
     if (prevAdm.total.paid >= 20 && sum.total.paid < prevAdm.total.paid * 0.7) out.push('số học sinh đã đóng phí giảm từ ' + prevAdm.total.paid + ' xuống ' + sum.total.paid);
     const a = rate(prevAdm.total.regInt, prevAdm.total.reg), b = rate(sum.total.regInt, sum.total.reg);
     if (prevAdm.total.reg >= 20 && Math.abs(a - b) > 0.2) out.push('tỷ lệ học sinh nội bộ đổi từ ' + pct(a) + ' sang ' + pct(b));
+    // cột ngày bị đổi tên: học sinh đăng ký trước khi phụ huynh điền form sẽ bị tính nhầm vào quảng cáo
+    if (prevAdm.hasRegDate && !sum.hasRegDate) out.push('cột Ngày đăng ký không còn đọc được');
+    if (prevAdm.hasPaidDate && !sum.hasPaidDate) out.push('cột Ngày đóng phí không còn đọc được');
   }
   if (prevCov && cov) {
     const a = rate(prevCov.extWithPhone, prevCov.ext), b = rate(cov.extWithPhone, cov.ext), c = rate(prevCov.paidExtWithPhone, prevCov.paidExt), d = rate(cov.paidExtWithPhone, cov.paidExt);
     if (prevCov.ext >= 20 && b < a - 0.2) out.push('học sinh có SĐT/email giảm từ ' + pct(a) + ' xuống ' + pct(b));
     if (prevCov.paidExt >= 20 && d < c - 0.2) out.push('học sinh đã đóng phí có SĐT/email giảm từ ' + pct(c) + ' xuống ' + pct(d));
+    const e1 = rate(prevCov.extWithRegDate, prevCov.ext), e2 = rate(cov.extWithRegDate, cov.ext);
+    if (prevCov.ext >= 20 && e2 < e1 - 0.2) out.push('học sinh có Ngày đăng ký giảm từ ' + pct(e1) + ' xuống ' + pct(e2));
   }
   return out;
 }
@@ -89,6 +94,8 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     stage = 'match';
     const next = M.matchLeads(raw.leads.map(M.leadFromGraph), ag.students);
     next.season = vs.summary.season || '';
+    // Dòng ở tab ĐP không nối được với Danh sách đăng ký (MDT không có hoặc sai) không thành học sinh nên không khớp được với phụ huynh: ghi số đếm để trang cảnh báo
+    next.cov.unlinkedPaid = ((vs.summary.checks && vs.summary.checks.paidNotInRegistration) || 0) + ((vs.summary.checks && vs.summary.checks.skippedPaid) || 0);
     const prev = pv && pv.ok && (!pv.match.season || pv.match.season === next.season) ? pv.match : null;
     const from = M.windowFrom(today), before = leadsFrom(prev, from), after = leadsFrom(next, from);
     if (!force && prev && before >= 20 && after < before * 0.7) throw fail('Số lead đọc được lần này (' + after + ') thấp hơn hẳn lần trước (' + before + ') cho cùng khoảng ngày nên chưa ghi đè. Kiểm tra quyền đọc lead của token Meta và các biểu mẫu; nếu đúng là số mới, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true });
@@ -147,7 +154,7 @@ export async function checkSetup({ env = process.env, today: todayArg } = {}) {
       add('reg', !!ri && ri.internal && ri.program, ri ? 'Tab "' + book.tabs[0].slice(0, 40) + '": ' + (book.reg.length - ri.headerRow) + ' dòng; cột HS nội bộ ' + (ri.internal ? 'có' : 'THIẾU') + ', Chiến dịch ' + (ri.program ? 'có' : 'THIẾU') + ', Ngày đăng ký ' + (ri.regDate ? 'có' : 'chưa có') + ', Ngày đóng phí ' + (ri.paidDate ? 'có' : 'chưa có') + '.' : 'Không thấy dòng tiêu đề có cột MDT ở tab Danh sách đăng ký.');
       const hn = a => a.length ? ' (' + a.slice(0, 6).map(s => '"' + s + '"').join(', ') + ')' : '';
       add('phones-reg', !!ri && ri.phones > 0, ri && ri.phones > 0 ? 'Tab Danh sách đăng ký có ' + ri.phones + ' cột SĐT' + hn(ri.phoneHeaders) + (ri.emails ? ', ' + ri.emails + ' cột email' + hn(ri.emailHeaders) : '') + '.' : 'Tab Danh sách đăng ký CHƯA có cột SĐT phụ huynh (tên cột như "SĐT bố", "SĐT mẹ", "SĐT ưu tiên", "Zalo"). Cần thêm để đối chiếu.');
-      book.paid.forEach(p => { const pi = A.columnsInfo(p.rows); add('paid-' + p.name, !!pi, 'Tab "' + p.name.slice(0, 40) + '": ' + (pi ? (p.rows.length - pi.headerRow) + ' dòng, ' + pi.phones + ' cột SĐT' + (pi.phones ? hn(pi.phoneHeaders) : '') : 'không thấy cột MDT') + '.'); });
+      book.paid.forEach(p => { if (!p.rows.length && book.otherSeasonTabs > 0) { add('paid-' + p.name, true, 'Tab "' + p.name.slice(0, 40) + '": của mùa khác (hoặc trống), không đọc.'); return; } const pi = A.columnsInfo(p.rows); add('paid-' + p.name, !!pi, 'Tab "' + p.name.slice(0, 40) + '": ' + (pi ? (p.rows.length - pi.headerRow) + ' dòng, ' + pi.phones + ' cột SĐT' + (pi.phones ? hn(pi.phoneHeaders) : '') : 'không thấy cột MDT') + '.'); });
       if (book.skipped.length) add('skipped', false, 'Tab (ĐP) chưa đọc được vì tên không kết thúc bằng "(ĐP)": ' + book.skipped.slice(0, 5).map(s => '"' + s.slice(0, 40) + '"').join(', ') + '.');
       const ag = A.aggregate({ reg: book.reg, paid: book.paid, skipped: book.skipped, collect: true, today: A.isDayKey(todayArg) ? todayArg : C.dates.todayVN() });
       if (!ag.ok) add('aggregate', false, ag.error);

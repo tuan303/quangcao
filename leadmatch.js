@@ -275,7 +275,7 @@
     Object.keys(m && m.unmatchedPaid || {}).forEach(function (k) { unmatched += m.unmatchedPaid[k]; });
     var paid = cov.paidExt || 0, attributed = Math.min(paid, ps);
     return { paidExt: paid, fromAds: attributed, fromOrganic: organicPs, noPhone: noPhone, unmatched: unmatched, share: paid > 0 ? attributed / paid : null,
-      phoneShare: paid > 0 ? (cov.paidExtWithPhone || 0) / paid : null, regPhoneShare: cov.ext > 0 ? (cov.extWithPhone || 0) / cov.ext : null, regDateShare: cov.ext > 0 ? (cov.extWithRegDate || 0) / cov.ext : null };
+      phoneShare: paid > 0 ? (cov.paidExtWithPhone || 0) / paid : null, regPhoneShare: cov.ext > 0 ? (cov.extWithPhone || 0) / cov.ext : null, regDateShare: cov.ext > 0 ? (cov.extWithRegDate || 0) / cov.ext : null, unlinkedPaid: cov.unlinkedPaid || 0 };
   }
   /**
    * Gói số liệu cho phần Phân tích (chỉ số tổng hợp, không có dữ liệu cá nhân): 30 ngày gần nhất, 30 ngày trước đó và toàn bộ thời gian đọc được.
@@ -302,7 +302,7 @@
     };
     var out = { as_of: today, method: 'Mỗi phụ huynh điền form lead Facebook được đối chiếu với học sinh trong file tuyển sinh theo số điện thoại hoặc email; lead đầu tiên của phụ huynh quyết định ngày và chiến dịch; học sinh nội bộ và học sinh đã đăng ký trước khi điền form không tính cho quảng cáo.',
       data_freshness: freshness(m, today, info), lead_history_from: m && m.winFrom || null, last_30d: win(A.addDays(today, -30), A.addDays(today, -1)), prev_30d: win(A.addDays(today, -60), A.addDays(today, -31)), all_time: win('', ''),
-      data_quality: { registration_stage_reliable: v0.regOk, phone_share_of_external_registered: round(at.regPhoneShare), phone_share_of_paid: round(at.phoneShare), registration_date_share: round(at.regDateShare), programs_without_paid_phone: Object.keys(v0.lowPhone),
+      data_quality: { registration_stage_reliable: v0.regOk, phone_share_of_external_registered: round(at.regPhoneShare), phone_share_of_paid: round(at.phoneShare), registration_date_share: round(at.regDateShare), paid_rows_not_linked_to_registration: at.unlinkedPaid, programs_without_paid_phone: Object.keys(v0.lowPhone),
         note: 'Khi registration_stage_reliable = false thì không nhận định về số đăng ký hay tỷ lệ đăng ký → đóng phí. Chương trình trong programs_without_paid_phone không có tỷ lệ và không nằm trong tổng. registration_date_share thấp nghĩa là chưa loại được học sinh đã đăng ký trước khi phụ huynh điền form nên tỷ lệ có thể cao hơn thực tế.' },
       attribution: { paid_students_external: at.paidExt, matched_to_facebook_ads: at.fromAds, matched_share: round(at.share), paid_without_phone_in_sheet: at.noPhone, phone_share_of_paid: round(at.phoneShare) },
       maturity: { days_from_form_to_payment_median: mat.known ? mat.p50 : null, days_p90: mat.known ? mat.p90 : null, parents_filling_form_after: mat.recentFrom, note: 'Phụ huynh điền form sau mốc này chưa đủ thời gian để đóng phí nên tỷ lệ của nhóm đó thấp hơn thực tế.' } };
@@ -319,7 +319,7 @@
     var out = { v: 1 }, L = m.leads && typeof m.leads === 'object' ? m.leads : {}, cv = m.cov && typeof m.cov === 'object' ? m.cov : {};
     out.season = typeof m.season === 'string' && /^20\d{2}–\d{2}$/.test(m.season) ? m.season : '';
     out.leads = {}; ['rows', 'parents', 'noContact', 'hubKeys', 'organic', 'dupFamily', 'ambiguous', 'matched', 'internalOnly', 'preRegistered', 'crossProgram'].forEach(function (k) { out.leads[k] = int0(L[k]) || 0; });
-    out.cov = {}; ['students', 'withPhone', 'ext', 'extWithPhone', 'extWithRegDate', 'paidExt', 'paidExtWithPhone'].forEach(function (k) { out.cov[k] = int0(cv[k]) || 0; });
+    out.cov = {}; ['students', 'withPhone', 'ext', 'extWithPhone', 'extWithRegDate', 'paidExt', 'paidExtWithPhone', 'unlinkedPaid'].forEach(function (k) { out.cov[k] = int0(cv[k]) || 0; });
     if (out.cov.withPhone > out.cov.students || out.cov.extWithPhone > out.cov.ext || out.cov.paidExtWithPhone > out.cov.paidExt || out.cov.extWithRegDate > out.cov.ext || out.cov.paidExt > out.cov.ext) return bad('Độ phủ số điện thoại không hợp lệ.');
     out.cov.paidByProg = {};
     var pb = cv.paidByProg && typeof cv.paidByProg === 'object' ? cv.paidByProg : {}, pk = Object.keys(pb); if (pk.length > 12) return bad('Quá nhiều chương trình.');

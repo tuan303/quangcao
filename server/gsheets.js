@@ -126,8 +126,9 @@ export function expandMerges(rows, merges) {
 export async function readAdmissionsSheet(sheetId, { pickTabs, env = process.env } = {}) {
   const id = sheetIdFrom(sheetId); if (!id) throw fail('ADMISSIONS_SHEET_ID không hợp lệ (dán đường dẫn hoặc ID của Google Sheet).', { status: 501 });
   const sa = serviceAccountInfo(env), A = globalThis.FBAdm || {};
-  const meta = await sheetsGet(id, [['fields', 'properties.title,sheets(properties(sheetId,title),merges)']], sa, env);
-  const sheets = (meta.sheets || []).filter(s => s && s.properties && typeof s.properties.title === 'string');
+  const meta = await sheetsGet(id, [['fields', 'properties.title,sheets(properties(sheetId,title,sheetType),merges)']], sa, env);
+  // chỉ tab dạng lưới có ô dữ liệu (tab biểu đồ "Biểu đồ ĐP" không đọc được và làm hỏng cả lô)
+  const sheets = (meta.sheets || []).filter(s => s && s.properties && typeof s.properties.title === 'string' && (!s.properties.sheetType || s.properties.sheetType === 'GRID'));
   if (sheets.length > 400) throw fail('Sheet có quá nhiều tab (' + sheets.length + ').');
   const names = sheets.map(s => s.properties.title);
   const pick = typeof pickTabs === 'function' ? pickTabs : A.pickTabs;
