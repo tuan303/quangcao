@@ -179,7 +179,7 @@
     Object.keys(next.days).forEach(function (d) { if (d >= windowFrom || !prev) out.days[d] = next.days[d]; });
     // Số đã chốt cũ hơn HISTORY_DAYS thì bỏ (hơn một mùa tuyển sinh): giữ kích thước tài liệu và giới hạn của validate() không bị chạm dù tiêu đề mùa nhiều năm không đổi.
     var oldest = adm().addDays(windowFrom, -(HISTORY_DAYS - KEEP_DAYS)); Object.keys(out.days).forEach(function (d) { if (d < oldest) delete out.days[d]; });
-    var pc = prev && prev.camps || {}; Object.keys(pc).forEach(function (c) { out.camps[c] = pc[c]; }); Object.keys(next.camps).forEach(function (c) { out.camps[c] = next.camps[c]; });
+    var pc = prev && prev.camps || {}; Object.keys(pc).forEach(function (c) { out.camps[c] = pc[c]; }); Object.keys(next.camps).forEach(function (c) { var nc = next.camps[c], oc = out.camps[c]; out.camps[c] = oc && oc.n && (!nc.n || nc.p === 'OTHER') ? oc : nc; }); // lần mới không tra được tên hay chương trình thì không đè lên chiến dịch đã biết (chương trình lưu theo chiến dịch nên cũng đổi cả các ngày đã chốt)
     var used = {}; Object.keys(out.days).forEach(function (d) { Object.keys(out.days[d]).forEach(function (c) { used[c] = 1; }); });
     Object.keys(out.camps).forEach(function (c) { if (!used[c]) delete out.camps[c]; });
     Object.keys(used).forEach(function (c) { if (!out.camps[c]) out.camps[c] = { n: '', p: 'OTHER' }; });

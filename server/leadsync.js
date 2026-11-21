@@ -91,6 +91,8 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     const raw = await fetchLeads({ token: String(env.META_ACCESS_TOKEN).trim(), accts, sinceDay: A.addDays(today, -90), env });
     // Meta báo các biểu mẫu mới tạo có lead nhưng không trả lead nào: không phải "0 lead" thật mà là chưa đủ quyền đọc lead (ứng dụng Development, thiếu Leads access).
     if (!force && raw.check && raw.check.expected > 0 && raw.check.got === 0) throw fail('Meta báo các biểu mẫu tạo trong 80 ngày qua có ' + raw.check.expected + ' lead nhưng không trả lead nào: ' + NO_LEADS_HINT + ' Nếu lead thật sự đã bị xoá, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true });
+    // Nhiều lead quảng cáo không tra được chiến dịch (Meta lỗi, hết giờ): chúng sẽ rơi vào "chưa rõ chiến dịch" và làm sai số theo chương trình, kể cả của các ngày sắp được chốt.
+    if (!force && raw.unresolved > Math.max(3, raw.leads.length * 0.03)) throw fail('Không tra được chiến dịch của ' + raw.unresolved + '/' + raw.leads.length + ' lead nên chưa ghi đè: số theo chương trình sẽ sai. Thử lại sau vài phút; nếu vẫn vậy, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true });
     stage = 'match';
     const next = M.matchLeads(raw.leads.map(M.leadFromGraph), ag.students);
     next.season = vs.summary.season || '';
@@ -98,13 +100,16 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     next.cov.unlinkedPaid = ((vs.summary.checks && vs.summary.checks.paidNotInRegistration) || 0) + ((vs.summary.checks && vs.summary.checks.skippedPaid) || 0);
     const prev = pv && pv.ok && (!pv.match.season || pv.match.season === next.season) ? pv.match : null;
     const from = M.windowFrom(today), before = leadsFrom(prev, from), after = leadsFrom(next, from);
-    if (!force && prev && before >= 20 && after < before * 0.7) throw fail('Số lead đọc được lần này (' + after + ') thấp hơn hẳn lần trước (' + before + ') cho cùng khoảng ngày nên chưa ghi đè. Kiểm tra quyền đọc lead của token Meta và các biểu mẫu; nếu đúng là số mới, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true });
+    // Mọi chốt chặn được xét hết rồi báo một lần (cờ ghi đè bỏ qua tất cả, nên quản trị phải thấy đủ các lý do trước khi xác nhận)
+    const reasons = [];
+    if (!force && prev && before >= 20 && after < before * 0.7) reasons.push('Số lead đọc được lần này (' + after + ') thấp hơn hẳn lần trước (' + before + ') cho cùng khoảng ngày. Kiểm tra quyền đọc lead của token Meta và các biểu mẫu.');
     // Sheet đọc kém hẳn lần trước (cùng mùa): dừng trước khi ghi đè hay đóng băng số hụt
     if (!force) {
       const pa = prevDocs.admissions && A.validate(prevDocs.admissions), prevAdm = pa && pa.ok && pa.summary.season === vs.summary.season ? pa.summary : null;
       const why = degradedReasons(prevAdm, vs.summary, prev && prev.cov, next.cov);
-      if (why.length) throw fail('Google Sheet đọc lần này khác hẳn lần trước (' + why.join('; ') + ') nên chưa ghi đè số liệu đang đúng. Kiểm tra tab và tên cột trong Sheet (có thể một tab bị đổi tên, bị xoá trống hoặc cột SĐT bị sửa tiêu đề); nếu thay đổi là đúng, quản trị bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true });
+      if (why.length) reasons.push('Google Sheet đọc lần này khác hẳn lần trước (' + why.join('; ') + '). Kiểm tra tab và tên cột trong Sheet (có thể một tab bị đổi tên, bị xoá trống, cột SĐT hay cột ngày bị sửa tiêu đề).');
     }
+    if (reasons.length) throw fail(reasons.join(' ') + ' Chưa ghi đè số liệu đang đúng; nếu số mới là đúng, quản trị bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true });
     const merged = M.mergeMatch(prev, next, from); merged.syncedAt = new Date().toISOString();
     const vm = M.validate(merged); if (!vm.ok) throw fail('Kết quả đối chiếu không hợp lệ: ' + vm.error, { status: 500 });
     stage = 'write';
@@ -112,6 +117,8 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     const ms = Date.now() - started;
     await store.writeDocs({
       ...(pv && pv.ok ? { fbmatch_prev: prevDocs.fbmatch } : {}),   // một bản sao của số đã gộp trước đó, để quay lại được nếu một lần ghi sai lọt qua các chốt chặn
+      // đổi mùa: số của mùa cũ được giữ ở tài liệu riêng (fbmatch_<mùa>) vì lead cũ hơn 90 ngày không dựng lại được
+      ...(pSeason && pSeason !== next.season ? { ['fbmatch_' + pSeason.replace(/\D/g, '')]: prevDocs.fbmatch } : {}),
       fbmatch: vm.match,
       admissions: Object.assign({}, vs.summary, { uploadedAt: new Date().toISOString(), by: null, source: 'sheet' }),
       leadsync: Object.assign({}, base, { ok: true, stage: null, error: null, ms, stats, runningUntil: null })

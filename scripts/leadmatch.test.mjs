@@ -442,3 +442,13 @@ test('khoá phụ huynh không phụ thuộc thứ tự đầu vào khi có lead
   const base = JSON.stringify(M.matchLeads(leads, S)); let seed = 3; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
   for (let t = 0; t < 20; t++) assert.equal(JSON.stringify(M.matchLeads(leads.slice().sort(() => rnd() - 0.5), S)), base);
 });
+
+test('mergeMatch: lần mới không tra được tên hay chương trình của chiến dịch thì không đè lên mục đã biết; tên mới hợp lệ thì thay', () => {
+  const wf = M.windowFrom('2026-11-20');
+  const prev = { v: 1, season: '2027–28', winFrom: '2026-08-23', camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' }, 222222: { n: 'TS10-LEAD', p: 'TS10' }, 333333: { n: '', p: 'OTHER' } }, days: { '2026-09-01': { 111111: [1, 0, 0, 0, 0, 0, 0], 222222: [1, 0, 0, 0, 0, 0, 0], 333333: [1, 0, 0, 0, 0, 0, 0] } } };
+  const next = { season: '2027–28', leads: {}, cov: {}, lag: {}, unmatchedPaid: {}, paidNoPhone: {}, winFrom: '2026-08-23', days: {}, camps: { 111111: { n: '', p: 'OTHER' }, 222222: { n: 'TS10-LEAD (đổi tên)', p: 'TS10' }, 333333: { n: 'JS-LEAD', p: 'JS' } } };
+  const c = M.mergeMatch(prev, next, wf).camps;
+  assert.deepEqual(c[111111], { n: 'TS6-LEAD | Form', p: 'TS6' });          // lần mới mất tên: giữ mục cũ
+  assert.deepEqual(c[222222], { n: 'TS10-LEAD (đổi tên)', p: 'TS10' });     // tên mới hợp lệ: thay
+  assert.deepEqual(c[333333], { n: 'JS-LEAD', p: 'JS' });                   // mục cũ chưa biết: lấy mục mới
+});

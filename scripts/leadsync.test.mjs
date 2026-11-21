@@ -606,3 +606,51 @@ test('checkSetup: tab (ĐP) của mùa khác bị bỏ qua có chủ ý thì kh�
     assert.ok(old && old.ok === true && /mùa khác/.test(old.text), JSON.stringify(old));
   } finally { f.restore(); G.resetTokenCache(); }
 });
+
+test('runLeadSync: nhiều chốt chặn cùng lúc được báo một lần đủ lý do (cờ ghi đè bỏ qua tất cả); lead không tra được chiến dịch thì dừng; đổi mùa thì giữ bản của mùa cũ', async () => {
+  const M = globalThis.FBMatch, day = d => A.addDays(TODAY, -d);
+  const prevDays = {}; for (let i = 1; i <= 25; i++) prevDays[day(i)] = { 111111: [1, 0, 0, 0, 0, 0, 0] };
+  const prev = { v: 1, season: '2027–28', leads: { rows: 25 }, cov: { students: 5, ext: 5, extWithPhone: 5, paidExt: 3, paidExtWithPhone: 3, withPhone: 5, extWithRegDate: 5 }, days: prevDays, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, unmatchedPaid: {}, paidNoPhone: {}, syncedAt: '2026-11-01T00:00:00.000Z' };
+  assert.ok(M.validate(prev).ok, M.validate(prev).error);
+  // admissions cũ (40 học sinh, 3 tab ĐP) dựng bằng aggregate để hợp lệ: lần đọc này chỉ có 5 học sinh và 2 tab nên vừa ít lead hơn hẳn vừa mất tab
+  const regRows = [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch'], ...Array.from({ length: 40 }, (_, i) => [i + 1, i % 4 === 0 ? 7 : '', 'HS ' + i, 'Khối 6', 'TS6'])];
+  const tab = (name, ids) => ({ name, rows: [[], ['MDT', 'HS nội bộ', 'Họ tên học sinh'], ...ids.map(i => [i, '', 'HS ' + (i - 1)])] });
+  const ag = A.aggregate({ reg: regRows, paid: [tab('LỚP 6 2728 (ĐP)', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), tab('LỚP 10 2728 (ĐP)', [11, 12, 13, 14, 15]), tab('LỚP 99 2728 (ĐP)', [16, 17, 18, 19, 20, 21])], today: TODAY }); assert.ok(ag.ok, ag.error);
+  const okAdm = A.validate(Object.assign({}, ag.summary, { uploadedAt: '2026-11-01T00:00:00.000Z', source: 'sheet', by: null })); assert.ok(okAdm.ok, okAdm.error);
+  G.resetTokenCache(); let store = memStore({ fbmatch: prev, admissions: okAdm.summary }), f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
+  try {
+    await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 409 && e.canForce === true && /thấp hơn hẳn lần trước/.test(e.message) && /Google Sheet đọc lần này khác hẳn/.test(e.message) && /không còn đọc được tab ĐP/.test(e.message));
+  } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('runLeadSync: lead quảng cáo không tra được chiến dịch (Meta lỗi) thì dừng thay vì ghi vào "chưa rõ chiến dịch"; ghi đè được', async () => {
+  const noCamp = Array.from({ length: 12 }, (_, i) => { const o = glead('Y' + i, '2026-10-0' + (1 + i % 5), '', '', '0' + phn(200 + i)); delete o.campaign_id; delete o.campaign_name; return o; });
+  const routes = () => [u => u.host === 'graph.facebook.com' && /^\/v[\d.]+\/?$/.test(u.pathname) && json({ error: { code: 100, message: '(#100) lỗi tra cứu' } }, 400), ...googleRoutes(sheetData()), ...graphRoutes({ leads: noCamp, forms: [{ id: 'f1', status: 'ACTIVE', leads_count: 12 }] })];
+  G.resetTokenCache(); let store = memStore(), f = stubFetch(routes());
+  try {
+    await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 409 && e.canForce === true && /Không tra được chiến dịch của 12\/12 lead/.test(e.message) && e.stage === 'meta');
+    assert.equal(store.docs.fbmatch, undefined);
+  } finally { f.restore(); G.resetTokenCache(); }
+  store = memStore(); G.resetTokenCache(); f = stubFetch(routes());
+  try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store, force: true })).ok, true); assert.ok(store.docs.fbmatch.days); } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('runLeadSync: đổi sang mùa sau thì số của mùa cũ được giữ ở fbmatch_<mùa> (và /api/data không trả ra)', async () => {
+  const M = globalThis.FBMatch, old = { v: 1, season: '2026–27', leads: { rows: 3 }, cov: { students: 5 }, days: { '2026-06-10': { 111111: [3, 0, 0, 1, 1, 1, 1] } }, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, unmatchedPaid: {}, paidNoPhone: {}, syncedAt: '2026-07-01T00:00:00.000Z' };
+  assert.ok(M.validate(old).ok, M.validate(old).error);
+  G.resetTokenCache(); const store = memStore({ fbmatch: old }), f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
+  try {
+    assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store })).ok, true);
+    assert.equal(store.docs.fbmatch.season, '2027–28'); assert.deepEqual(store.docs.fbmatch_202627, old); assert.deepEqual(store.docs.fbmatch_prev, old);
+    const { checkedMatchDocs } = await import('../server/scope.js'); const out = await checkedMatchDocs(JSON.parse(JSON.stringify(store.docs))); assert.equal(out.fbmatch_202627, undefined); assert.equal(out.fbmatch_prev, undefined); assert.ok(out.fbmatch);
+  } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('fetchLeads: biểu mẫu có leads_count rỗng hoặc thiếu vẫn được đọc; chỉ bỏ khi báo đúng 0', async () => {
+  for (const [cnt, reads] of [[null, true], ['', true], [undefined, true], [0, false], ['0', false], [5, true]]) {
+    const forms = [{ id: 'f1', status: 'ACTIVE', leads_count: cnt }]; let read = false;
+    const f = stubFetch([u => { if (u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname)) read = true; return null; }, ...graphRoutes({ forms })]);
+    try { await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); } finally { f.restore(); }
+    assert.equal(read, reads, 'leads_count = ' + JSON.stringify(cnt));
+  }
+});

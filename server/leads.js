@@ -99,7 +99,8 @@ async function fillCampaigns(leads, token) {
  * Lấy mọi lead từ ngày `sinceDay` (YYYY-MM-DD, giờ Việt Nam) của các Trang. Hoặc lấy đủ, hoặc báo lỗi: không bao giờ trả một phần
  * (một biểu mẫu thiếu sẽ làm các ngày trong cửa sổ bị ghi đè bằng số hụt).
  * check: số lead mà các biểu mẫu mới tạo báo có (expected) và số lead thật sự đọc được từ chúng (got): got = 0 trong khi expected > 0 là dấu hiệu Meta không cho đọc lead (ứng dụng ở chế độ Development, thiếu quyền Leads access).
- * @returns {Promise<{leads: object[], pages: number, forms: number, skippedForms: number, source: string, check: {expected: number, got: number}}>}
+ * unresolved: số lead quảng cáo vẫn chưa biết chiến dịch sau khi tra theo quảng cáo.
+ * @returns {Promise<{leads: object[], pages: number, forms: number, skippedForms: number, source: string, check: {expected: number, got: number}, unresolved: number}>}
  */
 export async function fetchLeads({ token, accts = [], sinceDay, env = process.env }) {
   const sinceUnix = sinceDay ? Math.floor(Date.parse(sinceDay + 'T00:00:00+07:00') / 1000) - 86400 : 0; // lùi một ngày để không sót lead sát mốc
@@ -109,7 +110,7 @@ export async function fetchLeads({ token, accts = [], sinceDay, env = process.en
   for (const p of pages) {
     const pt = await pageToken(p.id, token), fl = await formsOf(p.id, pt.token);
     for (const f of fl) {
-      if (Number(f.leads_count) === 0) continue;
+      if (f.leads_count === 0 || f.leads_count === '0') continue;                  // chỉ bỏ biểu mẫu báo đúng 0 lead (null, rỗng, thiếu thì vẫn đọc)
       if (++forms > MAX_FORMS) throw fail('Có quá nhiều biểu mẫu lead (hơn ' + MAX_FORMS + ').');
       let rows;
       try { rows = await leadsOfForm(f.id, pt.token, sinceUnix, LEAD_FIELDS.slice()); }
@@ -120,7 +121,8 @@ export async function fetchLeads({ token, accts = [], sinceDay, env = process.en
     }
   }
   await fillCampaigns(leads, token);
-  return { leads, pages: pages.length, forms, skippedForms: skipped, source, check: { expected, got } };
+  const unresolved = leads.filter(l => l.ad_id && !l.campaign_id).length;                 // lead quảng cáo vẫn chưa biết chiến dịch (tra cứu lỗi, hết giờ hay quá hạn mức): để chốt chặn ở runLeadSync quyết định
+  return { leads, pages: pages.length, forms, skippedForms: skipped, source, check: { expected, got }, unresolved };
 }
 
 /**
