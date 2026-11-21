@@ -134,6 +134,14 @@ test('K12: packOf: by_program lists only programmes with parents (spend alone do
     const s4 = 'giu.cho4@example.com', L4 = [mk('p1', '2026-10-01', [phn(710)], [s4]), mk('p2', '2026-10-02', [phn(711)], [s4]), mk('p3', '2026-10-03', [phn(712)], [s4]), mk('p4', '2026-10-04', [], [s4])];
     const r4 = M.matchLeads(L4, {}); assert.equal(r4.leads.hubKeys, 0); assert.equal(r4.leads.parents, 1);                                // ba khoá riêng và một lead không có khoá khác: dưới ngưỡng
   });
+  test('thinRead/emptyRead: ranh giới (từ 10 lead, dưới một nửa, phần thiếu từ 20% tổng)', async () => {
+    const { thinRead, emptyRead } = await import('../server/leads.js');
+    assert.equal(emptyRead(0, 0), false); assert.equal(emptyRead(5, 0), true); assert.equal(emptyRead(5, 1), false);
+    assert.equal(thinRead(10, 4, 4), true); assert.equal(thinRead(10, 5, 5), false); assert.equal(thinRead(9, 2, 2), false); assert.equal(thinRead(10, 0, 0), false);        // 0 lead thuộc emptyRead
+    assert.equal(thinRead(100, 49, 49), true); assert.equal(thinRead(100, 50, 50), false); assert.equal(thinRead(100, 51, 51), false);
+    assert.equal(thinRead(12, 4, 804), false); assert.equal(thinRead(12, 4, 20), true);                                                                              // biểu mẫu nhỏ thiếu trong một lần đọc gần đủ
+    assert.equal(thinRead(100, 10, 360), true); assert.equal(thinRead(100, 10, 361), false);                                                                         // phần thiếu đúng 20% tổng
+  });
   test('khoá dùng chung không được dùng để tra học sinh (học sinh mang email chung không khớp với các phụ huynh không liên quan)', () => {
     const hub = 'thongtin.chung@example.com', S = { 1: st('TS6', { paid: true, em: [hub], rd: '2026-10-20', pd: '2026-10-25' }) };
     const r = M.matchLeads([1, 2, 3, 4, 5].map(i => mk('h' + i, '2026-10-0' + i, [phn(100 + i)], [hub])), S);

@@ -285,14 +285,30 @@ test('runLeadSync: Meta chỉ trả một phần nhỏ lead của các biểu m�
     assert.equal(store.docs.fbmatch, undefined);
   } finally { f.restore(); G.resetTokenCache(); }
   store = memStore(); G.resetTokenCache(); f = stubFetch(routes());
-  try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store, force: ['empty'] })).ok, true); assert.ok(store.docs.fbmatch); } finally { f.restore(); G.resetTokenCache(); }
+  try {
+    assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store, force: ['empty'] })).ok, true); assert.ok(store.docs.fbmatch);
+    G.resetTokenCache(); assert.equal((await S.runLeadSync({ env: ENV, today: A.addDays(TODAY, 1), store })).ok, true);          // sau đó cron (không ghi đè) không bị chặn mãi: đã có số lưu nên chỉ chốt chặn "drop" còn canh
+  } finally { f.restore(); G.resetTokenCache(); }
   // dưới ngưỡng (ít hơn 10 lead theo Meta, hoặc từ một nửa trở lên) thì không dừng
   for (const [count, got] of [[9, 2], [12, 6], [454, 300]]) {
     const fm = [{ id: 'f1', status: 'ACTIVE', leads_count: count, created_time: RECENT }], many = Array.from({ length: got }, (_, i) => Object.assign({}, LEADS[i % LEADS.length], { id: 'M' + i }));
     G.resetTokenCache(); store = memStore(); f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes({ forms: fm, leads: many })]);
     try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store })).ok, true, count + '/' + got); } finally { f.restore(); G.resetTokenCache(); }
   }
-  // kiểm tra kết nối: cùng điều kiện (từ 10 lead và hết trang mà dưới một nửa thì đỏ; còn trang kế hay đủ một nửa thì xanh)
+  // kiểm tra kết nối: cộng dồn trên mọi biểu mẫu mới như lần đọc thật (không xét từng biểu mẫu); còn trang kế thì trang đầu không cho biết số thật nên coi là đủ
+  const many = specs => { const fm = specs.map((s, i) => ({ id: 'q' + i, status: 'ACTIVE', leads_count: s.count, created_time: s.old ? OLD : RECENT })), seen = [];
+    const g = stubFetch([u => { const m = /\/q(\d+)\/leads$/.exec(u.host === 'graph.facebook.com' ? u.pathname : ''); if (!m) return; const s = specs[m[1]], lim = Number(u.searchParams.get('limit')) || 25; seen.push(lim);
+      const rows = Array.from({ length: Math.min(s.visible, lim) }, (_, i) => ({ id: 'p' + i, created_time: RECENT })); return json(s.visible > lim || s.next ? { data: rows, paging: { next: 'https://graph.facebook.com/v25.0/q' + m[1] + '/leads?after=1&access_token=ptok' } } : { data: rows }); }, ...graphRoutes({ forms: fm })]); g.seen = seen; return g; };
+  for (const [specs, ok, label] of [
+    [[{ count: 454, visible: 454 }, { count: 12, visible: 3 }], true, 'một biểu mẫu nhỏ thiếu nhưng tổng gần đủ'],
+    [Array.from({ length: 10 }, () => ({ count: 9, visible: 2 })), false, 'mười biểu mẫu mỗi cái chỉ thấy 2/9: tổng 20/90'],
+    [[{ count: 454, visible: 2, next: true }], true, 'trang ngắn nhưng còn trang kế: chưa kết luận được từ trang đầu'],
+    [[{ count: 800, visible: 800, old: true }, { count: 12, visible: 4 }], true, 'biểu mẫu cũ đọc đủ, biểu mẫu mới nhỏ thiếu: phần thiếu dưới 20% tổng'],
+    [[{ count: 454, visible: 2 }, { count: 800, visible: 3, old: true }], false, 'cả hai biểu mẫu gần như không đọc được']]) {
+    const g = many(specs);
+    try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, ok, label + ' ' + JSON.stringify(s)); assert.ok(g.seen.length && g.seen.every(l => l === 25), 'giới hạn đọc thử: ' + g.seen); } finally { g.restore(); }
+  }
+  // kiểm tra kết nối cũ (một biểu mẫu): cùng điều kiện
   const probe = (count, visible) => { const fm = [{ id: 'f1', status: 'ACTIVE', leads_count: count, created_time: RECENT }];            // Meta chỉ cho thấy `visible` lead; trả theo limit của yêu cầu như Graph thật
     return stubFetch([u => { if (!(u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname))) return; const lim = Number(u.searchParams.get('limit')) || 25, all = Array.from({ length: visible }, (_, i) => ({ id: 'p' + i, created_time: RECENT })), rows = all.slice(0, lim);
       return json(visible > lim ? { data: rows, paging: { next: 'https://graph.facebook.com/v25.0/f1/leads?after=1&access_token=ptok' } } : { data: rows }); }, ...graphRoutes({ forms: fm })]); };
@@ -870,6 +886,8 @@ test('safelog: lỗi phân tích JSON không để lọt đoạn của đầu v�
   assert.ok(!/Nguyen|Van/.test(l1) && !/Nguyen|Van/.test(l2), l1 + ' || ' + l2); assert.match(l1, /^SyntaxError \| Unexpected token/);
   const wide = [...String(phn(3))].map(c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0)).join('');          // cùng dãy số nhưng viết bằng chữ số toàn chiều rộng
   assert.ok(!/[０-９]{4}/.test(scrub('so ' + wide + ' het')), scrub('so ' + wide + ' het'));
+  const arab = [...String(phn(4))].map(c => String.fromCharCode(0x0660 + Number(c))).join(''), sep = wide.slice(0, 3) + ' ' + wide.slice(3, 6) + ' ' + wide.slice(6);        // chữ số Ả Rập và số toàn chiều rộng viết cách nhau
+  assert.ok(!/\p{Nd}{3}/u.test(scrub('tel ' + sep + ' x ' + arab + ' y')), scrub('tel ' + sep + ' x ' + arab + ' y'));
   const longQuote = scrub('Invalid value "' + 'Nguyen Van An '.repeat(60) + '" at row 5'), openQuote = describeUnknown(new Error('Cannot parse "' + 'Tran Thi B '.repeat(80)));   // chuỗi trong ngoặc kép dài quá 600 ký tự hay bị cắt dở vẫn được che
   assert.ok(!/Nguyen|Van An/.test(longQuote) && !/Tran|Thi B/.test(openQuote), longQuote + ' || ' + openQuote);
   const t0 = performance.now(); scrub('x'.repeat(100000)); describeUnknown(Object.assign(new Error('y'.repeat(100000)), { code: 'z'.repeat(100000) })); assert.ok(performance.now() - t0 < 500, String(performance.now() - t0));
