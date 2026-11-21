@@ -870,6 +870,8 @@ test('safelog: lỗi phân tích JSON không để lọt đoạn của đầu v�
   assert.ok(!/Nguyen|Van/.test(l1) && !/Nguyen|Van/.test(l2), l1 + ' || ' + l2); assert.match(l1, /^SyntaxError \| Unexpected token/);
   const wide = [...String(phn(3))].map(c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0)).join('');          // cùng dãy số nhưng viết bằng chữ số toàn chiều rộng
   assert.ok(!/[０-９]{4}/.test(scrub('so ' + wide + ' het')), scrub('so ' + wide + ' het'));
+  const longQuote = scrub('Invalid value "' + 'Nguyen Van An '.repeat(60) + '" at row 5'), openQuote = describeUnknown(new Error('Cannot parse "' + 'Tran Thi B '.repeat(80)));   // chuỗi trong ngoặc kép dài quá 600 ký tự hay bị cắt dở vẫn được che
+  assert.ok(!/Nguyen|Van An/.test(longQuote) && !/Tran|Thi B/.test(openQuote), longQuote + ' || ' + openQuote);
   const t0 = performance.now(); scrub('x'.repeat(100000)); describeUnknown(Object.assign(new Error('y'.repeat(100000)), { code: 'z'.repeat(100000) })); assert.ok(performance.now() - t0 < 500, String(performance.now() - t0));
 });
 
@@ -914,6 +916,18 @@ test('checkLeads: dừng giữa chừng vì hết giờ thì báo đỏ "Mới �
   // 5) biểu mẫu mới tạo thiếu leads_count và chưa có lead: lần đọc thật chạy được nên bước kiểm tra cũng không được đỏ
   const recent = [{ id: 'q0', status: 'ACTIVE', created_time: new Date(Date.now() - 5 * 86400000).toISOString() }];
   assert.equal((await run(recent, () => json({ data: [] }), checkStep)).ok, true);
+  // 6) biểu mẫu lưu trữ không còn nằm SAU biểu mẫu thứ 60 cũng không tính vào giới hạn (đếm sau khi đọc, không đếm trước)
+  const goneAfter = from => u => (/\/q(\d+)\/leads$/.exec(u.pathname) || [])[1] >= from ? json({ error: { code: 100, message: 'Unsupported get request' } }, 400) : json({ data: [] });
+  const forms62 = mkForms(62).map((f, i) => i >= 60 ? Object.assign(f, { status: 'ARCHIVED' }) : f);
+  const g62 = await run(forms62, goneAfter(60), () => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV })); assert.equal(g62.skippedForms, 2); assert.equal(g62.forms, 62);
+  assert.equal((await run(forms62, goneAfter(60), checkStep)).ok, true);
+  // 7) 61 biểu mẫu đọc được: dừng sau khi đọc biểu mẫu thứ 61, kể cả khi đứng cuối danh sách; kiểm tra kết nối đỏ cùng lý do
+  const r61 = mkForms(61); await run(r61, () => json({ data: [] }), async () => { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && /hơn 60 biểu mẫu có lead đọc được/.test(e.message)); });
+  const c61 = await run(r61, () => json({ data: [] }), checkStep); assert.equal(c61.ok, false); assert.match(c61.text, /hơn 60 biểu mẫu có lead đọc được/);
+  // 8) quá nhiều biểu mẫu lưu trữ không đọc được (mỗi cái tốn một yêu cầu): dừng sớm với thông báo rõ thay vì chạy đến hết giờ
+  const forms150 = mkForms(150).map((f, i) => i >= 20 ? Object.assign(f, { status: 'ARCHIVED' }) : f);
+  await run(forms150, goneAfter(20), async () => { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && new RegExp('hơn ' + L.MAX_ATTEMPTS + ' biểu mẫu').test(e.message)); });
+  const c150 = await run(forms150, goneAfter(20), checkStep); assert.equal(c150.ok, false); assert.match(c150.text, new RegExp('hơn ' + L.MAX_ATTEMPTS + ' biểu mẫu'));
 });
 
 test('checkLeads: đọc thử mọi biểu mẫu có lead (không chỉ 8 đầu), báo đỏ khi một biểu mẫu thứ chín không đọc được hoặc khi vượt giới hạn số biểu mẫu của lần đọc thật', async () => {
