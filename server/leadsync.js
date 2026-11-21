@@ -115,11 +115,14 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     if (reasons.length) throw fail(reasons.join(' ') + ' Chưa ghi đè số liệu đang đúng; nếu số mới là đúng, quản trị bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true, guards: fired });
     // Lần đọc này đủ SĐT hoặc ngày hơn lần trước (một cổng độ phủ vừa mở): các ngày đã chốt trước đó được tính khi còn thiếu nên tính lại cả khoảng lead đọc được; ngày cũ hơn thì Meta không cho đọc lại, giữ nguyên và đánh dấu (lowCovUntil).
     const gain = !!(prev && M.coverageGain(prev.cov, next.cov));
+    // Lần trước chỉ đọc được một phần nhỏ số lead hiện tại (ví dụ ứng dụng Meta còn Development nên chỉ thấy vài lead của người có vai trò; biểu mẫu cũ hơn 80 ngày nên chốt chặn "empty" chưa canh được) không phải lịch sử thật:
+    // dựng lại cả cửa sổ đọc được như lần đầu, nếu không các ngày 60–90 trước bị chốt rỗng và không bao giờ đọc lại được (Meta chỉ giữ lead 90 ngày).
+    const thinPrev = !!(prev && prev.leads && next.leads.rows >= 20 && (Number(prev.leads.rows) || 0) * 3 < next.leads.rows), rebuild = gain || thinPrev;
     let mergeFrom = from;
     // Sau một đợt gián đoạn (token hết hạn, chốt chặn chờ xác nhận…): các ngày còn "sống" (dưới 60 ngày) ở lần chạy tốt cuối vẫn phải được tính lại; giữ 14 ngày đầu cửa sổ đọc làm vùng nhận ra phụ huynh điền form từ trước.
     const lastGood = prev && A.vnDate(prev.syncedAt);
     if (lastGood && next.winFrom) { const gf = M.windowFrom(lastGood), floor = A.addDays(next.winFrom, 14); if (gf < mergeFrom) mergeFrom = gf > floor ? gf : floor; if (mergeFrom > from) mergeFrom = from; }
-    if (gain && next.winFrom) mergeFrom = next.winFrom;
+    if (rebuild && next.winFrom) mergeFrom = next.winFrom;
     // Một lần trước không có ngày nào (đọc rỗng vì Meta chưa cho đọc lead) không được coi là đã chốt lịch sử: gộp như lần đầu để vẫn giữ các ngày 60–90 trước còn đọc được
     const mergePrev = prev && prev.days && Object.keys(prev.days).length ? prev : null;
     const merged = M.mergeMatch(mergePrev, next, mergeFrom); merged.syncedAt = new Date().toISOString();

@@ -302,6 +302,21 @@ test('runLeadSync: Meta chỉ trả một phần nhỏ lead của các biểu m�
   }
 });
 
+test('runLeadSync: lần trước chỉ đọc được vài lead (Meta Development, biểu mẫu cũ hơn 80 ngày nên chốt chặn không canh) thì lần đọc đủ sau đó dựng lại cả cửa sổ: không mất các ngày 60–90 trước; lần đọc đủ liên tiếp thì vẫn đóng băng', async () => {
+  const forms = [{ id: 'f1', status: 'ACTIVE', leads_count: 454, created_time: OLD }];
+  const band = Array.from({ length: 12 }, (_, i) => glead('B' + i, A.addDays(TODAY, -80 + i), '111111', 'TS6-LEAD | Form', '0' + phn(3000 + i)));      // 60–90 ngày trước: vùng bị đóng băng
+  const recent = Array.from({ length: 12 }, (_, i) => glead('R' + i, A.addDays(TODAY, -20 + i), '111111', 'TS6-LEAD | Form', '0' + phn(3100 + i)));
+  const run = async (store, leads, today = TODAY) => { G.resetTokenCache(); const f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes({ forms, leads })]); try { return await S.runLeadSync({ env: ENV, today, store }); } finally { f.restore(); G.resetTokenCache(); } };
+  const store = memStore();
+  assert.equal((await run(store, recent.slice(0, 2))).ok, true); assert.equal(Object.keys(store.docs.fbmatch.days).length, 2);          // lần đầu đọc dở: chỉ 2 lead, không chốt chặn nào canh được
+  assert.equal((await run(store, band.concat(recent))).ok, true);
+  const days = Object.keys(store.docs.fbmatch.days); assert.equal(days.length, 24, days.join(','));                                      // dựng lại cả cửa sổ: có đủ các ngày 60–90 trước
+  assert.ok(days.includes(A.addDays(TODAY, -80))); assert.ok(globalThis.FBMatch.validate(store.docs.fbmatch).ok);
+  // lần đọc đủ tiếp theo, rồi một lần đọc mà Meta đã hết một lead của vùng đóng băng: số đã chốt giữ nguyên (không dựng lại)
+  assert.equal((await run(store, band.concat(recent), A.addDays(TODAY, 1))).ok, true);
+  assert.equal((await run(store, band.slice(1).concat(recent), A.addDays(TODAY, 2))).ok, true); assert.equal(Object.keys(store.docs.fbmatch.days).length, 24);
+});
+
 test('maybeLeadSync: lỗi không rõ khi cron chạy (đọc Firestore, ghi khoá) được ghi log qua describeUnknown thay vì chỉ "xem log"', async () => {
   const lines = [], orig = console.error; console.error = (...a) => lines.push(a.join(' '));
   try {
