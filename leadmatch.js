@@ -257,14 +257,13 @@
   }
   /** Lần đọc mới đủ SĐT hoặc ngày hơn lần trước (một cổng độ phủ vừa mở): số của các ngày đã chốt trước đó được tính khi còn thiếu nên cần tính lại. */
   /**
-   * Lần đọc trước (prev, số đã gộp) có đọc dở không: vùng đã chốt của nó (các ngày từ ngày lead sớm nhất của lần này đến mốc đóng băng `from`) có ít hơn một phần ba số phụ huynh mà lần này thấy cho cùng các ngày
-   * (lần này thấy từ 10 phụ huynh). Ví dụ ứng dụng Meta còn Development chỉ thấy vài lead của người có vai trò: số đã chốt đó không phải lịch sử thật nên phải dựng lại cả cửa sổ đọc được, vì ngày cũ hơn 60 sau đó không đọc lại được.
-   * Lần trước còn nguyên vùng đã chốt (kể cả khi chính nó có một ngày đọc kém ở gần đây) thì không dựng lại: các ngày hỏng gần đây được tính lại theo mốc gián đoạn.
+   * Lần đọc trước (prev, số đã gộp) có đọc dở không: số dòng lead nó đọc được ít hơn một phần ba số dòng của lần này (lần này từ 20 dòng). Ví dụ ứng dụng Meta còn Development chỉ thấy vài lead của người có vai trò:
+   * số đã chốt đó không phải lịch sử thật nên phải dựng lại cả cửa sổ đọc được, vì các ngày cũ hơn 60 sau đó không đọc lại được. Một đêm đọc kém giữa chừng (quản trị đã ghi đè) cũng được dựng lại:
+   * mô phỏng nhiều ngày cho thấy dựng lại tốt hơn hẳn để các ngày bị xoá trắng nằm lại (đổi lại có thể tính trùng ít phụ huynh điền lại ở 30 ngày đầu cửa sổ; được đánh dấu bằng lowCovUntil khi còn ngày cũ hơn).
    */
-  function thinPrev(prev, next, from) {
-    if (!prev || !next || !isDay(next.winFrom) || !isDay(from)) return false;
-    var band = function (m) { var s = 0; Object.keys(m.days || {}).forEach(function (d) { if (d >= next.winFrom && d < from) Object.keys(m.days[d]).forEach(function (c) { s += Number((m.days[d][c] || [])[0]) || 0; }); }); return s; };
-    var nb = band(next); return nb >= 10 && band(prev) * 3 < nb;
+  function thinPrev(prev, next) {
+    var a = prev && prev.leads ? Number(prev.leads.rows) || 0 : 0, b = next && next.leads ? Number(next.leads.rows) || 0 : 0;
+    return !!prev && b >= 20 && a * 3 < b;
   }
   /** Số đã lưu (đã qua validate) có lịch sử thật cho mùa `season` không: có ngày nào đó và cùng mùa (mùa trống ở số cũ vẫn tính). Chưa có thì lần đọc này là lần đọc ĐẦU của mùa. */
   function hasHistory(m, season) { return !!(m && m.days && Object.keys(m.days).length && (!m.season || m.season === (season || ''))); }

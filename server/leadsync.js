@@ -116,9 +116,9 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     if (reasons.length) throw fail(reasons.join(' ') + ' Chưa ghi đè số liệu đang đúng; nếu số mới là đúng, quản trị bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true, guards: fired });
     // Lần đọc này đủ SĐT hoặc ngày hơn lần trước (một cổng độ phủ vừa mở): các ngày đã chốt trước đó được tính khi còn thiếu nên tính lại cả khoảng lead đọc được; ngày cũ hơn thì Meta không cho đọc lại, giữ nguyên và đánh dấu (lowCovUntil).
     const gain = !!(prev && M.coverageGain(prev.cov, next.cov));
-    // Vùng đã chốt của lần trước có ít hơn một phần ba số phụ huynh mà lần này thấy cho cùng các ngày (ví dụ ứng dụng Meta còn Development nên lần trước chỉ thấy vài lead của người có vai trò, biểu mẫu cũ hơn 80 ngày nên chốt chặn "empty" chưa canh được):
+    // Lần trước đọc được ít hơn một phần ba số dòng lead của lần này (ví dụ ứng dụng Meta còn Development nên chỉ thấy vài lead của người có vai trò, biểu mẫu cũ hơn 80 ngày nên chốt chặn "empty" chưa canh được):
     // không phải lịch sử thật → dựng lại cả cửa sổ đọc được như lần đầu, nếu không các ngày 60–90 trước bị chốt gần rỗng và không bao giờ đọc lại được (Meta chỉ giữ lead 90 ngày).
-    const rebuild = gain || M.thinPrev(prev, next, from);
+    const rebuild = gain || M.thinPrev(prev, next);
     let mergeFrom = from;
     // Sau một đợt gián đoạn (token hết hạn, chốt chặn chờ xác nhận…): các ngày còn "sống" (dưới 60 ngày) ở lần chạy tốt cuối vẫn phải được tính lại; giữ 14 ngày đầu cửa sổ đọc làm vùng nhận ra phụ huynh điền form từ trước.
     const lastGood = prev && A.vnDate(prev.syncedAt);

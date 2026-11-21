@@ -266,18 +266,13 @@ test('view: mọi chương trình đã ghép đều thiếu SĐT nhưng còn nh�
   v = M.view({ v: 1, camps, days: { '2026-10-01': { 333333: [12, 0, 0, 0, 0, 0, 0] } }, cov: low }, '', '', sp); assert.equal(v.held, false); assert.equal(v.total.l, 12);   // chỉ có nhóm chưa ghép, không chương trình thiếu SĐT nào có phụ huynh
 });
 
-test('thinPrev/hasHistory: ranh giới của "lần trước đọc dở" (vùng đã chốt có dưới một phần ba số phụ huynh lần này, lần này từ 10) và của "lần đọc đầu"', () => {
+test('thinPrev/hasHistory: ranh giới của "lần trước đọc dở" (số dòng lead dưới một phần ba lần này, lần này từ 20 dòng) và của "lần đọc đầu"', () => {
   const cell = l => [l, 0, 0, 0, 0, 0, 0], mkd = days => ({ days: Object.fromEntries(Object.entries(days).map(([d, l]) => [d, { 111111: cell(l) }])) });
-  const next = Object.assign(mkd({ '2026-09-01': 6, '2026-09-10': 6, '2026-10-30': 20 }), { winFrom: '2026-09-01' }), from = '2026-09-21';              // vùng đã chốt = 01/09 … 20/09: lần này thấy 12 phụ huynh
-  assert.equal(M.thinPrev(mkd({ '2026-10-30': 3 }), next, from), true);                                   // lần trước chỉ có ngày gần đây
-  assert.equal(M.thinPrev(mkd({ '2026-09-01': 3, '2026-10-30': 30 }), next, from), true);                // 3 × 3 < 12
-  assert.equal(M.thinPrev(mkd({ '2026-09-01': 4 }), next, from), false);                                  // 4 × 3 = 12: đúng ranh giới, không phải đọc dở
-  assert.equal(M.thinPrev(mkd({ '2026-09-01': 6, '2026-09-10': 6 }), next, from), false);                 // còn nguyên vùng đã chốt
-  assert.equal(M.thinPrev(mkd({ '2026-08-30': 9 }), next, from), true);                                   // ngày ngoài vùng (trước ngày sớm nhất lần này) không tính
-  assert.equal(M.thinPrev(mkd({ '2026-09-21': 9 }), next, from), true);                                  // ngày đúng bằng mốc đóng băng thuộc vùng đang sống, không thuộc vùng đã chốt
-  assert.equal(M.thinPrev(null, next, from), false); assert.equal(M.thinPrev(mkd({}), Object.assign({}, next, { winFrom: '' }), from), false); assert.equal(M.thinPrev(mkd({}), next, ''), false);
-  assert.equal(M.thinPrev(mkd({}), Object.assign(mkd({ '2026-09-01': 9 }), { winFrom: '2026-09-01' }), from), false);       // lần này chỉ thấy 9 (< 10): chưa đủ căn cứ
-  assert.equal(M.thinPrev(mkd({}), Object.assign(mkd({ '2026-09-01': 10 }), { winFrom: '2026-09-01' }), from), true);
+  const rows = (prev, next) => M.thinPrev(prev == null ? null : { leads: { rows: prev } }, next == null ? null : { leads: { rows: next } });
+  assert.equal(rows(2, 24), true); assert.equal(rows(6, 20), true);                                         // 6 × 3 = 18 < 20
+  assert.equal(rows(7, 20), false); assert.equal(rows(8, 24), false);                                         // 7 × 3 = 21 ≥ 20; 8 × 3 = 24: đúng ranh giới, không phải đọc dở
+  assert.equal(rows(24, 24), false); assert.equal(rows(24, 23), false); assert.equal(rows(10, 15), false);   // tăng bình thường, lần này dưới 20 dòng: không dựng lại
+  assert.equal(rows(0, 20), true); assert.equal(rows(0, 19), false); assert.equal(M.thinPrev(null, { leads: { rows: 99 } }), false); assert.equal(M.thinPrev({ leads: { rows: 1 } }, null), false); assert.equal(M.thinPrev({}, { leads: { rows: 99 } }), true);
   const d = { '2026-10-01': { 111111: cell(1) } };
   assert.equal(M.hasHistory(null, '2027–28'), false); assert.equal(M.hasHistory({ season: '2027–28', days: {} }, '2027–28'), false);
   assert.equal(M.hasHistory({ season: '2026–27', days: d }, '2027–28'), false); assert.equal(M.hasHistory({ season: '2027–28', days: d }, '2027–28'), true); assert.equal(M.hasHistory({ season: '', days: d }, '2027–28'), true);
