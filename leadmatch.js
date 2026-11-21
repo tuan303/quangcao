@@ -198,7 +198,8 @@
     if (prev && prev.days) Object.keys(prev.days).forEach(function (d) { if (d < windowFrom) out.days[d] = prev.days[d]; });
     // Ngày cũ hơn mốc đóng băng chỉ lấy từ lần mới khi chưa có lần trước (lần đầu). Có lần trước mà ngày đó không có ô thì giữ không có ô: lần mới chỉ thấy các lead còn trong 90 ngày nên một phụ huynh
     // đã điền form từ trước đó (lần đầu đã hết hạn) hiện ra như phụ huynh mới ở ngày này và sẽ bị tính hai lần.
-    Object.keys(next.days).forEach(function (d) { if (d >= windowFrom || !prev) out.days[d] = next.days[d]; });
+    // Ngoại lệ: ngày cũ hơn ngày sớm nhất mà lần trước từng thấy (lần trước đọc dở, ví dụ chỉ vài lead thử khi ứng dụng Meta còn Development) cũng lấy từ lần mới; các ngày lần trước đã thấy vẫn giữ như trên.
+    Object.keys(next.days).forEach(function (d) { if (d >= windowFrom || !prev || (isDay(prev.winFrom) && d < prev.winFrom)) out.days[d] = next.days[d]; });
     // Số đã chốt cũ hơn HISTORY_DAYS thì bỏ (hơn một mùa tuyển sinh): giữ kích thước tài liệu và giới hạn của validate() không bị chạm dù tiêu đề mùa nhiều năm không đổi.
     var oldest = adm().addDays(windowFrom, -(HISTORY_DAYS - KEEP_DAYS)); Object.keys(out.days).forEach(function (d) { if (d < oldest) delete out.days[d]; });
     var pc = prev && prev.camps || {}; Object.keys(pc).forEach(function (c) { out.camps[c] = pc[c]; }); Object.keys(next.camps).forEach(function (c) { var nc = next.camps[c], oc = out.camps[c]; out.camps[c] = oc && oc.n && !nc.n ? oc : nc; }); // lần mới không tra được tên chiến dịch thì không đè lên mục đã biết (chương trình lưu theo chiến dịch nên cũng đổi cả các ngày đã chốt); chiến dịch đổi tên thì theo tên hiện tại, cùng cách ghép với chi tiêu

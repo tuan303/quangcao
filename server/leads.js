@@ -8,6 +8,7 @@ const LEAD_FIELDS = ['id', 'created_time', 'ad_id', 'adset_id', 'campaign_id', '
 const DROPPABLE = ['campaign_id', 'campaign_name', 'adset_id', 'is_organic']; // trường Graph có thể từ chối (#100): bỏ đi và thử lại
 const MAX_LEADS = 40000, MAX_PAGES_PER_FORM = 300;
 export const MAX_FORMS = 60;                                    // số biểu mẫu có lead tối đa của một lần đọc (đọc tuần tự trong hạn mức thời gian)
+const PROBE_LEADS = 25;                                          // số lead đọc thử mỗi biểu mẫu khi kiểm tra kết nối (đủ để thấy Meta chỉ trả một phần nhỏ)
 const PROBE_MARGIN_MS = 8000;                                    // không bắt đầu đọc thử biểu mẫu mới khi còn dưới 8 giây (Kiểm tra kết nối)
 const FORMS_HINT = ' Xoá các biểu mẫu cũ không còn dùng trong Meta (Quản lý Trang → Công cụ quảng cáo khách hàng tiềm năng; biểu mẫu chỉ lưu trữ vẫn có thể được tính) rồi thử lại, hoặc nhờ người phụ trách nâng giới hạn.';
 const FORM_GONE = new Set([100, 200, 10, 299]);   // lỗi chắc chắn của riêng một biểu mẫu (không còn / không đọc được): chỉ khi đó mới được bỏ qua biểu mẫu đã lưu trữ
@@ -166,8 +167,10 @@ export async function checkLeads({ token, accts = [], env = process.env }) {
       withLeads++;
       if (probed >= MAX_FORMS || msLeft() < PROBE_MARGIN_MS) { notProbed++; continue; }
       try {
-        const r = await graph(f.id + '/leads', { fields: 'id,created_time', limit: 1 }, pt.token); probed++;
-        if (!(r.data || []).length && formRecent(f) && Number(f.leads_count) > 0) problems.push('Biểu mẫu mới tạo báo có ' + (Number(f.leads_count) || 0) + ' lead nhưng Meta không trả lead nào: ' + NO_LEADS_HINT);
+        const r = await graph(f.id + '/leads', { fields: 'id,created_time', limit: PROBE_LEADS }, pt.token); probed++;
+        const n = (r.data || []).length, cnt = Number(f.leads_count) || 0, more = !!(r.paging && r.paging.next);
+        // như lần cập nhật thật: biểu mẫu mới tạo báo có lead mà Meta không trả lead nào, hoặc (từ 10 lead, hết trang) chỉ trả dưới một nửa, là chưa đủ quyền đọc lead
+        if (formRecent(f) && cnt > 0 && (!n || (cnt >= 10 && !more && n < cnt * 0.5))) problems.push('Biểu mẫu mới tạo báo có ' + cnt + ' lead nhưng Meta ' + (n ? 'chỉ trả ' + n : 'không trả lead nào') + ': ' + NO_LEADS_HINT);
       } catch (e) {
         if (/^(ARCHIVED|DELETED)$/i.test(String(f.status || '')) && e && e.meta && FORM_GONE.has(e.meta.code)) { withLeads--; continue; }       // biểu mẫu đã lưu trữ chắc chắn không đọc được: lần cập nhật thật cũng bỏ qua và không tính vào giới hạn
         problems.push(explainMeta(e, 'lead của biểu mẫu'));

@@ -344,6 +344,17 @@ test('packOf: cửa sổ được cắt theo khoảng lead đọc được (winF
   assert.deepEqual([p.prev_30d.from, p.prev_30d.to, p.prev_30d.total.parents, p.prev_30d.total.spend_vnd], [null, null, 0, null]); assert.equal(p.all_time.from, '');
 });
 
+test('mergeMatch: lần trước đọc dở (chỉ vài ngày gần đây): ngày cũ hơn ngày sớm nhất lần trước từng thấy lấy theo lần mới; ngày nằm trong vùng lần trước đã thấy vẫn giữ nguyên (không đếm hai lần)', () => {
+  const S = {}, L = (id, day, p) => lead(id, at(day), '111111', FORM, '0' + p), wf = M.windowFrom('2026-11-20');           // 2026-09-21
+  const prev = M.mergeMatch(null, Object.assign(M.matchLeads([L('a1', '2026-11-10', phn(81))], S), { season: '2027–28' }), wf);          // lần đầu đọc dở: một ngày
+  const next = Object.assign(M.matchLeads([L('b0', '2026-08-25', phn(82)), L('b1', '2026-09-10', phn(83)), L('b2', '2026-10-30', phn(84)), L('b3', '2026-11-10', phn(81))], S), { season: '2027–28' });
+  let m = M.mergeMatch(prev, next, wf);
+  assert.deepEqual(Object.keys(m.days).sort(), ['2026-08-25', '2026-09-10', '2026-10-30', '2026-11-10']); assert.equal(m.winFrom, '2026-08-25'); assert.ok(M.validate(m).ok, M.validate(m).error);
+  // lần trước đã thấy từ 01/09: ngày 10/09 (trước mốc chốt, sau ngày đầu lần trước) không có ô thì vẫn không có ô; ngày 25/08 (trước cả ngày đầu) lấy theo lần mới
+  const prev2 = M.mergeMatch(null, Object.assign(M.matchLeads([L('c1', '2026-09-01', phn(85)), L('c2', '2026-10-30', phn(84))], S), { season: '2027–28' }), wf);
+  m = M.mergeMatch(prev2, next, wf); assert.deepEqual(Object.keys(m.days).sort(), ['2026-08-25', '2026-09-01', '2026-10-30', '2026-11-10']);
+});
+
 test('mergeMatch: số đã chốt cũ hơn một mùa (400 ngày) bị bỏ cùng chiến dịch không còn ngày nào; số trong hạn giữ nguyên', () => {
   const wf = M.windowFrom('2026-11-20'), oldest = A.addDays(wf, -340);
   const cell = n => [n, 0, 0, 0, 0, 0, 0], camps = { 111111: { n: 'A', p: 'TS6' }, 222222: { n: 'B', p: 'TS6' }, 333333: { n: 'C', p: 'TS1' } };

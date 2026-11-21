@@ -91,7 +91,9 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     const accts = syncAccounts(C, env).accts;
     const raw = await fetchLeads({ token: String(env.META_ACCESS_TOKEN).trim(), accts, sinceDay: A.addDays(today, -90), env });
     // Meta báo các biểu mẫu mới tạo có lead nhưng không trả lead nào: không phải "0 lead" thật mà là chưa đủ quyền đọc lead (ứng dụng Development, thiếu Leads access).
-    if (!ack.has('empty') && raw.check && raw.check.expected > 0 && raw.check.got === 0) throw fail('Meta báo các biểu mẫu tạo trong 80 ngày qua có ' + raw.check.expected + ' lead nhưng không trả lead nào: ' + NO_LEADS_HINT + ' Nếu lead thật sự đã bị xoá, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true, guards: ['empty'] });
+    // Cũng dừng khi Meta chỉ trả một phần nhỏ (ví dụ ứng dụng Development chỉ thấy lead của người có vai trò: vài lead thử trong hàng trăm): lần đọc đầu mà ghi nhận vài lead sẽ làm mất các ngày 60–90 trước vì sau đó không đọc lại được.
+    const ck = raw.check, thin = !!ck && ck.expected >= 10 && ck.got > 0 && ck.got < ck.expected * 0.5;
+    if (!ack.has('empty') && ck && ck.expected > 0 && (ck.got === 0 || thin)) throw fail('Meta báo các biểu mẫu tạo trong 80 ngày qua có ' + ck.expected + ' lead nhưng ' + (ck.got === 0 ? 'không trả lead nào' : 'chỉ trả ' + ck.got) + ': ' + NO_LEADS_HINT + ' Nếu lead thật sự đã bị xoá, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true, guards: ['empty'] });
     // Nhiều lead quảng cáo không tra được chiến dịch (Meta lỗi, hết giờ): chúng sẽ rơi vào "chưa rõ chiến dịch" và làm sai số theo chương trình, kể cả của các ngày sắp được chốt.
     if (!ack.has('campaign') && raw.unresolved > Math.max(3, raw.leads.length * 0.03)) throw fail('Không tra được chiến dịch của ' + raw.unresolved + '/' + raw.leads.length + ' lead nên chưa ghi đè: số theo chương trình sẽ sai. Thử lại sau vài phút; nếu vẫn vậy, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true, guards: ['campaign'] });
     stage = 'match';
@@ -153,7 +155,7 @@ export async function maybeLeadSync({ by = 'cron', env = process.env, staleMs = 
     const s = (await store.readDocs(['leadsync'])).leadsync;
     if (s && s.ok && s.at && Date.now() - Date.parse(s.at) < staleMs) return { skipped: 'còn mới' };
     return await runLeadSync({ by, env, store });
-  } catch (e) { console.error('[leadsync] cập nhật tự động lỗi:', e && e.expose ? e.message : 'xem log'); return { ok: false, error: e && e.expose ? e.message : 'lỗi', stage: e && e.stage }; }
+  } catch (e) { console.error('[leadsync] cập nhật tự động lỗi:', e && e.expose ? e.message : describeUnknown(e)); return { ok: false, error: e && e.expose ? e.message : 'lỗi', stage: e && e.stage }; }
 }
 
 /**

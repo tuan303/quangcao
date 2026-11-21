@@ -276,6 +276,41 @@ test('runLeadSync: Meta báo biểu mẫu mới có lead nhưng không trả lea
   try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store, force: true })).ok, true); assert.ok(store.docs.fbmatch); } finally { f.restore(); G.resetTokenCache(); }
 });
 
+test('runLeadSync: Meta chỉ trả một phần nhỏ lead của các biểu mẫu mới (ứng dụng Development thấy vài lead thử trong hàng trăm) cũng dừng (409, ghi đè được), không làm lần đọc đầu mất các ngày 60–90; bước kiểm tra kết nối cũng đỏ', async () => {
+  const forms = [{ id: 'f1', status: 'ACTIVE', leads_count: 454, created_time: RECENT }];
+  const routes = () => [...googleRoutes(sheetData()), ...graphRoutes({ forms, leads: LEADS.slice(0, 2) })];
+  G.resetTokenCache(); let store = memStore(), f = stubFetch(routes());
+  try {
+    await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 409 && e.canForce === true && JSON.stringify(e.guards) === '["empty"]' && /454 lead nhưng chỉ trả 2/.test(e.message) && /Development/.test(e.message));
+    assert.equal(store.docs.fbmatch, undefined);
+  } finally { f.restore(); G.resetTokenCache(); }
+  store = memStore(); G.resetTokenCache(); f = stubFetch(routes());
+  try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store, force: ['empty'] })).ok, true); assert.ok(store.docs.fbmatch); } finally { f.restore(); G.resetTokenCache(); }
+  // dưới ngưỡng (ít hơn 10 lead theo Meta, hoặc từ một nửa trở lên) thì không dừng
+  for (const [count, got] of [[9, 2], [12, 6], [454, 300]]) {
+    const fm = [{ id: 'f1', status: 'ACTIVE', leads_count: count, created_time: RECENT }], many = Array.from({ length: got }, (_, i) => Object.assign({}, LEADS[i % LEADS.length], { id: 'M' + i }));
+    G.resetTokenCache(); store = memStore(); f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes({ forms: fm, leads: many })]);
+    try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store })).ok, true, count + '/' + got); } finally { f.restore(); G.resetTokenCache(); }
+  }
+  // kiểm tra kết nối: cùng điều kiện (từ 10 lead và hết trang mà dưới một nửa thì đỏ; còn trang kế hay đủ một nửa thì xanh)
+  const probe = (count, visible) => { const fm = [{ id: 'f1', status: 'ACTIVE', leads_count: count, created_time: RECENT }];            // Meta chỉ cho thấy `visible` lead; trả theo limit của yêu cầu như Graph thật
+    return stubFetch([u => { if (!(u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname))) return; const lim = Number(u.searchParams.get('limit')) || 25, all = Array.from({ length: visible }, (_, i) => ({ id: 'p' + i, created_time: RECENT })), rows = all.slice(0, lim);
+      return json(visible > lim ? { data: rows, paging: { next: 'https://graph.facebook.com/v25.0/f1/leads?after=1&access_token=ptok' } } : { data: rows }); }, ...graphRoutes({ forms: fm })]); };
+  for (const [count, visible, ok] of [[454, 2, false], [454, 454, true], [12, 3, false], [12, 12, true], [9, 2, true], [454, 300, true]]) {
+    const g = probe(count, visible);
+    try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, ok, count + '/' + visible + ' ' + JSON.stringify(s)); if (!ok) assert.match(s.text, /Development/); } finally { g.restore(); }
+  }
+});
+
+test('maybeLeadSync: lỗi không rõ khi cron chạy (đọc Firestore, ghi khoá) được ghi log qua describeUnknown thay vì chỉ "xem log"', async () => {
+  const lines = [], orig = console.error; console.error = (...a) => lines.push(a.join(' '));
+  try {
+    const store = { readDocs: async () => { throw Object.assign(new Error('14 UNAVAILABLE: No connection established'), { code: 14, name: 'FirestoreError' }); }, writeDocs: async () => {} };
+    const r = await S.maybeLeadSync({ env: ENV, store }); assert.equal(r.ok, false); assert.equal(r.error, 'lỗi');
+  } finally { console.error = orig; }
+  assert.ok(lines.some(l => /\[leadsync\] cập nhật tự động lỗi:/.test(l) && /FirestoreError/.test(l) && /UNAVAILABLE/.test(l)), lines.join('\n')); assert.ok(!lines.some(l => /xem log/.test(l)));
+});
+
 test('checkLeads: biểu mẫu mới báo có lead mà Meta không trả lead nào thì báo đỏ kèm gợi ý chế độ Live / Leads access', async () => {
   const forms = [{ id: 'f1', status: 'ACTIVE', leads_count: 6, created_time: RECENT }];
   const f = stubFetch([u => u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname) && json({ data: [] }), ...graphRoutes({ forms })]);
