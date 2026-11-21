@@ -33,6 +33,28 @@
     return '';
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
+  /** Khoá số điện thoại di động Việt Nam: 9 chữ số sau số 0 đầu. Nhận số viết với 0 đầu, với +84 hoặc 84 hoặc 0084 (có hoặc không có dấu cách, dấu chấm, dấu gạch),
+   *  tiền tố "p:" của biểu mẫu Meta, và số Excel đã mất số 0 đầu; số bàn 10 chữ số bắt đầu bằng 2 cũng được giữ.
+   *  Số chỉ có một hoặc hai chữ số khác nhau (lặp một chữ số) và mọi thứ khác trả ''. Chỉ dùng để khớp trong bộ nhớ, không bao giờ được lưu. */
+  function phoneKey(v) {
+    if (v == null || typeof v === 'boolean') return '';
+    var d = typeof v === 'number' ? (isFinite(v) && v > 0 && v < 1e13 && Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : '') : String(v).replace(/\D/g, '');
+    if (!d || d.length > 16) return '';
+    if (d.slice(0, 2) === '00') d = d.slice(2);
+    if (d.slice(0, 2) === '84' && d.length >= 11) d = d.slice(2);
+    if (d.charAt(0) === '0') d = d.slice(1);
+    var seen = {}, n = 0; for (var i = 0; i < d.length; i++) if (!seen[d.charAt(i)]) { seen[d.charAt(i)] = 1; n++; }
+    if (n <= 2) return '';
+    return d.length === 9 && /^[35789]/.test(d) ? d : d.length === 10 && d.charAt(0) === '2' ? d : '';
+  }
+  /** Mọi khoá điện thoại trong một ô (có thể ghi hai số cách nhau bằng , ; / | hoặc xuống dòng). */
+  function phoneKeys(v) {
+    if (typeof v === 'string' && /[,;\/|\n]/.test(v)) { var out = []; v.split(/[,;\/|\n]+/).forEach(function (t) { var k = phoneKey(t); if (k && out.indexOf(k) < 0) out.push(k); }); return out; }
+    var k = phoneKey(v); return k ? [k] : [];
+  }
+  /** Khoá email: chữ thường, đúng dạng, tối đa 120 ký tự; ngược lại ''. */
+  function emailKey(v) { if (typeof v !== 'string') return ''; var t = v.trim().toLowerCase(); return t.length <= 120 && /^[^\s@,;<>()]+@[^\s@,;<>()]+\.[a-z]{2,}$/.test(t) ? t : ''; }
+  function emailKeys(v) { if (typeof v !== 'string') return []; var out = []; v.split(/[\s,;|]+/).forEach(function (t) { var k = emailKey(t); if (k && out.indexOf(k) < 0) out.push(k); }); return out; }
 
   /* ---------------- ngày ---------------- */
   function ymd(y, m, d) { // ngày có thật trong lịch, năm 2020–2040
@@ -82,6 +104,8 @@
         if (c.name == null || (strict && !c.nameStrict)) { c.name = j; c.nameStrict = strict; }
       }
       else if (n === 'chien dich' && c.program == null) c.program = j;
+      else if (/(^| )(sdt|so dien thoai|dien thoai|dt|di dong|didong|phone|zalo|tel)( |$)/.test(n)) (c.phones || (c.phones = [])).push(j);
+      else if (/(^| )(email|e mail|mail)( |$)/.test(n)) (c.emails || (c.emails = [])).push(j);
       else if (/(^| )ngay (nhan )?(dang k[yi]|dk)( |$)/.test(n) && c.regDate == null) c.regDate = j;
       else if (/(^| )ngay ((dong|nop|thu) (hoc )?phi|dp|da dong phi)( |$)/.test(n) && c.paidDate == null) c.paidDate = j;
     }
@@ -170,7 +194,11 @@
       return !d || (lo && d < lo) || (hi && d > hi) ? ['', true] : [d, false];
     };
 
-    var students = {}, dup = 0, n = 0, lostReg = 0, lostPaid = 0, regBad = 0, paidBad = 0;
+    var collect = !!(input && input.collect), students = {}, dup = 0, n = 0, lostReg = 0, lostPaid = 0, regBad = 0, paidBad = 0;
+    var gather = function (st, row, cols) { // SĐT và email phụ huynh của một dòng, gộp vào học sinh `st` (không trùng)
+      (cols.phones || []).forEach(function (j) { phoneKeys(row[j]).forEach(function (k) { if (st.ph.indexOf(k) < 0) st.ph.push(k); }); });
+      (cols.emails || []).forEach(function (j) { emailKeys(row[j]).forEach(function (k) { if (st.em.indexOf(k) < 0) st.em.push(k); }); });
+    };
     for (var i = h + 1; i < reg.length; i++) {
       var r = reg[i];
       if (!isStudent(r, c, c.mdt)) { if (lostRow(r, c, true)) lostReg++; continue; }
@@ -179,7 +207,8 @@
       var rd = '', pd = '', t;
       if (c.regDate != null) { t = dayOf(r[c.regDate]); rd = t[0]; if (t[1]) regBad++; }
       if (c.paidDate != null) { t = dayOf(r[c.paidDate]); pd = t[0]; if (t[1]) paidBad++; }
-      students[id] = { p: programCode(r[c.program]), k: c.khoi != null ? khoiLabel(r[c.khoi]) : 'Khác', int: c.internal != null && !blank(r[c.internal]), rd: rd, pd: pd, paid: false };
+      students[id] = { p: programCode(r[c.program]), k: c.khoi != null ? khoiLabel(r[c.khoi]) : 'Khác', int: c.internal != null && !blank(r[c.internal]) && r[c.internal] !== false, rd: rd, pd: pd, paid: false };
+      if (collect) { students[id].ph = []; students[id].em = []; gather(students[id], r, c); }
       n++;
     }
     if (!n) return { ok: false, error: 'Tab "Danh sách đăng ký" chưa có học sinh nào.' };
@@ -202,6 +231,7 @@
         var id = mdtKey(r[mc]); if (seen[id]) continue; seen[id] = 1; cnt++;
         if (students[id]) {
           students[id].paid = true;
+          if (collect) gather(students[id], r, cc); // SĐT phụ huynh ghi ở tab ĐP cũng dùng để khớp
           if (cc.paidDate != null) { var pt = dayOf(r[cc.paidDate]); if (pt[0]) { if (!students[id].pd) students[id].pd = pt[0]; paidDateInPaidSheet = true; } else if (pt[1]) paidBad++; } // cột Ngày đóng phí đặt ngay ở tab ĐP cũng dùng được
         } else missing[id] = 1;
       }
@@ -229,6 +259,7 @@
     if (Object.keys(paidSheets).length > 20) return { ok: false, error: 'File có ' + Object.keys(paidSheets).length + ' tab (ĐP) (tối đa 20). Hãy bỏ các tab của mùa khác hoặc gộp bớt tab của mùa này.' };
     return {
       ok: true,
+      students: collect ? students : undefined, // chỉ khi được yêu cầu, chỉ để khớp trong bộ nhớ (có SĐT/email): KHÔNG nằm trong summary và không bao giờ được lưu
       summary: {
         v: 1, season: season, total: total, programs: programs, khoi: khoi, paidSheets: paidSheets,
         rows: { reg: n, paid: total.paid }, hasRegDate: hasRegDate, hasPaidDate: hasPaidDate,
@@ -259,6 +290,21 @@
     }
     return false;
   }
+  /** Chọn tab từ danh sách tên tab (dùng chung cho file Excel và Google Sheet): tab Danh sách đăng ký, các tab (ĐP), và tab ĐP không đọc được (không có hậu tố "(ĐP)" đúng chuẩn). */
+  function pickTabs(names) {
+    names = names || [];
+    var regName = names.filter(function (n) { return norm(n) === 'danh sach dang ky'; })[0] || names.filter(function (n) { return /dang k[yi]/.test(norm(n)); })[0];
+    if (!regName) return null;
+    var paidNames = names.filter(function (n) { return n !== regName && /(^| )dp$/.test(norm(n)); });
+    var skipped = names.filter(function (n) { return n !== regName && paidNames.indexOf(n) < 0 && /(^| )(dp|da dong phi)( |$)/.test(norm(n)); });
+    return { regName: regName, paidNames: paidNames, skipped: skipped };
+  }
+  /** Cột nào được nhận ra ở một tab (chỉ đếm, không có nội dung ô): dùng cho phần kiểm tra kết nối. null khi không thấy dòng tiêu đề có cột MDT. */
+  function columnsInfo(rows) {
+    var h = findHeader(rows || []); if (h < 0) return null;
+    var c = columnsOf(rows[h]);
+    return { headerRow: h + 1, phones: (c.phones || []).length, emails: (c.emails || []).length, internal: c.internal != null, program: c.program != null, khoi: c.khoi != null, regDate: c.regDate != null, paidDate: c.paidDate != null };
+  }
   var NOT_XLSX = 'Chỉ đọc được file Excel .xlsx (Google Sheets: Tệp → Tải xuống → Microsoft Excel). File .xls, .xlsb, .ods, .csv hoặc file có mật khẩu không đọc được.';
   /** Đọc workbook bằng thư viện SheetJS (đối tượng X) từ ArrayBuffer rồi tổng hợp. `today` (YYYY-MM-DD, giờ Việt Nam) dùng để loại ngày nhập sai năm; mặc định là hôm nay. */
   function readWorkbook(X, buf, today) {
@@ -267,10 +313,9 @@
     if (!isDay(today)) today = vnDate(new Date().toISOString());
     try {
       var names = X.read(buf, { type: 'array', bookSheets: true }).SheetNames || [];
-      var regName = names.filter(function (n) { return norm(n) === 'danh sach dang ky'; })[0] || names.filter(function (n) { return /dang k[yi]/.test(norm(n)); })[0];
-      if (!regName) return { ok: false, error: 'Không thấy tab "Danh sách đăng ký" trong file.' };
-      var paidNames = names.filter(function (n) { return n !== regName && /(^| )dp$/.test(norm(n)); });
-      var skipped = names.filter(function (n) { return n !== regName && paidNames.indexOf(n) < 0 && /(^| )(dp|da dong phi)( |$)/.test(norm(n)); });
+      var tabs = pickTabs(names);
+      if (!tabs) return { ok: false, error: 'Không thấy tab "Danh sách đăng ký" trong file.' };
+      var regName = tabs.regName, paidNames = tabs.paidNames, skipped = tabs.skipped;
       var wb = X.read(buf, { type: 'array', cellDates: false, sheets: [regName].concat(paidNames) });
       var rowsOf = function (nm) { expandMerges(X, wb.Sheets[nm]); return X.utils.sheet_to_json(wb.Sheets[nm], { header: 1, raw: true, defval: null, blankrows: false }); };
       var d1904 = !!(wb.Workbook && wb.Workbook.WBProps && wb.Workbook.WBProps.date1904);
@@ -521,7 +566,7 @@
   var api = {
     PROGRAMS: PROGRAMS, UNKNOWN: UNKNOWN, MIN_BASE: MIN_BASE, MIN_DATED: MIN_DATED, fold: fold, norm: norm, parseDate: parseDate, mdtKey: mdtKey, programOf: programOf, aggregate: aggregate,
     readWorkbook: readWorkbook, validate: validate, fbByProgram: fbByProgram, funnel: funnel, modeOf: modeOf, datedShare: datedShare, coverage: coverage, windowOf: windowOf, seasonSpan: seasonSpan, packOf: packOf,
-    programCode: programCode, seasonCodeOf: seasonCodeOf, addDays: addDays
+    programCode: programCode, seasonCodeOf: seasonCodeOf, addDays: addDays, pickTabs: pickTabs, columnsInfo: columnsInfo, vnDate: vnDate, isDayKey: isDay, phoneKey: phoneKey, phoneKeys: phoneKeys, emailKey: emailKey, emailKeys: emailKeys
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.FBAdm = api;

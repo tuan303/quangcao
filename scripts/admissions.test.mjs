@@ -608,3 +608,48 @@ test('npm run privacy: mã thoát 0 khi sạch và quét đủ, 1 khi thấy, 2 
     const none = run(plain); assert.equal(none.code, 2); assert.match(none.out, /Không quét được/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+
+/* ---- số điện thoại và email phụ huynh (chỉ để khớp trong bộ nhớ) ---- */
+// số giả dựng lúc chạy từ số thứ tự: không có chuỗi số điện thoại nào nằm trong mã nguồn (kho công khai)
+const phn = n => '9' + String(12345678 + n * 100003);
+test('phoneKey: mọi cách viết số di động Việt Nam về cùng một khoá 9 chữ số; số lạ, lặp chữ số, quá ngắn hoặc dài bị loại', () => {
+  const k = phn(1);
+  for (const v of ['0' + k, '+84' + k, '84' + k, '0084' + k, '+84 ' + k.slice(0, 3) + ' ' + k.slice(3, 6) + ' ' + k.slice(6), '0' + k.slice(0, 3) + '.' + k.slice(3, 6) + '.' + k.slice(6), '(0' + k.slice(0, 2) + ') ' + k.slice(2), 'p:+84' + k, ' 0' + k + ' ', '0' + k + 'a', Number(k), Number('0' + k)])
+    assert.equal(A.phoneKey(v), k, String(v));
+  const land = '2' + '4' + String(36251234);                                                          // số bàn mã vùng 24: 10 chữ số bắt đầu bằng 2 sau khi bỏ số 0 đầu
+  assert.equal(A.phoneKey('0' + land), land);
+  for (const bad of [null, undefined, '', ' ', true, false, 'abc', 123, '12345678', '0' + k + '9', '+84' + k + k, '0' + '9'.repeat(9), '0' + '90'.repeat(4) + '9', 1e15, -5, NaN, Infinity, {}, [], '0' + '1' + k.slice(1)])
+    assert.equal(A.phoneKey(bad), '', String(bad));
+});
+test('phoneKeys và emailKeys: một ô có thể ghi nhiều số/email cách nhau bằng dấu phân cách; không trùng; email chuẩn hoá chữ thường', () => {
+  const a = phn(2), b = phn(3);
+  assert.deepEqual(A.phoneKeys('0' + a + ' / 0' + b), [a, b]);
+  assert.deepEqual(A.phoneKeys('0' + a + ',0' + a + ';+84' + b + '\n'), [a, b]);
+  assert.deepEqual(A.phoneKeys('0' + a), [a]); assert.deepEqual(A.phoneKeys(Number(a)), [a]);
+  assert.deepEqual(A.phoneKeys('không có'), []); assert.deepEqual(A.phoneKeys(null), []);
+  assert.equal(A.emailKey('  Phu.Huynh+1@Example.COM '), 'phu.huynh+1@example.com');
+  for (const bad of ['', 'a@example', 'a b@example.com', '@example.com', 'a@@example.com', null, 5, 'x'.repeat(130) + '@example.com']) assert.equal(A.emailKey(bad), '', String(bad));
+  assert.deepEqual(A.emailKeys('p1@example.com; P1@Example.com,  q2@example.org'), ['p1@example.com', 'q2@example.org']);
+});
+test('aggregate({collect:true}): lấy SĐT/email từ mọi cột SĐT, Zalo, email ở tab đăng ký và tab ĐP; không có collect thì không trả học sinh; bản tổng hợp không chứa SĐT', () => {
+  const p1 = phn(11), p2 = phn(12), p3 = phn(13), p4 = phn(14), p5 = phn(15), p6 = phn(16), em = 'phuhuynh1@example.com';
+  const hdr = ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch', 'SĐT bố', 'SĐT mẹ', 'Zalo ưu tiên', 'Email phụ huynh', 'Ghi chú'];
+  const reg = sheetOf(hdr, [
+    [1, null, 'A', 'Khối 6', 'TS6', '0' + p1, Number(p2), null, em, '0' + p6 + ' gọi sau'],   // p6 nằm ở cột Ghi chú: không phải cột SĐT nên bị bỏ qua
+    [2, 20000001, 'B', 'Khối 6', 'TS6', null, null, '+84' + p5, null, null],
+    [3, null, 'C', 'Khối 6', 'TS6', null, null, null, null, null]]);
+  const paid = [paidTab('LỚP 6 2728 (ĐP)', [[1, null, 'A', '0' + p4], [3, null, 'C', '0' + p3]], ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'SĐT ưu tiên'])];
+  const r = A.aggregate({ reg, paid, collect: true, today: '2026-11-20' });
+  assert.ok(r.ok); const S = r.students;
+  assert.deepEqual(S[1].ph, [p1, p2, p4]);                                                          // p4: SĐT chỉ ghi ở tab ĐP vẫn được gộp vào học sinh
+  assert.deepEqual(S[1].em, [em]); assert.equal(S[1].paid, true); assert.equal(S[1].int, false);
+  assert.deepEqual(S[2].ph, [p5]); assert.equal(S[2].int, true); assert.equal(S[2].paid, false);
+  assert.deepEqual(S[3].ph, [p3]); assert.equal(S[3].paid, true);
+  const json = JSON.stringify(r.summary);
+  for (const k of [p1, p2, p3, p4, p5, p6, em]) assert.ok(!json.includes(k), 'bản tổng hợp không được chứa số điện thoại hay email');
+  assert.ok(A.validate(r.summary).ok);
+  const plain = A.aggregate({ reg, paid, today: '2026-11-20' });
+  assert.equal(plain.students, undefined);                                                         // không yêu cầu thì không trả học sinh
+  assert.deepEqual(JSON.parse(JSON.stringify(plain.summary)), JSON.parse(JSON.stringify(r.summary))); // collect không đổi số tổng hợp
+});
