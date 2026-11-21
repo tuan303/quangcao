@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     await import('../admissions.js');
     const v = globalThis.FBAdm.validate(body && body.summary);
     if (!v.ok) return send(res, 400, { ok: false, error: v.error });
-    const doc = Object.assign({}, v.summary, { uploadedAt: new Date().toISOString(), by: who.email });
+    const doc = Object.assign({}, v.summary, { uploadedAt: new Date().toISOString(), by: who.email, source: 'upload' });
     const { writeDocs } = await import('../server/store.js');
     await writeDocs({ admissions: doc }, { by: who.email });
     send(res, 200, { ok: true, uploadedAt: doc.uploadedAt, total: doc.total });

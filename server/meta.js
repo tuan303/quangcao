@@ -27,7 +27,7 @@ const currentDeadline = () => { const s = runCtx.getStore(); return s ? s.deadli
 const REQUEST_TIMEOUT_MS = 45000;
 const timeoutError = why => Object.assign(new Error('Meta API: ' + why), { status: 504, expose: true, meta: { code: 'timeout' } });
 
-async function graph(pathOrUrl, params, token) {
+export async function graph(pathOrUrl, params, token) {
   const url = /^https?:/.test(pathOrUrl) ? new URL(pathOrUrl) : new URL(BASE + pathOrUrl);
   if (!/^https?:/.test(pathOrUrl)) for (const [k, v] of Object.entries(params || {})) if (v != null && v !== '') url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   url.searchParams.delete('access_token');
@@ -52,7 +52,7 @@ async function graph(pathOrUrl, params, token) {
     throw metaError(e, res.status);
   }
 }
-async function allPages(path, params, token, maxPages = 40) {
+export async function allPages(path, params, token, maxPages = 40) {
   let j = await graph(path, params, token), out = (j.data || []).slice(), n = 1;
   while (j.paging && j.paging.next && n < maxPages) { j = await graph(j.paging.next, null, token); out = out.concat(j.data || []); n++; }
   return out;

@@ -11,7 +11,7 @@ export default async function handler(req, res) {
     const body = await readJson(req);
     const docs = body && body.docs;
     if (!docs || typeof docs !== 'object' || Array.isArray(docs) || !Object.keys(docs).length) return send(res, 400, { ok: false, error: 'Thiếu docs.' });
-    if (Object.keys(docs).some(k => k.trim().toLowerCase() === 'admissions')) return send(res, 400, { ok: false, error: 'Số liệu tuyển sinh chỉ được cập nhật bằng cách quản trị tải file lên trang (POST /api/admissions).' });
+    if (Object.keys(docs).some(k => ['admissions', 'fbmatch', 'leadsync'].includes(k.trim().toLowerCase()))) return send(res, 400, { ok: false, error: 'Số liệu tuyển sinh và đối chiếu phụ huynh chỉ do máy chủ ghi (từ Google Sheet và lead Facebook, hoặc quản trị tải file lên trang).' });
     const { writeDocs } = await import('../server/store.js');
     const written = await writeDocs(docs, { by: 'claude-ingest' });
     send(res, 200, { ok: true, written });

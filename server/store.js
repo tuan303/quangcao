@@ -12,6 +12,15 @@ export async function readAll() {
   snap.forEach(d => { const v = d.data(); try { docs[d.id] = typeof v.json === 'string' ? JSON.parse(v.json) : v; } catch { /* bỏ qua tài liệu hỏng */ } });
   return docs;
 }
+/** Đọc vài tài liệu theo tên (không đọc cả kho). Tài liệu không có hoặc hỏng thì không có trong kết quả. */
+export async function readDocs(ids) {
+  const col = getDb().collection(COLLECTION()), out = {};
+  await Promise.all(ids.map(async id => {
+    const d = await col.doc(id).get(); if (!d.exists) return;
+    const v = d.data(); try { out[id] = typeof v.json === 'string' ? JSON.parse(v.json) : v; } catch { /* bỏ qua tài liệu hỏng */ }
+  }));
+  return out;
+}
 export async function writeDocs(docs, { by = 'unknown' } = {}) {
   const db = getDb(), col = db.collection(COLLECTION()), ids = Object.keys(docs);
   const at = new Date().toISOString();

@@ -32,6 +32,7 @@ export function redactForViewer(docs) {
     if (Object.keys(p).length) patch('meta', p);
   }
   for (const id of ['admissions', 'insights']) if (out[id] && typeof out[id] === 'object' && out[id].by) patch(id, { by: null });
+  if (out.leadsync && typeof out.leadsync === 'object') patch('leadsync', { error: null, by: null }); // chi tiết lỗi Google/Meta chỉ dành cho quản trị
   return out;
 }
 /** Tài khoản để đồng bộ: META_AD_ACCOUNTS nếu có (chỉ những tài khoản đang kết nối), không thì toàn bộ FBCore.ACCOUNTS. */
