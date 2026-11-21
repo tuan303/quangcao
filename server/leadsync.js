@@ -7,6 +7,9 @@ import { syncAccounts } from './scope.js';
 import { readDocs, writeDocs } from './store.js';
 
 const LOCK_MS = 300000;
+/** Mô tả một lỗi bất ngờ để ghi log mà không lộ dữ liệu: tên, mã, thông điệp đã xoá dãy số dài và email, và hai dòng đầu của ngăn xếp. */
+const scrub = s => String(s).replace(/\d{6,}/g, '#').replace(/[^\s@"'<>]+@[^\s@"'<>]+/g, '@').slice(0, 160);
+const describeUnknown = e => [e && e.name, e && e.code, scrub(e && e.message || '')].filter(Boolean).join(' | ') + ' @ ' + String(e && e.stack || '').split('\n').slice(1, 3).map(s => s.trim().slice(0, 100)).join(' <- ');
 const fail = (message, extra = {}) => Object.assign(new Error(message), { expose: true, status: 502 }, extra);
 
 /** Đã cấu hình đủ để chạy tự động chưa. */
@@ -72,6 +75,12 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     const span = A.seasonSpan(vs.summary), prevSeason = prevDocs.fbmatch && typeof prevDocs.fbmatch.season === 'string' ? prevDocs.fbmatch.season : '';
     if (span && (today < A.addDays(span.start, -92) || today > A.addDays(span.end, 92))) throw fail('Mùa tuyển sinh ghi ở tiêu đề cột Khối của Sheet (' + vs.summary.season + ') không khớp với ngày hôm nay (' + today + '). Hãy kiểm tra năm trong tiêu đề; chưa cập nhật để không ghi đè số liệu đang đúng.', { status: 422 });
     if (!span && prevSeason) throw fail('Không đọc được mùa tuyển sinh ở tiêu đề cột Khối của Sheet (lần trước là ' + prevSeason + ', ví dụ "Khối 27 28"). Chưa cập nhật để không ghi đè số liệu đang đúng.', { status: 422 });
+    // Số đã gộp của lần trước chỉ bị bỏ khi chuyển sang mùa khác hợp lệ (cả hai mùa đều đọc được và khác nhau). Số lưu không còn đọc được theo cấu trúc hiện tại thì không tự bỏ: dừng để quản trị quyết định.
+    const pv = prevDocs.fbmatch && M.validate(prevDocs.fbmatch);
+    if (prevDocs.fbmatch && !(pv && pv.ok) && !force) throw fail('Số đối chiếu đang lưu không đọc được theo cấu trúc hiện tại (' + String(pv && pv.error || 'sai dạng').slice(0, 120) + ') nên chưa ghi đè. Nếu bạn chắc muốn bắt đầu lại từ lead còn đọc được (90 ngày gần nhất), bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true });
+    // Hai mùa hợp lệ nhưng khác nhau: chỉ được sang mùa SAU. Mùa cùng năm bắt đầu hoặc sớm hơn (gõ nhầm "27 29" thay vì "27 28") thì dừng, không bỏ số đã chốt của mùa đang chạy.
+    const pSeason = pv && pv.ok && pv.match.season || '', pSpan = pSeason ? A.seasonSpan({ season: pSeason }) : null;
+    if (!force && pSpan && span && (vs.summary.season || '') !== pSeason && !(span.start > pSpan.start)) throw fail('Mùa tuyển sinh ghi ở tiêu đề cột Khối (' + vs.summary.season + ') khác mùa đang lưu (' + pSeason + ') nhưng không phải mùa sau: có thể gõ nhầm năm. Chưa cập nhật để không bỏ số đã chốt của mùa đang chạy. Nếu đúng là mùa mới, quản trị bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true });
     stage = 'meta';
     const accts = syncAccounts(C, env).accts;
     const raw = await fetchLeads({ token: String(env.META_ACCESS_TOKEN).trim(), accts, sinceDay: A.addDays(today, -90), env });
@@ -80,9 +89,6 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     stage = 'match';
     const next = M.matchLeads(raw.leads.map(M.leadFromGraph), ag.students);
     next.season = vs.summary.season || '';
-    // Số đã gộp của lần trước chỉ bị bỏ khi chuyển sang mùa khác hợp lệ (cả hai mùa đều đọc được và khác nhau). Số lưu không còn đọc được theo cấu trúc hiện tại thì không tự bỏ: dừng để quản trị quyết định.
-    const pv = prevDocs.fbmatch && M.validate(prevDocs.fbmatch);
-    if (prevDocs.fbmatch && !(pv && pv.ok) && !force) throw fail('Số đối chiếu đang lưu không đọc được theo cấu trúc hiện tại (' + String(pv && pv.error || 'sai dạng').slice(0, 120) + ') nên chưa ghi đè. Nếu bạn chắc muốn bắt đầu lại từ lead còn đọc được (90 ngày gần nhất), bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true });
     const prev = pv && pv.ok && (!pv.match.season || pv.match.season === next.season) ? pv.match : null;
     const from = M.windowFrom(today), before = leadsFrom(prev, from), after = leadsFrom(next, from);
     if (!force && prev && before >= 20 && after < before * 0.7) throw fail('Số lead đọc được lần này (' + after + ') thấp hơn hẳn lần trước (' + before + ') cho cùng khoảng ngày nên chưa ghi đè. Kiểm tra quyền đọc lead của token Meta và các biểu mẫu; nếu đúng là số mới, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true });
@@ -107,13 +113,13 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
   } catch (e) {
     const msg = e && e.expose ? String(e.message).slice(0, 400) : 'Lỗi không rõ khi cập nhật. Xem log của hàm trên Vercel.';
     await store.writeDocs({ leadsync: Object.assign({}, base, { ok: false, stage, error: msg, ms: Date.now() - started, stats: null, runningUntil: null }) }, { by: base.by }).catch(() => {});
-    if (e && e.expose) e.stage = stage;
+    if (e && e.expose) e.stage = stage; else console.error('[leadsync] lỗi không rõ ở bước ' + stage + ':', describeUnknown(e));
     throw e;
   }
 }
 
-/** Cho cron: chỉ chạy khi đã cấu hình và lần cập nhật gần nhất đã cũ (mặc định 20 giờ); lỗi không làm hỏng việc gọi nó. */
-export async function maybeLeadSync({ by = 'cron', env = process.env, staleMs = 20 * 3600000, store = { readDocs, writeDocs } } = {}) {
+/** Cho cron: chỉ chạy khi đã cấu hình và lần cập nhật thành công gần nhất đã cũ (mặc định 12 giờ: cron /api/sync lúc 05:30 và /api/insights lúc 07:15 không chạy trùng nhau, còn bấm tay trước 17:30 hôm trước thì sáng hôm sau vẫn cập nhật, sau 17:30 thì bỏ qua vì số còn mới); lỗi không làm hỏng việc gọi nó. */
+export async function maybeLeadSync({ by = 'cron', env = process.env, staleMs = 12 * 3600000, store = { readDocs, writeDocs } } = {}) {
   if (!leadSyncConfig(env).ready) return { skipped: 'chưa cấu hình' };
   try {
     const s = (await store.readDocs(['leadsync'])).leadsync;

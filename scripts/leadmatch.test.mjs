@@ -309,6 +309,21 @@ test('attribution và packOf: độ phủ SĐT/ngày; số không đáng tin là
   const t = p.all_time.total; assert.equal(t.registered, null); assert.equal(t.students_registered, null); assert.equal(t.parent_to_registered, null); assert.equal(t.registered_to_paid, null); assert.equal(t.parents, 40); assert.equal(t.paid, 12);
   const hb = p.all_time.by_program.find(x => x.program === 'HB'); assert.equal(hb.paid, null); assert.equal(hb.students_paid, null); assert.equal(hb.parent_to_paid, null); assert.equal(hb.parents, 30);
   assert.ok(/registration_stage_reliable/.test(p.data_quality.note));
+  // độ mới của số liệu cho Claude: ngày cập nhật (giờ Việt Nam), số ngày, kết quả lần chạy gần nhất; tên bước lạ bị bỏ
+  assert.deepEqual([p.data_freshness.synced_at, p.data_freshness.age_days, p.data_freshness.last_update_ok, p.data_freshness.last_update_stage], [null, null, null, null]);
+  const m2 = Object.assign({}, m, { syncedAt: '2026-11-17T17:30:00.000Z' });                                  // 00:30 ngày 18/11 giờ Việt Nam
+  const f1 = M.packOf(m2, '2026-11-20', null, { leadsync: { ok: false, stage: 'sheet', error: 'chi tiết' } }).data_freshness; assert.deepEqual([f1.synced_at, f1.age_days, f1.last_update_ok, f1.last_update_stage], ['2026-11-18', 2, false, 'sheet']); assert.ok(!JSON.stringify(f1).includes('chi tiết') && /age_days >= 2/.test(f1.note));
+  const f2 = M.packOf(m2, '2026-11-20', null, { leadsync: { ok: false, stage: '<script>x' } }).data_freshness; assert.equal(f2.last_update_stage, null);
+  const f3 = M.packOf(m2, '2026-11-20', null, { leadsync: { ok: true, stage: null } }).data_freshness; assert.deepEqual([f3.last_update_ok, f3.last_update_stage], [true, null]);
+});
+
+test('mergeMatch: số đã chốt cũ hơn một mùa (400 ngày) bị bỏ cùng chiến dịch không còn ngày nào; số trong hạn giữ nguyên', () => {
+  const wf = M.windowFrom('2026-11-20'), oldest = A.addDays(wf, -340);
+  const cell = n => [n, 0, 0, 0, 0, 0, 0], camps = { 111111: { n: 'A', p: 'TS6' }, 222222: { n: 'B', p: 'TS6' }, 333333: { n: 'C', p: 'TS1' } };
+  const prev = { v: 1, season: '2027–28', winFrom: '2026-08-23', camps, days: { [A.addDays(oldest, -1)]: { 111111: cell(1) }, [oldest]: { 222222: cell(2) } } };
+  const next = { season: '2027–28', leads: {}, cov: {}, lag: {}, unmatchedPaid: {}, paidNoPhone: {}, days: {}, camps: {}, winFrom: '2026-08-23' };
+  const out = M.mergeMatch(prev, next, wf);
+  assert.deepEqual(Object.keys(out.days), [oldest]); assert.deepEqual(Object.keys(out.camps), ['222222']); assert.equal(out.from, oldest);
 });
 
 test('validate: extWithPhone được giữ lại và không vượt số học sinh ngoài nội bộ', () => {

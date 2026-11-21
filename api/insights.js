@@ -16,10 +16,11 @@ export default async function handler(req, res) {
     if (who.kind === 'cron' && req.method !== 'GET') return send(res, 405, { ok: false, error: 'Cron dùng GET.' });
     if (who.kind === 'user' && (req.method !== 'POST' || who.role !== 'admin')) return send(res, 403, { ok: false, error: 'Chỉ quản trị (FBADS_ADMINS) được yêu cầu viết lại phân tích.' });
     const started = Date.now();
+    const dry = /^(1|true)$/.test(String((req.query || {}).dry || ''));
     // Cron buổi sáng: cập nhật đối chiếu phụ huynh Facebook → đóng phí nếu lần gần nhất đã cũ (ví dụ lần đồng bộ sớm hơn không còn thời gian). Làm TRƯỚC kiểm tra khoá Anthropic
     // để việc cập nhật vẫn chạy khi chưa có khoá, và để bài phân tích (nếu có) dùng số mới. Lỗi ở đây không làm hỏng việc còn lại.
     let leadsync = null;
-    if (who.kind === 'cron') {
+    if (who.kind === 'cron' && !dry) {                                  // ?dry=1 chỉ xem thử: không đọc Sheet/Meta, không ghi gì
       try { const { withDeadline, setDeadline } = await import('../server/meta.js'); const { maybeLeadSync } = await import('../server/leadsync.js'); leadsync = await withDeadline(async () => { setDeadline(Date.now() + 80000); return maybeLeadSync({ by: 'cron' }); }); }
       catch (e) { console.error('[insights] bỏ qua cập nhật đối chiếu:', e && e.expose ? e.message : 'lỗi'); }
     }
@@ -31,7 +32,6 @@ export default async function handler(req, res) {
     const { buildPack } = await import('../server/pack.js');
     const { writeInsights, validate, MODEL } = await import('../server/insights-ai.js');
     const { readAll, writeDocs } = await import('../server/store.js');
-    const dry = /^(1|true)$/.test(String((req.query || {}).dry || ''));
     const today = C.dates.todayVN();
 
     let docs = await readAll();
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
           for (const q of A.PROGRAMS) byProgram[q.k] = fb[q.k] ? fb[q.k].spend : 0;
           for (const x of C.campaignsIn(mdl, accts, since, until)) byCampaign[x.c.id] = (byCampaign[x.c.id] || 0) + (x.period.spend || 0);
           return { byProgram, byCampaign };
-        });
+        }, { leadsync: docs.leadsync });
       }
     } catch (e) { console.error('[insights] bỏ qua phần đối chiếu phụ huynh:', e && e.message); }
 

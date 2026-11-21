@@ -18,7 +18,7 @@ export function explainMeta(e, what) {
   const m = e && e.meta || {}, code = m.code, msg = String(m.message || e && e.message || '');
   const perm = 'Token chưa đủ quyền đọc lead: cần leads_retrieval, pages_show_list, pages_read_engagement, pages_manage_ads, và người dùng hệ thống phải được gán Trang (kèm "Truy cập khách hàng tiềm năng").';
   if (code === 190) return 'Token Meta hết hạn hoặc không hợp lệ: tạo lại token System User rồi cập nhật META_ACCESS_TOKEN.';
-  if (code === 200 || code === 10 || code === 299 || /leads_retrieval|pages_read_engagement|pages_manage_ads|pages_show_list|permission/i.test(msg)) return perm + ' (' + what + ')';
+  if (code === 200 || code === 10 || code === 299 || /leads_retrieval|pages_read_engagement|pages_manage_ads|pages_show_list|permission/i.test(msg)) return perm + ' (' + what + (typeof code === 'number' ? ', mã ' + code : '') + ')';
   if (code === 100 && /nonexisting field|does not exist|unsupported get request/i.test(msg)) return 'Meta không cho đọc ' + what + ' bằng token này (Trang sai hoặc người dùng hệ thống chưa được gán Trang).';
   if (e && e.meta && e.meta.code === 'timeout') return 'Meta không phản hồi kịp khi lấy ' + what + '.';
   if (e && e.meta && e.meta.code === 'badshape') return 'Meta trả dữ liệu sai dạng khi lấy ' + what + ': thử lại sau.';

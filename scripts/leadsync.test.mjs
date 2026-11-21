@@ -372,6 +372,14 @@ test('runLeadSync: không ghi đè khi Meta trả ít lead hơn hẳn lần trư
   // khác mùa: không gộp số của mùa cũ
   store = memStore({ fbmatch: Object.assign({}, prev, { season: '2026–27' }) }); G.resetTokenCache(); f = stubFetch(routes());
   try { await S.runLeadSync({ env: ENV, today: TODAY, store }); assert.ok(!Object.keys(store.docs.fbmatch.days).some(d => d === day(25))); assert.equal(store.docs.fbmatch.season, '2027–28'); } finally { f.restore(); G.resetTokenCache(); }
+  // hai mùa hợp lệ nhưng mùa mới KHÔNG phải mùa sau (cùng năm bắt đầu, gõ nhầm năm thứ hai): dừng, giữ số đã chốt; ghi đè thì có bản sao
+  const stored = Object.assign({}, prev, { season: '2027–29' });
+  store = memStore({ fbmatch: stored }); G.resetTokenCache(); f = stubFetch(routes());
+  try {
+    await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 409 && e.canForce === true && /không phải mùa sau/.test(e.message) && e.stage === 'sheet');
+    assert.deepEqual(store.docs.fbmatch, stored); assert.equal(store.docs.fbmatch_prev, undefined);
+    assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store, force: true })).ok, true); assert.equal(store.docs.fbmatch.season, '2027–28'); assert.deepEqual(store.docs.fbmatch_prev, stored);
+  } finally { f.restore(); G.resetTokenCache(); }
 });
 
 test('maybeLeadSync (cho cron): bỏ qua khi chưa cấu hình hoặc còn mới; chạy khi đã cũ; lỗi không ném ra ngoài', async () => {
@@ -528,4 +536,28 @@ test('degradedReasons: ngưỡng so với lần trước — tab ĐP mất, đă
   assert.match(S.degradedReasons(base, sum(1000, 300, 800, ['LỚP 1 (ĐP)', 'LỚP 6 (ĐP)']), bc, cov(700, 600, 560, 100)).join(';'), /đã đóng phí có SĐT\/email giảm/);
   assert.deepEqual(S.degradedReasons(sum(10, 2, 8, ['A (ĐP)']), sum(3, 3, 1, []), cov(10, 9, 8, 8), cov(3, 0, 1, 0)), [S.degradedReasons(sum(10, 2, 8, ['A (ĐP)']), sum(3, 3, 1, []), null, null)[0]]);   // mẫu dưới 20: chỉ còn lý do mất tab
   assert.deepEqual(S.degradedReasons(null, sum(1, 0, 1, []), null, cov(1, 1, 1, 1)), []);                                                           // chưa có số cũ: không so
+});
+
+test('maybeLeadSync: còn mới trong 12 giờ thì bỏ qua, quá 12 giờ hoặc lần trước lỗi thì chạy; chưa cấu hình thì bỏ qua êm', async () => {
+  const hoursAgo = h => new Date(Date.now() - h * 3600000).toISOString();
+  assert.deepEqual(await S.maybeLeadSync({ env: {}, store: memStore() }), { skipped: 'chưa cấu hình' });
+  let store = memStore({ leadsync: { v: 1, ok: true, at: hoursAgo(11) } }), f = stubFetch([]);
+  try { assert.deepEqual(await S.maybeLeadSync({ env: ENV, store }), { skipped: 'còn mới' }); assert.equal(f.calls.length, 0); } finally { f.restore(); }
+  for (const prev of [{ v: 1, ok: true, at: hoursAgo(13) }, { v: 1, ok: false, at: hoursAgo(1) }]) {
+    G.resetTokenCache(); store = memStore({ leadsync: prev }); f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
+    try { const r = await S.maybeLeadSync({ env: ENV, store, by: 'cron' }); assert.equal(r.ok, true); assert.equal(store.docs.leadsync.by, 'cron'); } finally { f.restore(); G.resetTokenCache(); }
+  }
+});
+
+test('runLeadSync: lỗi bất ngờ được ghi log (tên, mã, thông điệp đã xoá dãy số dài và email) và trạng thái chỉ nói chung; dữ liệu cũ không bị ghi đè', async () => {
+  G.resetTokenCache();
+  const store = memStore(), realWrite = store.writeDocs;
+  store.writeDocs = async d => { if (d.fbmatch) throw Object.assign(new TypeError('Cannot write ' + phn(9) + ' for ten.phu.huynh@example.com'), { code: 'RESOURCE_EXHAUSTED' }); return realWrite(d); };
+  const logs = [], orig = console.error; console.error = (...a) => logs.push(a.join(' '));
+  const f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
+  try { await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e instanceof TypeError); } finally { console.error = orig; f.restore(); G.resetTokenCache(); }
+  assert.equal(logs.length, 1); assert.match(logs[0], /TypeError/); assert.match(logs[0], /RESOURCE_EXHAUSTED/); assert.match(logs[0], /bước write/);
+  assert.ok(!/\d{6,}/.test(logs[0]) && !/example\.com|ten\.phu\.huynh/.test(logs[0]), logs[0]);
+  assert.equal(store.docs.fbmatch, undefined); assert.equal(store.docs.leadsync.ok, false); assert.equal(store.docs.leadsync.stage, 'write'); assert.match(store.docs.leadsync.error, /Xem log/);
+  nope(allText(store), PII);
 });

@@ -31,6 +31,8 @@ test('/api/leadsync: cron dùng GET với CRON_SECRET; chưa cấu hình thì b�
 test('/api/insights: cron cập nhật đối chiếu TRƯỚC kiểm tra khoá Anthropic (chưa có khoá vẫn báo trạng thái cập nhật); POST từ cron bị từ chối', async () => {
   const r = await call('insights', { token: SECRETS.CRON_SECRET });
   assert.equal(r.status, 501); assert.match(r.body.error, /ANTHROPIC_API_KEY/); assert.deepEqual(r.body.leadsync, { skipped: 'chưa cấu hình' });
+  const dry = await call('insights', { token: SECRETS.CRON_SECRET, query: { dry: '1' } });          // ?dry=1 chỉ xem thử: không cập nhật đối chiếu
+  assert.equal(dry.status, 501); assert.equal(dry.body.leadsync, null);
   assert.equal((await call('insights', { token: SECRETS.CRON_SECRET, method: 'POST' })).status, 405);
   assert.equal((await call('insights', {})).status, 401);
 });

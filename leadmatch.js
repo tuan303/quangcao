@@ -19,6 +19,7 @@
   var MAX_SIBLINGS = 6;          // một số điện thoại khớp quá nhiều học sinh: số dùng chung, không khớp
   var KEEP_DAYS = 60;            // Ngày điền form cũ hơn 60 ngày được đóng băng (giữ số của lần chạy trước). Meta chỉ cho đọc lead trong 90 ngày; khoảng 60–90 ngày chỉ dùng để nhận ra phụ huynh đã điền form từ trước.
                                  // Cửa sổ ngắn hơn 90 ngày để một phụ huynh điền form hai lần không bị tính hai lần khi lần đầu đã quá hạn 90 ngày mà lần sau còn trong cửa sổ (chỉ còn xảy ra khi hai lần cách nhau hơn 30 ngày).
+  var HISTORY_DAYS = 400;        // số đã chốt giữ tối đa chừng này ngày kể từ hôm nay (hơn một mùa tuyển sinh); cũ hơn thì bỏ
   var ORGANIC = 'organic', NONE = 'none';
   /* Ô số liệu theo ngày điền form × chiến dịch, thứ tự cố định:
    *  l  phụ huynh (gia đình) điền form        i  chỉ khớp học sinh nội bộ          b  chỉ khớp học sinh đã đăng ký trước form
@@ -176,8 +177,12 @@
     // Ngày cũ hơn mốc đóng băng chỉ lấy từ lần mới khi chưa có lần trước (lần đầu). Có lần trước mà ngày đó không có ô thì giữ không có ô: lần mới chỉ thấy các lead còn trong 90 ngày nên một phụ huynh
     // đã điền form từ trước đó (lần đầu đã hết hạn) hiện ra như phụ huynh mới ở ngày này và sẽ bị tính hai lần.
     Object.keys(next.days).forEach(function (d) { if (d >= windowFrom || !prev) out.days[d] = next.days[d]; });
+    // Số đã chốt cũ hơn HISTORY_DAYS thì bỏ (hơn một mùa tuyển sinh): giữ kích thước tài liệu và giới hạn của validate() không bị chạm dù tiêu đề mùa nhiều năm không đổi.
+    var oldest = adm().addDays(windowFrom, -(HISTORY_DAYS - KEEP_DAYS)); Object.keys(out.days).forEach(function (d) { if (d < oldest) delete out.days[d]; });
     var pc = prev && prev.camps || {}; Object.keys(pc).forEach(function (c) { out.camps[c] = pc[c]; }); Object.keys(next.camps).forEach(function (c) { out.camps[c] = next.camps[c]; });
-    Object.keys(out.days).forEach(function (d) { Object.keys(out.days[d]).forEach(function (c) { if (!out.camps[c]) out.camps[c] = { n: '', p: 'OTHER' }; }); });
+    var used = {}; Object.keys(out.days).forEach(function (d) { Object.keys(out.days[d]).forEach(function (c) { used[c] = 1; }); });
+    Object.keys(out.camps).forEach(function (c) { if (!used[c]) delete out.camps[c]; });
+    Object.keys(used).forEach(function (c) { if (!out.camps[c]) out.camps[c] = { n: '', p: 'OTHER' }; });
     var ks = Object.keys(out.days).sort(); out.from = ks[0] || ''; out.to = ks[ks.length - 1] || '';
     out.winFrom = [prev && prev.winFrom, next.winFrom].filter(isDay).sort()[0] || '';
     out.frozenBefore = windowFrom;
@@ -274,9 +279,15 @@
   }
   /**
    * Gói số liệu cho phần Phân tích (chỉ số tổng hợp, không có dữ liệu cá nhân): 30 ngày gần nhất, 30 ngày trước đó và toàn bộ thời gian đọc được.
-   * spendOf(since, until) → { byProgram, byCampaign } hoặc null.
+   * spendOf(since, until) → { byProgram, byCampaign } hoặc null. info (tuỳ chọn): { leadsync: tài liệu trạng thái lần chạy gần nhất } để ghi độ mới của số liệu.
    */
-  function packOf(m, today, spendOf) {
+  /** Độ mới của số đối chiếu: ngày (giờ Việt Nam) của lần cập nhật thành công gần nhất, số ngày so với hôm nay, kết quả lần chạy gần nhất (chỉ ok và tên bước). Lead chỉ có đến lần cập nhật đó trong khi chi tiêu tính đến hôm nay. */
+  function freshness(m, today, info) {
+    var d = adm().vnDate(m && m.syncedAt), t = Date.parse(today + 'T00:00:00Z'), s = Date.parse(d + 'T00:00:00Z'), ls = info && info.leadsync && typeof info.leadsync === 'object' ? info.leadsync : null;
+    return { synced_at: d || null, age_days: isFinite(t) && isFinite(s) ? Math.max(0, Math.round((t - s) / 86400000)) : null, last_update_ok: ls && typeof ls.ok === 'boolean' ? ls.ok : null, last_update_stage: ls && ls.ok === false && typeof ls.stage === 'string' && /^[a-z]{1,10}$/.test(ls.stage) ? ls.stage : null,
+      note: 'Lead chỉ có đến ngày synced_at nhưng chi tiêu tính đến hôm nay: khi age_days >= 2 hoặc last_update_ok = false thì phụ huynh của những ngày gần đây còn thiếu và chi phí / học sinh ĐP cao hơn thực tế; nói rõ số tính đến ngày synced_at và không kết luận về những tuần gần nhất.' };
+  }
+  function packOf(m, today, spendOf, info) {
     var A = adm(), mat = maturity(m, today), at = attribution(m), round = function (v) { return v == null ? null : Math.round(v * 1000) / 1000; }, v0 = view(m, '', '', null);
     // số không đáng tin vì thiếu SĐT trong Sheet thì để null (không phải 0), để Claude không nhận định từ số hụt
     var cellOut = function (c) { return { parents: c.l, only_internal_students: c.i, already_registered_before_form: c.b, registered: v0.regOk ? c.r : null, students_registered: v0.regOk ? c.rs : null, parent_to_registered: round(c.leadToReg), registered_to_paid: round(c.regToPaid),
@@ -287,7 +298,7 @@
         top_campaigns: v.campaigns.filter(function (c) { return c.l >= 5; }).slice(0, 8).map(function (c) { return Object.assign({ campaign: c.n, program: c.prog }, cellOut(c)); }), organic_parents: v.organic.l };
     };
     var out = { as_of: today, method: 'Mỗi phụ huynh điền form lead Facebook được đối chiếu với học sinh trong file tuyển sinh theo số điện thoại hoặc email; lead đầu tiên của phụ huynh quyết định ngày và chiến dịch; học sinh nội bộ và học sinh đã đăng ký trước khi điền form không tính cho quảng cáo.',
-      lead_history_from: m && m.winFrom || null, last_30d: win(A.addDays(today, -30), A.addDays(today, -1)), prev_30d: win(A.addDays(today, -60), A.addDays(today, -31)), all_time: win('', ''),
+      data_freshness: freshness(m, today, info), lead_history_from: m && m.winFrom || null, last_30d: win(A.addDays(today, -30), A.addDays(today, -1)), prev_30d: win(A.addDays(today, -60), A.addDays(today, -31)), all_time: win('', ''),
       data_quality: { registration_stage_reliable: v0.regOk, phone_share_of_external_registered: round(at.regPhoneShare), phone_share_of_paid: round(at.phoneShare), registration_date_share: round(at.regDateShare), programs_without_paid_phone: Object.keys(v0.lowPhone),
         note: 'Khi registration_stage_reliable = false thì không nhận định về số đăng ký hay tỷ lệ đăng ký → đóng phí. Chương trình trong programs_without_paid_phone không có tỷ lệ và không nằm trong tổng. registration_date_share thấp nghĩa là chưa loại được học sinh đã đăng ký trước khi phụ huynh điền form nên tỷ lệ có thể cao hơn thực tế.' },
       attribution: { paid_students_external: at.paidExt, matched_to_facebook_ads: at.fromAds, matched_share: round(at.share), paid_without_phone_in_sheet: at.noPhone, phone_share_of_paid: round(at.phoneShare) },
