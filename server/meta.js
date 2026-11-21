@@ -52,9 +52,11 @@ export async function graph(pathOrUrl, params, token) {
     throw metaError(e, res.status);
   }
 }
-export async function allPages(path, params, token, maxPages = 40) {
+/** Đọc mọi trang kết quả (tối đa maxPages). strict: còn trang kế mà đã hết hạn mức thì báo lỗi thay vì trả danh sách cụt (dùng khi thiếu một phần là sai số). */
+export async function allPages(path, params, token, maxPages = 40, { strict = false } = {}) {
   let j = await graph(path, params, token), out = (j.data || []).slice(), n = 1;
   while (j.paging && j.paging.next && n < maxPages) { j = await graph(j.paging.next, null, token); out = out.concat(j.data || []); n++; }
+  if (strict && j.paging && j.paging.next) throw Object.assign(new Error('Danh sách quá dài (hơn ' + maxPages + ' trang)'), { meta: { code: 'truncated' } });
   return out;
 }
 

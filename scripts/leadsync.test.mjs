@@ -205,6 +205,33 @@ test('fetchLeads: Trang lấy từ tài khoản quảng cáo khi không đặt M
   } finally { f.restore(); }
 });
 
+test('fetchLeads: danh sách lead dài quá hạn mức phân trang thì báo lỗi, không trả danh sách cụt', async () => {
+  const f = stubFetch([u => u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname) && json({ data: [LEADS[0]], paging: { next: 'https://graph.facebook.com/v25.0/f1/leads?after=tiep' } }),
+    ...graphRoutes({ forms: [{ id: 'f1', status: 'ACTIVE', leads_count: 5 }] })]);
+  try { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && /không lấy thiếu/.test(e.message)); } finally { f.restore(); }
+  assert.match(L.explainMeta({ meta: { code: 'truncated' } }, 'lead'), /dài bất thường/);
+});
+
+test('fetchLeads: một quảng cáo không đọc được (đã xoá) không làm mất chiến dịch của các quảng cáo còn lại; số lần tra có giới hạn', async () => {
+  const noCamp = LEADS.slice(0, 4).map(l => { const o = Object.assign({}, l); delete o.campaign_id; delete o.campaign_name; return o; });
+  const asked = [];
+  const route = isBad => u => {
+    if (u.host !== 'graph.facebook.com' || !/^\/v[\d.]+\/?$/.test(u.pathname)) return;
+    const ids = u.searchParams.get('ids').split(','); asked.push(ids.length);
+    if (ids.some(isBad)) return json({ error: { code: 100, message: '(#803) Some of the aliases you requested do not exist' } }, 400);
+    return json(Object.fromEntries(ids.map(id => [id, { campaign_id: '777' + id.slice(-1), campaign: { id: '777' + id.slice(-1), name: 'TS6-LEAD | ' + id } }])));
+  };
+  let f = stubFetch([route(id => id === 'adL3'), ...graphRoutes({ leads: noCamp, forms: [{ id: 'f1', status: 'ACTIVE', leads_count: 4 }] })]);
+  try {
+    const r = await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV });
+    assert.deepEqual(r.leads.map(l => l.campaign_id), ['7771', '7772', undefined, '7774']); assert.equal(asked[0], 4); assert.ok(asked.length <= 8, 'chia đôi lô lỗi: ' + asked.join(','));
+  } finally { f.restore(); }
+  asked.length = 0;                                                                                  // 200 quảng cáo đều lỗi: dừng ở hạn mức lần gọi (không chia đôi đến cùng ≈ 400 lần), lead vẫn còn (chưa rõ chiến dịch)
+  const many = Array.from({ length: 200 }, (_, i) => { const o = glead('Z' + i, '2026-10-01', '', '', '0' + phn(100 + i)); delete o.campaign_id; delete o.campaign_name; return o; });
+  f = stubFetch([route(() => true), ...graphRoutes({ leads: many, forms: [{ id: 'f1', status: 'ACTIVE', leads_count: 200 }] })]);
+  try { const r = await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); assert.equal(r.leads.length, 200); assert.ok(r.leads.every(l => !l.campaign_id)); assert.equal(asked.length, 120); } finally { f.restore(); }
+});
+
 test('explainMeta và checkLeads: thiếu quyền, token hết hạn; kiểm tra từng bước không in nội dung lead', async () => {
   assert.match(L.explainMeta({ meta: { code: 190 } }, 'x'), /META_ACCESS_TOKEN/); assert.match(L.explainMeta({ meta: { code: 200, message: '(#200)' } }, 'lead'), /leads_retrieval/); assert.match(L.explainMeta({ meta: { code: 4 } }, 'lead'), /mã 4/);
   let f = stubFetch(graphRoutes());

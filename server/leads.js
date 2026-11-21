@@ -17,6 +17,7 @@ export function explainMeta(e, what) {
   if (code === 200 || code === 10 || code === 299 || /leads_retrieval|pages_read_engagement|pages_manage_ads|pages_show_list|permission/i.test(msg)) return perm + ' (' + what + ')';
   if (code === 100 && /nonexisting field|does not exist|unsupported get request/i.test(msg)) return 'Meta không cho đọc ' + what + ' bằng token này (Trang sai hoặc người dùng hệ thống chưa được gán Trang).';
   if (e && e.meta && e.meta.code === 'timeout') return 'Meta không phản hồi kịp khi lấy ' + what + '.';
+  if (e && e.meta && e.meta.code === 'truncated') return 'Danh sách ' + what + ' dài bất thường: dừng để không lấy thiếu. Kiểm tra lại Trang/biểu mẫu hoặc rút ngắn khoảng thời gian.';
   return 'Meta báo lỗi khi lấy ' + what + (code ? ' (mã ' + code + ')' : '') + '.';
 }
 
@@ -27,11 +28,11 @@ export async function pagesOf({ token, accts = [], env = process.env }) {
   // Hoặc đủ hoặc báo lỗi: một tài khoản quảng cáo không liệt kê được Trang thì sẽ thiếu im lặng toàn bộ lead của Trang đó, nên dừng và bảo đặt META_PAGE_IDS.
   const errors = [], seen = new Map(), hint = ' Hoặc đặt biến META_PAGE_IDS (ID Trang Facebook của trường) để không phụ thuộc bước này.';
   for (const a of accts) {
-    try { for (const p of await allPages('act_' + a + '/promote_pages', { fields: 'id,name', limit: 100 }, token, 5)) if (p && p.id) seen.set(String(p.id), String(p.name || '')); }
+    try { for (const p of await allPages('act_' + a + '/promote_pages', { fields: 'id,name', limit: 100 }, token, 5, { strict: true })) if (p && p.id) seen.set(String(p.id), String(p.name || '')); }
     catch (e) { throw fail(explainMeta(e, 'danh sách Trang của tài khoản quảng cáo ' + a) + hint, { meta: e.meta }); }
   }
   if (seen.size) return { pages: [...seen].map(([id, name]) => ({ id, name })), source: 'tài khoản quảng cáo', errors };
-  try { for (const p of await allPages('me/accounts', { fields: 'id,name', limit: 100 }, token, 5)) if (p && p.id) seen.set(String(p.id), String(p.name || '')); }
+  try { for (const p of await allPages('me/accounts', { fields: 'id,name', limit: 100 }, token, 5, { strict: true })) if (p && p.id) seen.set(String(p.id), String(p.name || '')); }
   catch (e) { throw fail(explainMeta(e, 'danh sách Trang của người dùng hệ thống') + hint, { meta: e.meta }); }
   return { pages: [...seen].map(([id, name]) => ({ id, name })), source: 'người dùng hệ thống', errors };
 }
@@ -42,7 +43,7 @@ async function pageToken(pageId, token) {
   return { token: j.access_token, name: String(j.name || '') };
 }
 async function formsOf(pageId, ptoken) {
-  try { return await allPages(pageId + '/leadgen_forms', { fields: 'id,name,status,leads_count,created_time', limit: 100 }, ptoken, 20); }
+  try { return await allPages(pageId + '/leadgen_forms', { fields: 'id,name,status,leads_count,created_time', limit: 100 }, ptoken, 20, { strict: true }); }
   catch (e) { throw fail(explainMeta(e, 'danh sách biểu mẫu của Trang ' + pageId), { meta: e.meta }); }
 }
 /** Lead của một biểu mẫu từ thời điểm sinceUnix (giây). Trường Graph không có thì bỏ đi và thử lại. */
@@ -50,7 +51,7 @@ async function leadsOfForm(formId, ptoken, sinceUnix, fields) {
   const params = { limit: 100, filtering: sinceUnix ? [{ field: 'time_created', operator: 'GREATER_THAN', value: sinceUnix }] : undefined };
   for (let tries = 0; tries < 5; tries++) {
     params.fields = fields.join(',');
-    try { return await allPages(formId + '/leads', params, ptoken, MAX_PAGES_PER_FORM); }
+    try { return await allPages(formId + '/leads', params, ptoken, MAX_PAGES_PER_FORM, { strict: true }); }
     catch (e) {
       const bad = e.meta && e.meta.code === 100 && DROPPABLE.find(f => fields.includes(f) && new RegExp('\\b' + f + '\\b').test(String(e.meta.message || '')));
       if (bad) { fields.splice(fields.indexOf(bad), 1); continue; }
@@ -59,17 +60,26 @@ async function leadsOfForm(formId, ptoken, sinceUnix, fields) {
   }
   throw fail('Meta liên tục từ chối các trường lead.');
 }
-/* Lead thiếu campaign_id nhưng có ad_id: tra chiến dịch của quảng cáo (một lần cho nhiều quảng cáo). Lỗi thì để nguyên (lead hiện "chưa rõ chiến dịch"). */
+/* Lead thiếu campaign_id nhưng có ad_id: tra chiến dịch của quảng cáo (một lần cho nhiều quảng cáo). Một quảng cáo không đọc được (đã xoá, không quyền) làm hỏng cả lô,
+   nên lô lỗi được chia đôi để các quảng cáo còn lại vẫn tra được (tối đa CAMPAIGN_CALLS lần gọi). Còn không tra được thì để nguyên (lead hiện "chưa rõ chiến dịch"). */
+const CAMPAIGN_CALLS = 120;
 async function fillCampaigns(leads, token) {
   const need = [...new Set(leads.filter(l => !l.campaign_id && l.ad_id).map(l => String(l.ad_id)))].slice(0, 2000);
   if (!need.length) return 0;
-  const map = {};
-  try {
-    for (let i = 0; i < need.length; i += 50) {
-      const j = await graph('', { ids: need.slice(i, i + 50).join(','), fields: 'campaign_id,campaign{id,name}' }, token);
-      for (const k of Object.keys(j || {})) if (j[k] && j[k].campaign_id) map[k] = { id: String(j[k].campaign_id), name: String(j[k].campaign && j[k].campaign.name || '') };
+  const map = {}; let calls = 0;
+  async function look(ids) {
+    if (!ids.length || calls >= CAMPAIGN_CALLS) return;
+    calls++;
+    let j;
+    try { j = await graph('', { ids: ids.join(','), fields: 'campaign_id,campaign{id,name}' }, token); }
+    catch (e) {
+      if (e && e.meta && e.meta.code === 'timeout') return;                    // hết giờ: không thử thêm
+      if (ids.length > 1) { const h = Math.ceil(ids.length / 2); await look(ids.slice(0, h)); await look(ids.slice(h)); }
+      return;                                                                  // một quảng cáo lẻ không đọc được: bỏ qua
     }
-  } catch (e) { /* bỏ qua: lead giữ "chưa rõ chiến dịch" */ }
+    for (const k of Object.keys(j || {})) if (j[k] && j[k].campaign_id) map[k] = { id: String(j[k].campaign_id), name: String(j[k].campaign && j[k].campaign.name || '') };
+  }
+  for (let i = 0; i < need.length; i += 50) await look(need.slice(i, i + 50));
   let n = 0;
   for (const l of leads) if (!l.campaign_id && map[String(l.ad_id)]) { l.campaign_id = map[String(l.ad_id)].id; l.campaign_name = l.campaign_name || map[String(l.ad_id)].name; n++; }
   return n;
