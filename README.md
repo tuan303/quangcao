@@ -25,6 +25,7 @@ Số liệu được cập nhật mỗi sáng.
 | `api/sync.js` | Tuỳ chọn. Khi có `META_ACCESS_TOKEN`, Vercel Cron tự lấy số liệu từ Meta mỗi sáng (gói Hobby chạy trong khoảng 05:00–06:00) và nút “Đồng bộ ngay” hiện cho quản trị. |
 | `api/insights.js` | Tuỳ chọn. Khi có `ANTHROPIC_API_KEY`, Claude tự viết phần “Phân tích & đề xuất” mỗi sáng sau đồng bộ (gói Hobby chạy trong khoảng 07:00–08:00) và quản trị bấm được “Viết phân tích ngay”. |
 | `admissions.js`, `api/admissions.js`, `vendor/xlsx.mini.min.js` | Thẻ Chuyển đổi: đọc file DATA TUYỂN SINH ngay trong trình duyệt của quản trị, chỉ gửi lên số tổng hợp (không có tên, ngày sinh, số điện thoại học sinh). |
+| `leadmatch.js`, `api/leadsync.js`, `server/gsheets.js`, `server/leads.js`, `server/leadsync.js` | Thẻ Chuyển đổi, đối chiếu từng phụ huynh: máy chủ tự đọc Google Sheet DATA TUYỂN SINH (service account, chỉ đọc) và lead Facebook (Graph API), khớp theo số điện thoại/email rồi chỉ lưu số tổng hợp (tài liệu `fbmatch`). Cron buổi sáng tự chạy; quản trị còn có nút “Cập nhật ngay” và “Kiểm tra kết nối”. `api/ingest.js` không nhận các tài liệu `fbmatch`, `leadsync`. |
 | `benchmarks.js` | Khoảng tham chiếu của quảng cáo ngành giáo dục, kèm nguồn và thời điểm, để so sánh khách quan ngoài so với kỳ trước. |
 
 Dự án Firebase **quangcao-9a705** chỉ phục vụ dashboard này, không dùng chung với dự án nào khác. Collection `fbads` chỉ do máy chủ đọc và ghi (firebase-admin). File `firestore.rules` chặn mọi truy cập trực tiếp từ trình duyệt.
@@ -136,7 +137,45 @@ Lịch đồng bộ trong ngày:
 
 Nút **Sao chép gửi Zalo** chép bản chữ để dán vào Zalo hoặc email gửi Chủ tịch.
 
-## Chuyển đổi tuyển sinh (thẻ Chuyển đổi)
+## Đối chiếu từng phụ huynh: Facebook → đóng phí (thẻ Chuyển đổi)
+
+Trả lời câu hỏi: **trong số phụ huynh đã điền form lead trên Facebook, bao nhiêu người đã đăng ký và đã đóng phí (ĐP)**, và quảng cáo tốn bao nhiêu cho mỗi học sinh đã đóng phí. Máy chủ tự đọc Google Sheet DATA TUYỂN SINH và lead Facebook mỗi sáng, khớp **từng phụ huynh** theo số điện thoại (hoặc email), rồi chỉ lưu SỐ TỔNG HỢP theo ngày điền form × chiến dịch (tài liệu `fbmatch`). Không còn phải tải file Excel mỗi lần phân tích.
+
+### Thiết lập (làm một lần)
+
+1. **Bật Google Sheets API** cho dự án Google Cloud của service account (`quangcao-9a705`): console.cloud.google.com → APIs & Services → Library → *Google Sheets API* → Enable.
+2. **Chia sẻ Google Sheet** DATA TUYỂN SINH cho email của service account (Firebase console → Project settings → Service accounts, hoặc trường `client_email` trong `FIREBASE_SERVICE_ACCOUNT`; nút **Kiểm tra kết nối** của trang cũng hiện email này) với quyền **Người xem (Viewer)**. Không cần quyền sửa. File phải là Google Sheet thật; file Excel lưu trên Drive thì mở và chọn *Tệp → Lưu dưới dạng Google Trang tính*.
+3. **Biến môi trường trên Vercel** rồi Redeploy: `ADMISSIONS_SHEET_ID` = đường dẫn hoặc ID của Google Sheet (không đưa giá trị này vào kho mã). Tuỳ chọn `META_PAGE_IDS` = ID Trang Facebook của trường (phân cách bằng dấu phẩy); để trống thì máy chủ tìm Trang từ hai tài khoản quảng cáo.
+4. **Cấp quyền đọc lead cho Meta.** Token System User hiện có (`ads_read`) chưa đọc được lead. Tạo token mới cho cùng người dùng hệ thống với các quyền `ads_read`, `leads_retrieval`, `pages_show_list`, `pages_read_engagement`, `pages_manage_ads`, rồi cập nhật `META_ACCESS_TOKEN`. Trong Business Settings, gán **Trang Facebook** của trường cho người dùng hệ thống đó (quản lý Trang và quyền truy cập khách hàng tiềm năng / Leads access). Tên menu của Meta hay đổi: nếu thiếu quyền, nút **Kiểm tra kết nối** nêu đúng quyền còn thiếu và mã lỗi của Meta. Ứng dụng Meta có thể cần cấp `leads_retrieval` ở mức truy cập cao (Advanced access) nếu Meta báo lỗi mã 200 dù đã gán Trang. *Phần lấy lead này chưa được thử với token thật của nhà trường; hãy chạy Kiểm tra kết nối trước.*
+5. **Thêm cột SĐT** vào Google Sheet: tab *Danh sách đăng ký* và các tab *(ĐP)* (kể cả HB) cần cột tên như **SĐT bố**, **SĐT mẹ**, **SĐT ưu tiên**, **Zalo** (nhận mọi tên cột có chữ SĐT, số điện thoại, điện thoại, di động, phone, zalo) và, nếu có, cột **Email**. Một ô có thể ghi nhiều số cách nhau bằng dấu phẩy, chấm phẩy, gạch chéo hoặc xuống dòng. Số viết kiểu 0912…, +84 912…, 84…, có dấu cách hay dấu chấm đều được nhận; số bị Excel mất số 0 đầu cũng được. Cần từ 90% học sinh đã đóng phí có SĐT thì kết quả mới đáng tin; dưới mức đó trang hiện cảnh báo.
+6. Vào thẻ **Chuyển đổi** (tài khoản quản trị): bấm **Kiểm tra kết nối** để thấy từng bước ✓/✗, rồi **Cập nhật ngay**. Từ đó cron buổi sáng tự cập nhật: `/api/sync` gọi cập nhật sau khi lấy số liệu Meta nếu còn thời gian, và `/api/insights` làm trước khi viết phân tích nếu lần cập nhật gần nhất đã quá 20 giờ.
+
+**Meta chỉ cho đọc lead trong 90 ngày.** Hãy thiết lập sớm: lead cũ hơn 90 ngày không đọc lại được. Số đã đối chiếu của các ngày cũ hơn 85 ngày được giữ nguyên từ các lần cập nhật trước (chỉ là số đếm theo ngày và chiến dịch), nên lịch sử không mất; nhưng học sinh đóng phí từ lead đã quá 90 ngày trước khi thiết lập sẽ hiện là “chưa khớp lead nào”.
+
+### Quy tắc đối chiếu
+
+- **Một phụ huynh = các lead nối với nhau bằng bất kỳ SĐT hay email chung.** Điền form nhiều lần chỉ tính một lần, lấy lần **đầu tiên** (first touch) làm ngày và chiến dịch.
+- **Một học sinh chỉ tính cho một lead** (lead sớm nhất khớp được em). Bố và mẹ cùng điền form cho một em: tính một gia đình, không phải hai lead.
+- **Học sinh nội bộ** (cột HS nội bộ có mã) không phải từ quảng cáo: phụ huynh chỉ khớp học sinh nội bộ được ghi riêng và không nằm trong mẫu số của tỷ lệ.
+- **Học sinh đăng ký (hoặc đóng phí) trước ngày phụ huynh điền form** không tính cho form đó; ghi riêng, không nằm trong mẫu số. Cần cột Ngày đăng ký (và Ngày đóng phí) để áp dụng; ô trống thì tính là sau form.
+- **Số điện thoại dùng chung** khớp hơn 6 học sinh bị coi là chưa khớp (ví dụ số của văn phòng).
+- Chương trình lấy từ tên chiến dịch của lead (TS1, JS, TS6, TS10, HB). Lead tự nhiên (không từ quảng cáo) tách riêng, không nằm trong tổng.
+- **Form → ĐP** = phụ huynh có con đã đóng phí ÷ phụ huynh điền form (không tính hai nhóm bị loại ở trên). **Chi phí / học sinh ĐP** = chi tiêu Facebook của các chương trình đã ghép ÷ học sinh đã đóng phí từ phụ huynh điền form của các chương trình đó, và ở từng chiến dịch là chi tiêu của chính chiến dịch. Dưới 10 phụ huynh thì không tính phần trăm; dưới 3 học sinh thì không tính chi phí.
+- **Nhóm phụ huynh mới chưa đủ thời gian đóng phí.** Trang tính từ số liệu của các em đã đóng phí: thường mất bao nhiêu ngày từ lúc điền form đến lúc đóng phí (trung vị và phân vị 90), rồi nhắc rằng nhóm phụ huynh điền form sau mốc đó còn thấp hơn thực tế. Đọc tỷ lệ của tháng gần nhất cùng ghi chú này.
+- Phần **Độ tin cậy** của thẻ cho biết bao nhiêu học sinh đã đóng phí khớp được với lead quảng cáo, bao nhiêu chưa có SĐT trong Sheet, và vì sao phần còn lại chưa khớp (nguồn khác, lead cũ hơn 90 ngày, số điện thoại khác số điền ở form).
+- Thẻ **Báo cáo tổng thể**, đoạn tin **Zalo** và gói **Phân tích của Claude** (`fb_parent_match`) dùng số đối chiếu này khi có; khi chưa có thì dùng số gộp theo tab ở phần bên dưới.
+
+### Quyền riêng tư và an toàn
+
+- Họ tên, ngày sinh, SĐT, email của học sinh và phụ huynh **chỉ nằm trong bộ nhớ của hàm Vercel lúc tính** (vài giây); không ghi vào Firestore, không ghi log, không gửi cho dịch vụ nào khác (kể cả Claude). Tài liệu được ghi chỉ có số nguyên theo ngày × chiến dịch (`fbmatch`), tổng hợp theo tab (`admissions`) và trạng thái chạy (`leadsync`). Dữ liệu lưu và dữ liệu trả ra trang đều bị `validate()` dựng lại theo đúng cấu trúc đã biết.
+- Service account chỉ có phạm vi **spreadsheets.readonly**; Sheet chỉ chia sẻ quyền Người xem. Máy chủ chỉ gọi các điểm *đọc* của Google và Meta.
+- `/api/leadsync`: cron dùng `CRON_SECRET`; người dùng phải là quản trị (`FBADS_ADMINS`). Người chỉ xem không thấy chi tiết lỗi của Google hay Meta, chỉ thấy lần cập nhật gần nhất có thành công hay không.
+- Lần đọc lead là **hoặc đủ hoặc báo lỗi**: nếu một biểu mẫu đang dùng không đọc được hoặc số lead thấp hơn hẳn lần trước cho cùng khoảng ngày, máy chủ không ghi đè số cũ (quản trị bấm lại được với xác nhận ghi đè).
+- **Kho mã này công khai: không đưa Sheet ID, số điện thoại, email, tên hay file dữ liệu thật vào kho**, kể cả trong bài kiểm thử (kiểm thử dựng số giả lúc chạy; `npm test` và `npm run privacy` quét kho).
+
+## Số tổng hợp theo tab và tải file Excel (dự phòng)
+
+Phần này là cách cũ, vẫn dùng được khi chưa thiết lập đối chiếu từng phụ huynh: số lead Facebook, số đăng ký và số đã đóng phí được **cộng gộp theo chương trình** (không biết phụ huynh nào), nên đăng ký và đóng phí có thể đến cả từ nguồn ngoài Facebook. Khi Google Sheet đã được kết nối ở mục trên, máy chủ tự cập nhật các số này từ Sheet mỗi sáng và việc tải file Excel không còn cần thiết. Trên trang, phần này nằm trong mục “Số tổng hợp theo tab” dưới cùng của thẻ Chuyển đổi.
 
 Thẻ này cho thấy lead quảng cáo Facebook trở thành học sinh đăng ký và học sinh đã đóng phí (ĐP) ra sao, theo từng chương trình (TS1, JS, TS6, TS10, HB), theo khối và theo thời gian. Số liệu tuyển sinh lấy từ file **DATA TUYỂN SINH** (Google Sheets).
 
@@ -227,6 +266,7 @@ Bộ kiểm thử chạy offline với Meta API giả lập. Nó kiểm tra:
 - quyền xem;
 - gói số liệu cho phân tích, cấu trúc đầu ra của Claude và phép so với mặt bằng ngành;
 - chuyển đổi tuyển sinh: đọc bảng, tổng hợp, ghép chương trình với chiến dịch Facebook, tỷ lệ, khoảng thời gian (ngày gõ nhầm năm, mốc ngày tải file, mùa đã hết hoặc chưa bắt đầu), phần ngoài dòng Tổng và việc máy chủ chỉ nhận số tổng hợp;
+- đối chiếu từng phụ huynh: chuẩn hoá số điện thoại và email, khớp lead với học sinh (first touch, gia đình, học sinh nội bộ, đăng ký trước form, số dùng chung), gộp qua các lần cập nhật, kiểm tra cấu trúc, số liệu theo kỳ, chương trình, chiến dịch và độ trưởng thành; máy chủ với Google Sheets và Graph API giả lập (JWT, lỗi quyền, phân trang, không ghi một phần, khoá chạy chồng) và việc không để lọt SĐT, email, tên vào dữ liệu được ghi;
 - quyền riêng tư: người chỉ xem không thấy email của quản trị, bộ quét số điện thoại và email trong kho mã và trong mọi nhánh git (`npm run privacy` chạy riêng, quét cả lịch sử).
 
 ## Lưu ý số liệu
