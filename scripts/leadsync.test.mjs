@@ -815,6 +815,14 @@ test('runLeadSync: sau một đợt gián đoạn, các ngày còn sống ở l�
   });
 }
 
+test('safelog: lỗi phân tích JSON không để lọt đoạn của đầu vào, chữ số Unicode bị lọc, chuỗi rất dài xử lý nhanh', () => {
+  const l1 = describeUnknown(new SyntaxError('Unexpected token \'N\', ..."a","name":Nguyen Van"... is not valid JSON')), l2 = describeUnknown(new SyntaxError('Unexpected token \'N\', "Nguyen Van A" is not valid JSON'));
+  assert.ok(!/Nguyen|Van/.test(l1) && !/Nguyen|Van/.test(l2), l1 + ' || ' + l2); assert.match(l1, /^SyntaxError \| Unexpected token/);
+  const wide = [...String(phn(3))].map(c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0)).join('');          // cùng dãy số nhưng viết bằng chữ số toàn chiều rộng
+  assert.ok(!/[０-９]{4}/.test(scrub('so ' + wide + ' het')), scrub('so ' + wide + ' het'));
+  const t0 = performance.now(); scrub('x'.repeat(100000)); describeUnknown(Object.assign(new Error('y'.repeat(100000)), { code: 'z'.repeat(100000) })); assert.ok(performance.now() - t0 < 500, String(performance.now() - t0));
+});
+
 test('safelog: chuỗi trong ngoặc kép kéo dài qua nhiều dòng không lọt vào log qua phần ngăn xếp; tên và mã lỗi cũng qua bộ lọc', () => {
   const k = phn(7), e = new Error('ghi that bai "Nguyen\nVan A" ' + k + '\nten.phu.huynh@example.com'); e.code = 'ten.phu.huynh@example.com'; e.name = 'Loi "Tran Thi B"';
   const line = describeUnknown(e);
@@ -823,6 +831,39 @@ test('safelog: chuỗi trong ngoặc kép kéo dài qua nhiều dòng không l�
   const frames = line.slice(line.lastIndexOf(' @ ') + 3); assert.ok(frames === '' || /^at /.test(frames), frames);
   const e2 = new Error('x'); e2.stack = 'Error: x\n    at ham (/srv/' + k + '/a.js:1:2)\n    at khac (ten.phu.huynh@example.com:3:4)';                    // số hay email nằm trong khung gọi cũng bị lọc
   const l2 = describeUnknown(e2); assert.ok(!l2.includes(k) && !/example\.com/.test(l2), l2);
+});
+
+test('checkLeads: dừng giữa chừng vì hết giờ thì báo đỏ "Mới đọc thử k/n" (không bao giờ xanh khi còn biểu mẫu chưa thử); đọc thử cả Trang thứ bảy; đúng MAX_FORMS biểu mẫu vẫn đọc được; biểu mẫu lưu trữ không đọc được không tính vào giới hạn; leads_count thiếu không làm báo đỏ', async () => {
+  const mkForms = n => Array.from({ length: n }, (_, i) => ({ id: 'q' + i, status: 'ACTIVE', leads_count: 3, created_time: OLD }));
+  const base = (forms, leadsRoute) => [u => u.host === 'graph.facebook.com' && /\/q\d+\/leads$/.test(u.pathname) ? leadsRoute(u) : undefined, ...graphRoutes({ forms })];
+  const run = async (forms, leadsRoute, fn) => { const f = stubFetch(base(forms, leadsRoute)); try { return await fn(); } finally { f.restore(); } };
+  const checkStep = async () => (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads');
+  // 1) giờ chạy nhanh theo từng lần đọc thử: ngân sách 15 giây, mỗi lần đọc thử tốn 2 giây, dừng khi còn dưới 8 giây → thử được 4/5
+  const realNow = Date.now; let off = 0; Date.now = () => realNow() + off;
+  try {
+    const s = await run(mkForms(5), () => { off += 2000; return json({ data: [] }); }, () => withDeadline(async () => { setDeadline(Date.now() + 15000); return checkStep(); }));
+    assert.equal(s.ok, false, JSON.stringify(s)); assert.match(s.text, /Mới đọc thử 4\/5 biểu mẫu/);
+  } finally { Date.now = realNow; }
+  // 2) nhiều Trang: biểu mẫu không đọc được của Trang thứ bảy vẫn bị phát hiện
+  const ids = Array.from({ length: 7 }, (_, i) => '1' + String(1000000000 + i)), env7 = Object.assign({}, ENV, { META_PAGE_IDS: ids.join(',') });
+  const f7 = stubFetch([(u) => {
+    if (u.host !== 'graph.facebook.com') return; const path = u.pathname.replace(/^\/v\d+\.\d+/, ''); let m;
+    if ((m = path.match(/^\/(\d+)$/)) && u.searchParams.get('fields') === 'access_token,name') return json({ access_token: 'pt' + m[1], name: 'Trang ' + m[1] });
+    if ((m = path.match(/^\/(\d+)\/leadgen_forms$/))) return json({ data: [{ id: 'g' + m[1], status: 'ACTIVE', leads_count: 3, created_time: OLD }] });
+    if ((m = path.match(/^\/g(\d+)\/leads$/))) return m[1] === ids[6] ? json({ error: { code: 200, message: '(#200) quyền' } }, 403) : json({ data: [] });
+    if (path === '/me/permissions') return json({ data: ['leads_retrieval', 'pages_show_list', 'pages_read_engagement', 'pages_manage_ads'].map(p => ({ permission: p, status: 'granted' })) });
+  }]);
+  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: env7 })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false, JSON.stringify(s)); } finally { f7.restore(); }
+  // 3) đúng MAX_FORMS biểu mẫu: lần đọc thật chạy được; vượt thì báo kèm cách xử lý
+  assert.ok((await run(mkForms(L.MAX_FORMS), () => json({ data: [] }), () => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }))).forms === L.MAX_FORMS);
+  const over = await run(mkForms(L.MAX_FORMS + 1), () => json({ data: [] }), checkStep); assert.equal(over.ok, false); assert.match(over.text, /Xoá các biểu mẫu cũ/);
+  // 4) biểu mẫu LƯU TRỮ mà Meta báo không còn (mã 100) bị bỏ qua và không tính vào giới hạn: 61 biểu mẫu, 40 trong số đó lưu trữ không đọc được
+  const forms61 = mkForms(61).map((f, i) => i < 40 ? Object.assign(f, { status: 'ARCHIVED' }) : f), gone = u => (/\/q(\d+)\/leads$/.exec(u.pathname) || [])[1] < 40 ? json({ error: { code: 100, message: 'Unsupported get request' } }, 400) : json({ data: [] });
+  const got = await run(forms61, gone, () => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV })); assert.equal(got.skippedForms, 40); assert.equal(got.forms, 61);
+  const st = await run(forms61, gone, checkStep); assert.equal(st.ok, true, JSON.stringify(st));
+  // 5) biểu mẫu mới tạo thiếu leads_count và chưa có lead: lần đọc thật chạy được nên bước kiểm tra cũng không được đỏ
+  const recent = [{ id: 'q0', status: 'ACTIVE', created_time: new Date(Date.now() - 5 * 86400000).toISOString() }];
+  assert.equal((await run(recent, () => json({ data: [] }), checkStep)).ok, true);
 });
 
 test('checkLeads: đọc thử mọi biểu mẫu có lead (không chỉ 8 đầu), báo đỏ khi một biểu mẫu thứ chín không đọc được hoặc khi vượt giới hạn số biểu mẫu của lần đọc thật', async () => {
@@ -837,5 +878,5 @@ test('checkLeads: đọc thử mọi biểu mẫu có lead (không chỉ 8 đầ
   f = stubFetch(routes(mkForms(5), 'khong-co'));                                                                       // sắp hết giờ: không báo xanh khi chưa đọc thử được biểu mẫu nào
   try { const s = (await withDeadline(async () => { setDeadline(Date.now() + 6000); return L.checkLeads({ token: 'tok-test', accts: [], env: ENV }); })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false, JSON.stringify(s)); assert.match(s.text, /Mới đọc thử 0\/5 biểu mẫu/); } finally { f.restore(); }
   f = stubFetch(routes(mkForms(L.MAX_FORMS + 1), 'khong-co'));
-  try { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && /Lưu trữ hoặc xoá các biểu mẫu cũ/.test(e.message)); } finally { f.restore(); }
+  try { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && /Xoá các biểu mẫu cũ/.test(e.message)); } finally { f.restore(); }
 });

@@ -246,6 +246,23 @@ test('view: theo kỳ, chương trình của chiến dịch, chiến dịch, th�
   assert.equal(vu.total.ps, 10); assert.equal(vu.mapped.ps, 5); assert.equal(vu.total.costPerPaid, 2000000); assert.equal(vu.unmapped.ps, 5); assert.equal(vu.total.costPerReg, 1000000);
 });
 
+test('view: mọi chương trình đã ghép đều thiếu SĐT nhưng còn nhóm chưa ghép (thương hiệu) → vẫn là trạng thái giữ lại: Tổng không lấy riêng nhóm chưa ghép làm bức tranh chung (trang, báo cáo, gói phân tích)', () => {
+  const camps = { 111111: { n: 'TS6-LEAD', p: 'TS6' }, 222222: { n: 'HB-LEAD', p: 'HB' }, 333333: { n: 'THUONG-HIEU', p: 'OTHER' } };
+  const days = { '2026-10-01': { 111111: [40, 0, 0, 0, 0, 0, 0], 222222: [30, 0, 0, 0, 0, 0, 0], 333333: [12, 0, 0, 0, 0, 0, 0] } };
+  const sp = { byProgram: { TS6: 10000000, HB: 6000000 }, byCampaign: { 111111: 10000000, 222222: 6000000 } };
+  const mk = cov => ({ v: 1, camps, days, cov, winFrom: '2026-10-01', syncedAt: '2026-11-20T01:00:00.000Z', lag: { reg: [0, 0, 0], paid: [0, 0, 0] }, unmatchedPaid: {}, paidNoPhone: {} });
+  const low = { ext: 100, extWithPhone: 95, paidByProg: { TS6: [30, 10], HB: [10, 2] } };
+  let v = M.view(mk(low), '', '', sp);
+  assert.equal(v.held, true); assert.equal(v.total.lowPhone, true); assert.equal(v.total.l, 12); assert.equal(v.mapped.l, 0);
+  for (const k of ['leadToReg', 'leadToPaid', 'regToPaid', 'costPerReg', 'costPerPaid']) assert.equal(v.total[k], null, k);
+  assert.equal(v.programs.find(p => p.k === 'OTHER').l, 12);                                                     // hàng của nhóm chưa ghép vẫn hiện số riêng của nó
+  const w = M.packOf(mk(low), '2026-11-20', null).all_time.total; assert.equal(w.paid, null); assert.equal(w.students_paid, null); assert.equal(w.parent_to_paid, null); assert.equal(w.registered, null);
+  // chỉ cần một chương trình đủ SĐT có phụ huynh là Tổng lại tính được; không có chương trình nào thiếu SĐT có phụ huynh thì không phải trạng thái giữ lại
+  v = M.view(mk({ ext: 100, extWithPhone: 95, paidByProg: { TS6: [30, 30], HB: [10, 2] } }), '', '', sp); assert.equal(v.held, false); assert.equal(v.total.l, 52); assert.notEqual(v.total.lowPhone, true);
+  v = M.view(mk({ ext: 100, extWithPhone: 95, paidByProg: { TS6: [30, 30], HB: [10, 10] } }), '', '', sp); assert.equal(v.held, false);
+  v = M.view({ v: 1, camps, days: { '2026-10-01': { 333333: [12, 0, 0, 0, 0, 0, 0] } }, cov: low }, '', '', sp); assert.equal(v.held, false); assert.equal(v.total.l, 12);   // chỉ có nhóm chưa ghép, không chương trình thiếu SĐT nào có phụ huynh
+});
+
 test('maturity và attribution: nhóm lead mới chưa đủ thời gian; phần học sinh đóng phí khớp được với lead quảng cáo', () => {
   const m = { v: 1, lag: { reg: [40, 3, 9], paid: [30, 12, 30] }, cov: { students: 100, ext: 80, paidExt: 60, paidExtWithPhone: 54, withPhone: 90 }, camps: { 111111: { n: 'a', p: 'TS6' }, organic: { n: 'o', p: 'OTHER' } },
     days: { '2026-10-01': { 111111: [20, 0, 0, 10, 8, 11, 9], organic: [3, 0, 0, 1, 1, 1, 1] }, '2026-10-02': { 111111: [10, 0, 0, 5, 4, 5, 4] } }, unmatchedPaid: { TS6: 20 }, paidNoPhone: { TS6: 4, HB: 2 } };

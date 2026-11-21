@@ -123,6 +123,17 @@ test('K12: packOf: by_program lists only programmes with parents (spend alone do
     let r = M.matchLeads(L4, S); assert.equal(r.leads.hubKeys, 1); assert.equal(r.leads.parents, 3);
     r = M.matchLeads(L4.slice(0, 3), S); assert.equal(r.leads.hubKeys, 0); assert.equal(r.leads.parents, 1);               // chỉ ba lead: dưới ngưỡng, vẫn nối làm một
   });
+  test('khoá dùng chung: số và email của người môi giới có trên MỌI lead (mỗi gia đình điền hai lần với số riêng) đều bị nhận ra và ra đủ từng gia đình; ba gia đình dùng chung thì chưa (dưới ngưỡng)', () => {
+    const B = phn(900), BE = 'moi.gioi@example.com';
+    for (const n of [4, 6]) {
+      const L = []; for (let i = 0; i < n; i++) { const p = phn(600 + i); L.push(mk('x' + i, '2026-10-01', [p, B], [BE])); L.push(mk('y' + i, '2026-10-05', [p, B], [BE])); }
+      const r = M.matchLeads(L, {}); assert.equal(r.leads.hubKeys, 2, 'n=' + n); assert.equal(r.leads.parents, n, 'n=' + n);
+    }
+    const sh = 'giu.cho3@example.com', L3 = []; for (let i = 0; i < 3; i++) { const p = phn(700 + i); L3.push(mk('u' + i, '2026-10-01', [p], [sh])); L3.push(mk('v' + i, '2026-10-05', [p], [sh])); }
+    const r3 = M.matchLeads(L3, {}); assert.equal(r3.leads.hubKeys, 0); assert.equal(r3.leads.parents, 1);                                // ba nhóm: dưới ngưỡng, nối làm một (giới hạn đã chấp nhận)
+    const s4 = 'giu.cho4@example.com', L4 = [mk('p1', '2026-10-01', [phn(710)], [s4]), mk('p2', '2026-10-02', [phn(711)], [s4]), mk('p3', '2026-10-03', [phn(712)], [s4]), mk('p4', '2026-10-04', [], [s4])];
+    const r4 = M.matchLeads(L4, {}); assert.equal(r4.leads.hubKeys, 0); assert.equal(r4.leads.parents, 1);                                // ba khoá riêng và một lead không có khoá khác: dưới ngưỡng
+  });
   test('khoá dùng chung không được dùng để tra học sinh (học sinh mang email chung không khớp với các phụ huynh không liên quan)', () => {
     const hub = 'thongtin.chung@example.com', S = { 1: st('TS6', { paid: true, em: [hub], rd: '2026-10-20', pd: '2026-10-25' }) };
     const r = M.matchLeads([1, 2, 3, 4, 5].map(i => mk('h' + i, '2026-10-0' + i, [phn(100 + i)], [hub])), S);

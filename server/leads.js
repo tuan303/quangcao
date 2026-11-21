@@ -9,7 +9,7 @@ const DROPPABLE = ['campaign_id', 'campaign_name', 'adset_id', 'is_organic']; //
 const MAX_LEADS = 40000, MAX_PAGES_PER_FORM = 300;
 export const MAX_FORMS = 60;                                    // số biểu mẫu có lead tối đa của một lần đọc (đọc tuần tự trong hạn mức thời gian)
 const PROBE_MARGIN_MS = 8000;                                    // không bắt đầu đọc thử biểu mẫu mới khi còn dưới 8 giây (Kiểm tra kết nối)
-const FORMS_HINT = ' Lưu trữ hoặc xoá các biểu mẫu cũ không còn dùng trong Meta (Quản lý Trang → Công cụ quảng cáo khách hàng tiềm năng), rồi thử lại.';
+const FORMS_HINT = ' Xoá các biểu mẫu cũ không còn dùng trong Meta (Quản lý Trang → Công cụ quảng cáo khách hàng tiềm năng; biểu mẫu chỉ lưu trữ vẫn có thể được tính) rồi thử lại, hoặc nhờ người phụ trách nâng giới hạn.';
 const FORM_GONE = new Set([100, 200, 10, 299]);   // lỗi chắc chắn của riêng một biểu mẫu (không còn / không đọc được): chỉ khi đó mới được bỏ qua biểu mẫu đã lưu trữ
 const PAGE_HINT = ' Nếu Trang này không phải của trường, đặt biến META_PAGE_IDS = ID Trang của trường (nhiều Trang cách nhau bằng dấu phẩy) để bỏ qua các Trang khác.';
 const RECENT_DAYS = 80;                            // biểu mẫu tạo trong khoảng này còn đủ mọi lead (Meta giữ lead 90 ngày): dùng để đối chiếu số lead đọc được với leads_count
@@ -110,17 +110,19 @@ export async function fetchLeads({ token, accts = [], sinceDay, env = process.en
   const sinceUnix = sinceDay ? Math.floor(Date.parse(sinceDay + 'T00:00:00+07:00') / 1000) - 86400 : 0; // lùi một ngày để không sót lead sát mốc
   const { pages, source, errors } = await pagesOf({ token, accts, env });
   if (!pages.length) throw fail(errors[0] || 'Không tìm thấy Trang Facebook nào để đọc lead. Đặt biến META_PAGE_IDS (ID Trang) hoặc gán Trang cho người dùng hệ thống.');
-  const leads = [], seenId = new Set(); let forms = 0, skipped = 0, expected = 0, got = 0;
+  const leads = [], seenId = new Set(); let forms = 0, counted = 0, skipped = 0, expected = 0, got = 0;       // forms: biểu mẫu có lead; counted: những biểu mẫu tính vào giới hạn MAX_FORMS (không gồm biểu mẫu bị bỏ qua)
   for (const p of pages) {
     let pt, fl;
     try { pt = await pageToken(p.id, token); fl = await formsOf(p.id, pt.token); }
     catch (e) { if (source !== 'META_PAGE_IDS' && e && e.expose) e.message += PAGE_HINT; throw e; }       // Trang tự tìm ra (không phải do quản trị liệt kê) mà token không đọc được: nói cách loại Trang đó ra
     for (const f of fl) {
       if (f.leads_count === 0 || f.leads_count === '0') continue;                  // chỉ bỏ biểu mẫu báo đúng 0 lead (null, rỗng, thiếu thì vẫn đọc)
-      if (++forms > MAX_FORMS) throw fail('Có quá nhiều biểu mẫu lead (hơn ' + MAX_FORMS + ' biểu mẫu có lead).' + FORMS_HINT);
+      forms++;
+      if (++counted > MAX_FORMS) throw fail('Có quá nhiều biểu mẫu lead (hơn ' + MAX_FORMS + ' biểu mẫu có lead).' + FORMS_HINT);
       let rows;
       try { rows = await leadsOfForm(f.id, pt.token, sinceUnix, LEAD_FIELDS.slice()); }
-      catch (e) { if (/^(ARCHIVED|DELETED)$/i.test(String(f.status || '')) && e && e.meta && FORM_GONE.has(e.meta.code)) { skipped++; continue; } throw e; } // biểu mẫu đã lưu trữ mà Meta chắc chắn không cho đọc: bỏ qua; mọi lỗi khác (hết giờ, 5xx, giới hạn tần suất…) hay biểu mẫu đang dùng lỗi thì dừng cả lần
+      catch (e) { if (/^(ARCHIVED|DELETED)$/i.test(String(f.status || '')) && e && e.meta && FORM_GONE.has(e.meta.code)) { skipped++; counted--; continue; } throw e; }   // biểu mẫu bị bỏ qua không tính vào giới hạn số biểu mẫu
+ // biểu mẫu đã lưu trữ mà Meta chắc chắn không cho đọc: bỏ qua; mọi lỗi khác (hết giờ, 5xx, giới hạn tần suất…) hay biểu mẫu đang dùng lỗi thì dừng cả lần
       if (formRecent(f)) { expected += Number(f.leads_count) || 0; got += rows.length; }
       for (const l of rows) { if (!l || !l.id || seenId.has(l.id)) continue; seenId.add(l.id); leads.push(l); }
       if (leads.length > MAX_LEADS) throw fail('Quá nhiều lead (hơn ' + MAX_LEADS + ') trong khoảng thời gian đọc.');
@@ -165,9 +167,9 @@ export async function checkLeads({ token, accts = [], env = process.env }) {
       if (probed >= MAX_FORMS || msLeft() < PROBE_MARGIN_MS) { notProbed++; continue; }
       try {
         const r = await graph(f.id + '/leads', { fields: 'id,created_time', limit: 1 }, pt.token); probed++;
-        if (!(r.data || []).length && formRecent(f)) problems.push('Biểu mẫu mới tạo báo có ' + (Number(f.leads_count) || 0) + ' lead nhưng Meta không trả lead nào: ' + NO_LEADS_HINT);
+        if (!(r.data || []).length && formRecent(f) && Number(f.leads_count) > 0) problems.push('Biểu mẫu mới tạo báo có ' + (Number(f.leads_count) || 0) + ' lead nhưng Meta không trả lead nào: ' + NO_LEADS_HINT);
       } catch (e) {
-        if (/^(ARCHIVED|DELETED)$/i.test(String(f.status || '')) && e && e.meta && FORM_GONE.has(e.meta.code)) continue;       // biểu mẫu đã lưu trữ chắc chắn không đọc được: lần cập nhật thật cũng bỏ qua
+        if (/^(ARCHIVED|DELETED)$/i.test(String(f.status || '')) && e && e.meta && FORM_GONE.has(e.meta.code)) { withLeads--; continue; }       // biểu mẫu đã lưu trữ chắc chắn không đọc được: lần cập nhật thật cũng bỏ qua và không tính vào giới hạn
         problems.push(explainMeta(e, 'lead của biểu mẫu'));
       }
     }

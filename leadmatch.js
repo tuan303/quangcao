@@ -293,7 +293,11 @@
     var mapped = blankCell(); okFive.forEach(function (k) { var c = s.programs[k]; if (c) CELL.forEach(function (x) { mapped[x] += c[x]; }); });
     var total = gate(withRates(s.total, totalSpend));
     total.costPerReg = regOk && totalSpend > 0 && mapped.rs >= MIN_COST ? totalSpend / mapped.rs : null; total.costPerPaid = totalSpend > 0 && mapped.ps >= MIN_COST ? totalSpend / mapped.ps : null;
-    return { since: since || '', until: until || '', days: s.days, total: total, mapped: mapped, unmapped: s.programs.OTHER || blankCell(), organic: s.organic, programs: progs, campaigns: camps, months: months, spend: totalSpend, regOk: regOk, lowPhone: low };
+    // Có phụ huynh điền form nhưng mọi chương trình đã ghép chiến dịch đều thiếu SĐT (bị loại khỏi Tổng): Tổng chỉ còn nhóm chưa ghép (thương hiệu…) nên không phải bức tranh chung của kỳ.
+    // Khi đó Tổng coi như chưa tính được (tỷ lệ, chi phí để trống); trang, báo cáo, tin Zalo và gói phân tích đều dùng cờ held này.
+    var held = s.days > 0 && !(mapped.l > 0) && progs.some(function (q) { return q.lowPhone && q.l > 0; });
+    if (held) { total.lowPhone = true; total.leadToReg = null; total.leadToPaid = null; total.regToPaid = null; total.costPerReg = null; total.costPerPaid = null; }
+    return { since: since || '', until: until || '', days: s.days, total: total, mapped: mapped, unmapped: s.programs.OTHER || blankCell(), organic: s.organic, programs: progs, campaigns: camps, months: months, spend: totalSpend, regOk: regOk, lowPhone: low, held: held };
   }
   /** Độ trưởng thành của các nhóm lead: lead mới điền form chưa kịp đóng phí. Dựa trên số ngày từ lúc điền form đến lúc đóng phí của các em đã khớp (cần từ 10 em);
    *  chưa đủ mẫu thì dùng 30 ngày. recentFrom = ngày sớm nhất mà nhóm lead từ đó trở đi còn chưa đủ thời gian. */
