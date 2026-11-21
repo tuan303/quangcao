@@ -333,3 +333,15 @@ test('runLeadSync: mùa tuyển sinh ghi nhầm trong Sheet (xa hôm nay, hoặc
   store = memStore({ fbmatch: prev }); f = stubFetch([...googleRoutes(withHeader('Khối 28 29')), ...graphRoutes()]);
   try { await S.runLeadSync({ env: ENV, today: '2027-08-05', store }); assert.equal(store.docs.fbmatch.season, '2028–29'); assert.equal(store.docs.fbmatch.days['2027-07-20'], undefined); } finally { f.restore(); G.resetTokenCache(); }
 });
+
+test('fetchLeads: một tài khoản quảng cáo không liệt kê được Trang thì dừng (không đọc lead của một phần các Trang); có META_PAGE_IDS thì không phụ thuộc bước này', async () => {
+  const route = (u) => u.host === 'graph.facebook.com' && /\/act_(\d+)\/promote_pages$/.test(u.pathname) && (u.pathname.includes('895057262833914') ? json({ data: [{ id: PAGE, name: 'Trang thử' }] }) : json({ error: { code: 200, message: '(#200) Requires pages_show_list permission' } }, 403));
+  let f = stubFetch([route, ...graphRoutes()]);
+  try {
+    await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: ['895057262833914', '1870132100153072'], sinceDay: '2026-08-22', env: {} }), e => /pages_show_list/.test(e.message) && /META_PAGE_IDS/.test(e.message) && /1870132100153072/.test(e.message) && e.expose === true);
+    assert.ok(f.calls.every(c => !/\/leads$/.test(c.u.pathname)), 'chưa đọc lead khi danh sách Trang chưa đủ');
+    const chk = await L.checkLeads({ token: 'tok-test', accts: ['895057262833914', '1870132100153072'], env: {} });
+    assert.ok(chk.steps.some(s => s.id === 'pages' && !s.ok && /META_PAGE_IDS/.test(s.text)));
+    const ok = await L.fetchLeads({ token: 'tok-test', accts: ['895057262833914', '1870132100153072'], sinceDay: '2026-08-22', env: { META_PAGE_IDS: PAGE } }); assert.equal(ok.source, 'META_PAGE_IDS'); assert.equal(ok.leads.length, 6);
+  } finally { f.restore(); }
+});

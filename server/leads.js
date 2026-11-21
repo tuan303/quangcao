@@ -24,14 +24,15 @@ export function explainMeta(e, what) {
 export async function pagesOf({ token, accts = [], env = process.env }) {
   const listed = [...new Set(String(env.META_PAGE_IDS || '').split(/[\s,;]+/).map(s => s.replace(/\D/g, '')).filter(Boolean))];
   if (listed.length) return { pages: listed.map(id => ({ id, name: '' })), source: 'META_PAGE_IDS', errors: [] };
-  const errors = [], seen = new Map();
+  // Hoặc đủ hoặc báo lỗi: một tài khoản quảng cáo không liệt kê được Trang thì sẽ thiếu im lặng toàn bộ lead của Trang đó, nên dừng và bảo đặt META_PAGE_IDS.
+  const errors = [], seen = new Map(), hint = ' Hoặc đặt biến META_PAGE_IDS (ID Trang Facebook của trường) để không phụ thuộc bước này.';
   for (const a of accts) {
     try { for (const p of await allPages('act_' + a + '/promote_pages', { fields: 'id,name', limit: 100 }, token, 5)) if (p && p.id) seen.set(String(p.id), String(p.name || '')); }
-    catch (e) { errors.push(explainMeta(e, 'danh sách Trang của tài khoản quảng cáo')); }
+    catch (e) { throw fail(explainMeta(e, 'danh sách Trang của tài khoản quảng cáo ' + a) + hint, { meta: e.meta }); }
   }
   if (seen.size) return { pages: [...seen].map(([id, name]) => ({ id, name })), source: 'tài khoản quảng cáo', errors };
   try { for (const p of await allPages('me/accounts', { fields: 'id,name', limit: 100 }, token, 5)) if (p && p.id) seen.set(String(p.id), String(p.name || '')); }
-  catch (e) { errors.push(explainMeta(e, 'danh sách Trang của người dùng hệ thống')); }
+  catch (e) { throw fail(explainMeta(e, 'danh sách Trang của người dùng hệ thống') + hint, { meta: e.meta }); }
   return { pages: [...seen].map(([id, name]) => ({ id, name })), source: 'người dùng hệ thống', errors };
 }
 async function pageToken(pageId, token) {
@@ -116,7 +117,7 @@ export async function checkLeads({ token, accts = [], env = process.env }) {
     }
   } catch (e) { /* token System User có thể không liệt kê quyền: các bước sau sẽ cho biết */ }
   let found;
-  try { found = await pagesOf({ token, accts, env }); } catch (e) { add('pages', false, explainMeta(e, 'danh sách Trang')); return out; }
+  try { found = await pagesOf({ token, accts, env }); } catch (e) { add('pages', false, e && e.expose ? e.message : explainMeta(e, 'danh sách Trang')); return out; }
   if (!found.pages.length) { add('pages', false, found.errors[0] || 'Không tìm thấy Trang Facebook nào. Đặt META_PAGE_IDS hoặc gán Trang cho người dùng hệ thống.'); return out; }
   add('pages', true, 'Thấy ' + found.pages.length + ' Trang (nguồn: ' + found.source + ').');
   let tested = false;
