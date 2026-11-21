@@ -46,6 +46,10 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     const ag = A.aggregate({ reg: book.reg, paid: book.paid, skipped: book.skipped, collect: true, today });
     if (!ag.ok) throw fail('Google Sheet: ' + ag.error, { status: 422 });
     const vs = A.validate(ag.summary); if (!vs.ok) throw fail('Số tổng hợp từ Google Sheet không hợp lệ: ' + vs.error, { status: 422 });
+    // Mùa tuyển sinh đọc từ tiêu đề cột Khối ("Khối 27 28"). Gõ nhầm năm (hoặc mất chữ mùa) không được làm mất số đã gộp của mùa đang chạy: dừng và nói rõ thay vì bắt đầu lại.
+    const span = A.seasonSpan(vs.summary), prevSeason = prevDocs.fbmatch && typeof prevDocs.fbmatch.season === 'string' ? prevDocs.fbmatch.season : '';
+    if (span && (today < A.addDays(span.start, -92) || today > A.addDays(span.end, 92))) throw fail('Mùa tuyển sinh ghi ở tiêu đề cột Khối của Sheet (' + vs.summary.season + ') không khớp với ngày hôm nay (' + today + '). Hãy kiểm tra năm trong tiêu đề; chưa cập nhật để không ghi đè số liệu đang đúng.', { status: 422 });
+    if (!span && prevSeason) throw fail('Không đọc được mùa tuyển sinh ở tiêu đề cột Khối của Sheet (lần trước là ' + prevSeason + ', ví dụ "Khối 27 28"). Chưa cập nhật để không ghi đè số liệu đang đúng.', { status: 422 });
     stage = 'meta';
     const accts = syncAccounts(C, env).accts;
     const raw = await fetchLeads({ token: String(env.META_ACCESS_TOKEN).trim(), accts, sinceDay: A.addDays(today, -90), env });

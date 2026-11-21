@@ -314,3 +314,22 @@ test('checkSetup: báo từng bước cho quản trị — cột SĐT, độ ph�
   const none = await S.checkSetup({ env: {}, today: TODAY });
   assert.equal(none.sheet.steps[0].ok, false); assert.equal(none.serviceAccount, null); assert.equal(none.meta.steps[0].ok, false);
 });
+
+test('runLeadSync: mùa tuyển sinh ghi nhầm trong Sheet (xa hôm nay, hoặc mất chữ mùa) không làm mất số đã gộp; sang mùa mới hợp lệ thì bắt đầu lại', async () => {
+  const old = { v: 1, season: '2027–28', leads: {}, cov: {}, days: {}, camps: {}, unmatchedPaid: {}, paidNoPhone: {}, syncedAt: '2026-11-01T00:00:00.000Z' };
+  const withHeader = h => { const d = sheetData(); d.values['Danh sách đăng ký'][1][3] = h; return d; };
+  for (const [header, want] of [['Khối 31 32', /không khớp với ngày hôm nay/], ['Khối', /Không đọc được mùa tuyển sinh/]]) {
+    G.resetTokenCache(); const store = memStore({ fbmatch: old }), f = stubFetch([...googleRoutes(withHeader(header)), ...graphRoutes()]);
+    try {
+      await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => want.test(e.message) && e.stage === 'sheet' && e.status === 422);
+      assert.deepEqual(store.docs.fbmatch, old); assert.equal(store.docs.admissions, undefined); assert.equal(store.docs.leadsync.ok, false); assert.equal(f.calls.filter(c => c.u.host === 'graph.facebook.com').length, 0, 'chưa gọi Meta khi Sheet sai mùa');
+    } finally { f.restore(); G.resetTokenCache(); }
+  }
+  // lần đầu (chưa có số cũ) mà Sheet chưa ghi mùa: vẫn chạy được
+  G.resetTokenCache(); let store = memStore(), f = stubFetch([...googleRoutes(withHeader('Khối')), ...graphRoutes()]);
+  try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store })).ok, true); assert.equal(store.docs.fbmatch.season, ''); } finally { f.restore(); G.resetTokenCache(); }
+  // sang mùa mới hợp lệ (đầu tháng 8/2027: mùa 2028–29): không gộp số mùa cũ
+  G.resetTokenCache(); const prev = Object.assign({}, old, { season: '2027–28', days: { '2027-07-20': { 111111: [3, 0, 0, 0, 0, 0, 0] } }, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, from: '2027-07-20', to: '2027-07-20' });
+  store = memStore({ fbmatch: prev }); f = stubFetch([...googleRoutes(withHeader('Khối 28 29')), ...graphRoutes()]);
+  try { await S.runLeadSync({ env: ENV, today: '2027-08-05', store }); assert.equal(store.docs.fbmatch.season, '2028–29'); assert.equal(store.docs.fbmatch.days['2027-07-20'], undefined); } finally { f.restore(); G.resetTokenCache(); }
+});
