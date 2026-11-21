@@ -1931,6 +1931,8 @@ function fbmCoverageHtml(x) {
   if (L.noContact > 0) rules.push(int(L.noContact) + ' lead không có số điện thoại/email hợp lệ');
   if (L.hubKeys > 0) rules.push(int(L.hubKeys) + ' email/số điện thoại bị bỏ vì dùng chung cho nhiều phụ huynh khác nhau (như địa chỉ giữ chỗ)');
   if (rules.length) li.push('Trong lần đối chiếu gần nhất: ' + rules.join('; ') + '.');
+  var ls = fbmStatus(), sk = ls && ls.ok && ls.stats ? Number(ls.stats.skippedForms) : 0;
+  if (sk > 0) li.push('Đã bỏ qua <b>' + int(sk) + '</b> biểu mẫu Facebook đã lưu trữ mà Meta không cho đọc: lead của các biểu mẫu đó (nếu có) chưa được tính.');
   return '<div class="card s12"><div class="card-hd"><div><h2>Độ tin cậy của đối chiếu</h2><p>Học sinh đã đóng phí nào khớp được với phụ huynh đã điền form Facebook, và những giới hạn cần biết khi đọc số.</p></div></div><ul class="rep-points">' + li.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul></div>';
 }
 /* Phần chính của tab Chuyển đổi: trả về HTML (không gồm tiêu đề tab). */
@@ -2012,7 +2014,7 @@ async function fbmRun(force) {
       return;
     }
     var s = r.j.stats || {};
-    toast('Đã cập nhật: ' + int(s.parents) + ' phụ huynh điền form, ' + int(s.matched) + ' khớp học sinh đã đăng ký.', 12000);
+    toast('Đã cập nhật: ' + int(s.parents) + ' phụ huynh điền form, ' + int(s.matched) + ' khớp học sinh đã đăng ký.' + (s.skippedForms > 0 ? ' Bỏ qua ' + int(s.skippedForms) + ' biểu mẫu đã lưu trữ không đọc được.' : ''), 12000);
     try { await webLoad(true); } catch (e) { toast('Đã lưu số liệu nhưng chưa tải lại được trang. Hãy tải lại trang.', 9000); }
   } catch (e) { toast('Không cập nhật được (lỗi mạng hoặc phiên đăng nhập hết hạn).', 9000); }
   finally { fbmBusy = false; var b2 = $('[data-fbm-run]'); if (b2) b2.disabled = false; }

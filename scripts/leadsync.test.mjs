@@ -8,6 +8,7 @@ import '../admissions.js';
 import '../leadmatch.js';
 import * as G from '../server/gsheets.js';
 import * as L from '../server/leads.js';
+import { graph, allPages } from '../server/meta.js';
 import * as S from '../server/leadsync.js';
 const A = globalThis.FBAdm;
 
@@ -230,6 +231,59 @@ test('fetchLeads: một quảng cáo không đọc được (đã xoá) không l
   const many = Array.from({ length: 200 }, (_, i) => { const o = glead('Z' + i, '2026-10-01', '', '', '0' + phn(100 + i)); delete o.campaign_id; delete o.campaign_name; return o; });
   f = stubFetch([route(() => true), ...graphRoutes({ leads: many, forms: [{ id: 'f1', status: 'ACTIVE', leads_count: 200 }] })]);
   try { const r = await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); assert.equal(r.leads.length, 200); assert.ok(r.leads.every(l => !l.campaign_id)); assert.equal(asked.length, 120); } finally { f.restore(); }
+});
+
+const RECENT = new Date(Date.now() - 10 * 86400000).toISOString(), OLD = new Date(Date.now() - 200 * 86400000).toISOString();
+test('fetchLeads: biểu mẫu đã lưu trữ chỉ được bỏ qua khi Meta chắc chắn không cho đọc (không còn / không quyền); giới hạn tần suất thì dừng cả lần', async () => {
+  const archived = (code, message) => u => u.host === 'graph.facebook.com' && /\/f2\/leads$/.test(u.pathname) && json({ error: { code, message } }, 400);
+  for (const code of [100, 200]) {
+    const f = stubFetch([archived(code, code === 100 ? '(#100) Unsupported get request. Object does not exist' : '(#200) Requires leads_retrieval'), ...graphRoutes()]);
+    try { const r = await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); assert.equal(r.skippedForms, 1); assert.equal(r.leads.length, 6); } finally { f.restore(); }
+  }
+  const f = stubFetch([archived(80005, '(#80005) There have been too many Leadgen API calls'), ...graphRoutes()]);
+  try { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && e.meta && e.meta.code === 80005); } finally { f.restore(); }
+});
+
+test('fetchLeads: check = số lead các biểu mẫu mới báo có (expected) và số đọc được (got); biểu mẫu cũ không tính', async () => {
+  const forms = [{ id: 'f1', status: 'ACTIVE', leads_count: 6, created_time: RECENT }, { id: 'f9', status: 'ACTIVE', leads_count: 50, created_time: OLD }];
+  let f = stubFetch([u => u.host === 'graph.facebook.com' && /\/f9\/leads$/.test(u.pathname) && json({ data: [] }), ...graphRoutes({ forms })]);
+  try { const r = await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); assert.deepEqual(r.check, { expected: 6, got: 6 }); } finally { f.restore(); }
+  f = stubFetch([u => u.host === 'graph.facebook.com' && /\/f[19]\/leads$/.test(u.pathname) && json({ data: [] }), ...graphRoutes({ forms })]);        // Meta trả rỗng cho mọi biểu mẫu
+  try { const r = await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); assert.deepEqual(r.check, { expected: 6, got: 0 }); assert.equal(r.leads.length, 0); } finally { f.restore(); }
+});
+
+test('runLeadSync: Meta báo biểu mẫu mới có lead nhưng không trả lead nào thì dừng (409, ghi đè được), không ghi đè bằng số 0', async () => {
+  const forms = [{ id: 'f1', status: 'ACTIVE', leads_count: 6, created_time: RECENT }];
+  const routes = () => [...googleRoutes(sheetData()), u => u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname) && json({ data: [] }), ...graphRoutes({ forms })];
+  G.resetTokenCache(); let store = memStore(), f = stubFetch(routes());
+  try {
+    await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 409 && e.canForce === true && /Development/.test(e.message) && /Leads access/.test(e.message) && e.stage === 'meta');
+    assert.equal(store.docs.fbmatch, undefined); assert.equal(store.docs.leadsync.ok, false); assert.equal(store.docs.leadsync.stage, 'meta');
+  } finally { f.restore(); G.resetTokenCache(); }
+  store = memStore(); G.resetTokenCache(); f = stubFetch(routes());
+  try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store, force: true })).ok, true); assert.ok(store.docs.fbmatch); } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('checkLeads: biểu mẫu mới báo có lead mà Meta không trả lead nào thì báo đỏ kèm gợi ý chế độ Live / Leads access', async () => {
+  const forms = [{ id: 'f1', status: 'ACTIVE', leads_count: 6, created_time: RECENT }];
+  const f = stubFetch([u => u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname) && json({ data: [] }), ...graphRoutes({ forms })]);
+  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false); assert.match(s.text, /Live/); assert.match(s.text, /Leads access/); } finally { f.restore(); }
+});
+
+test('fetchLeads: lead có campaign_id nhưng thiếu tên chiến dịch thì tra tên theo quảng cáo (chỉ khi cùng mã chiến dịch)', async () => {
+  const noName = LEADS.slice(0, 2).map(l => { const o = Object.assign({}, l); delete o.campaign_name; return o; });
+  const f = stubFetch([u => u.host === 'graph.facebook.com' && /^\/v[\d.]+\/?$/.test(u.pathname) && json({ adL1: { campaign_id: '111111', campaign: { id: '111111', name: 'TS6-LEAD | Tên tra' } }, adL2: { campaign_id: '999999', campaign: { id: '999999', name: 'Chiến dịch khác' } } }),
+    ...graphRoutes({ leads: noName, forms: [{ id: 'f1', status: 'ACTIVE', leads_count: 2 }] })]);
+  try { const r = await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); assert.equal(r.leads[0].campaign_name, 'TS6-LEAD | Tên tra'); assert.equal(r.leads[1].campaign_name, undefined); assert.deepEqual(r.leads.map(l => l.campaign_id), ['111111', '111111']); } finally { f.restore(); }
+});
+
+test('graph/allPages: token có ký tự lạ bị chặn trước khi gọi và không lọt vào lỗi; thân rỗng là lỗi; allPages strict đòi mảng data', async () => {
+  let called = 0; let f = stubFetch([() => { called++; return null; }]);
+  try { await assert.rejects(() => graph('x', {}, 'tok\nbi-mat-xyz'), e => e.expose === true && e.meta.code === 'badtoken' && !/bi-mat-xyz/.test(e.message) && /META_ACCESS_TOKEN/.test(L.explainMeta(e, 'x'))); assert.equal(called, 0); } finally { f.restore(); }
+  f = stubFetch([() => json({})]);
+  try { await assert.rejects(() => allPages('x/leads', {}, 'tok-test', 5, { strict: true }), e => e.meta.code === 'badshape'); assert.deepEqual(await allPages('x/leads', {}, 'tok-test', 5), []); } finally { f.restore(); }
+  const orig = globalThis.fetch; globalThis.fetch = async () => new Response('', { status: 200 });               // thân rỗng: thử lại rồi báo lỗi (không phải kết quả rỗng)
+  try { await assert.rejects(() => graph('x', {}, 'tok-test'), e => e.expose === true && e.meta.code === 'timeout'); } finally { globalThis.fetch = orig; }
 });
 
 test('explainMeta và checkLeads: thiếu quyền, token hết hạn; kiểm tra từng bước không in nội dung lead', async () => {

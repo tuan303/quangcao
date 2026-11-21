@@ -2,7 +2,7 @@
 // Họ tên, ngày sinh, số điện thoại, email (của học sinh trong Sheet và của phụ huynh trong lead) chỉ nằm trong bộ nhớ của hàm lúc tính:
 // không ghi vào Firestore, không ghi log. Tài liệu được ghi: `fbmatch` (số theo ngày × chiến dịch), `admissions` (tổng hợp từ Sheet), `leadsync` (trạng thái).
 import { sheetIdFrom, readAdmissionsSheet, serviceAccountInfo } from './gsheets.js';
-import { fetchLeads, checkLeads } from './leads.js';
+import { fetchLeads, checkLeads, NO_LEADS_HINT } from './leads.js';
 import { syncAccounts } from './scope.js';
 import { readDocs, writeDocs } from './store.js';
 
@@ -75,6 +75,8 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     stage = 'meta';
     const accts = syncAccounts(C, env).accts;
     const raw = await fetchLeads({ token: String(env.META_ACCESS_TOKEN).trim(), accts, sinceDay: A.addDays(today, -90), env });
+    // Meta báo các biểu mẫu mới tạo có lead nhưng không trả lead nào: không phải "0 lead" thật mà là chưa đủ quyền đọc lead (ứng dụng Development, thiếu Leads access).
+    if (!force && raw.check && raw.check.expected > 0 && raw.check.got === 0) throw fail('Meta báo các biểu mẫu tạo trong 80 ngày qua có ' + raw.check.expected + ' lead nhưng không trả lead nào: ' + NO_LEADS_HINT + ' Nếu lead thật sự đã bị xoá, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true });
     stage = 'match';
     const next = M.matchLeads(raw.leads.map(M.leadFromGraph), ag.students);
     next.season = vs.summary.season || '';

@@ -28,6 +28,8 @@ const REQUEST_TIMEOUT_MS = 45000;
 const timeoutError = why => Object.assign(new Error('Meta API: ' + why), { status: 504, expose: true, meta: { code: 'timeout' } });
 
 export async function graph(pathOrUrl, params, token) {
+  // Token có ký tự điều khiển/dấu cách (dán lỗi trên Vercel) làm fetch báo lỗi kèm nguyên giá trị header: chặn trước, không bao giờ in token ra lỗi.
+  if (!/^[\x21-\x7e]+$/.test(String(token || ''))) throw Object.assign(new Error('Meta API: token chứa ký tự không hợp lệ (xuống dòng, dấu cách hoặc chữ có dấu): dán lại META_ACCESS_TOKEN trên Vercel.'), { status: 500, expose: true, meta: { code: 'badtoken' } });
   const url = /^https?:/.test(pathOrUrl) ? new URL(pathOrUrl) : new URL(BASE + pathOrUrl);
   if (!/^https?:/.test(pathOrUrl)) for (const [k, v] of Object.entries(params || {})) if (v != null && v !== '') url.searchParams.set(k, typeof v === 'string' ? v : JSON.stringify(v));
   url.searchParams.delete('access_token');
@@ -39,11 +41,11 @@ export async function graph(pathOrUrl, params, token) {
     try {
       res = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, left)) });
       const text = await res.text(); // đọc hết thân phản hồi trong cùng giới hạn thời gian
-      try { j = text ? JSON.parse(text) : {}; } catch { j = null; }
+      try { j = text ? JSON.parse(text) : null; } catch { j = null; }       // thân rỗng không bao giờ là một phản hồi hợp lệ của Graph: thử lại rồi báo lỗi
     } catch (e) {
       // hết giờ hoặc mất kết nối: thử lại nếu còn thời gian, nếu không thì báo lỗi (không bao giờ coi là thành công rỗng)
       if (attempt < 2 && (!deadlineAt || deadlineAt - Date.now() > 5000)) { await sleep(800 * (attempt + 1)); continue; }
-      throw timeoutError(e && (e.name === 'TimeoutError' || e.name === 'AbortError') ? 'hết thời gian chờ phản hồi' : 'mất kết nối (' + String(e && e.message || e).slice(0, 80) + ')');
+      throw timeoutError(e && (e.name === 'TimeoutError' || e.name === 'AbortError') ? 'hết thời gian chờ phản hồi' : 'mất kết nối (' + String(e && e.message || e).split(String(token)).join('***').slice(0, 80) + ')');
     }
     if (res.ok && j && !j.error) return j;
     if (res.ok && !j) { if (attempt < 2) { await sleep(800 * (attempt + 1)); continue; } throw timeoutError('phản hồi không đọc được'); }
@@ -52,10 +54,11 @@ export async function graph(pathOrUrl, params, token) {
     throw metaError(e, res.status);
   }
 }
-/** Đọc mọi trang kết quả (tối đa maxPages). strict: còn trang kế mà đã hết hạn mức thì báo lỗi thay vì trả danh sách cụt (dùng khi thiếu một phần là sai số). */
+/** Đọc mọi trang kết quả (tối đa maxPages). strict (dùng khi thiếu một phần là sai số): một trang không có mảng data, hoặc còn trang kế mà đã hết hạn mức, thì báo lỗi thay vì trả danh sách cụt. */
 export async function allPages(path, params, token, maxPages = 40, { strict = false } = {}) {
-  let j = await graph(path, params, token), out = (j.data || []).slice(), n = 1;
-  while (j.paging && j.paging.next && n < maxPages) { j = await graph(j.paging.next, null, token); out = out.concat(j.data || []); n++; }
+  const page = async (p, q) => { const r = await graph(p, q, token); if (strict && !Array.isArray(r.data)) throw Object.assign(new Error('Phản hồi sai dạng'), { meta: { code: 'badshape' } }); return r; };
+  let j = await page(path, params), out = (j.data || []).slice(), n = 1;
+  while (j.paging && j.paging.next && n < maxPages) { j = await page(j.paging.next, null); out = out.concat(j.data || []); n++; }
   if (strict && j.paging && j.paging.next) throw Object.assign(new Error('Danh sách quá dài (hơn ' + maxPages + ' trang)'), { meta: { code: 'truncated' } });
   return out;
 }

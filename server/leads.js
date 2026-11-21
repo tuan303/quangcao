@@ -7,6 +7,10 @@ import { graph, allPages } from './meta.js';
 const LEAD_FIELDS = ['id', 'created_time', 'ad_id', 'adset_id', 'campaign_id', 'campaign_name', 'form_id', 'is_organic', 'field_data'];
 const DROPPABLE = ['campaign_id', 'campaign_name', 'adset_id', 'is_organic']; // trường Graph có thể từ chối (#100): bỏ đi và thử lại
 const MAX_LEADS = 40000, MAX_FORMS = 60, MAX_PAGES_PER_FORM = 300;
+const FORM_GONE = new Set([100, 200, 10, 299]);   // lỗi chắc chắn của riêng một biểu mẫu (không còn / không đọc được): chỉ khi đó mới được bỏ qua biểu mẫu đã lưu trữ
+const RECENT_DAYS = 80;                            // biểu mẫu tạo trong khoảng này còn đủ mọi lead (Meta giữ lead 90 ngày): dùng để đối chiếu số lead đọc được với leads_count
+export const NO_LEADS_HINT = 'thường do ứng dụng Meta đang ở chế độ Development (chỉ thấy lead của người có vai trò trong ứng dụng), thiếu quyền Leads access, hoặc token chưa có leads_retrieval. Chuyển ứng dụng sang chế độ Live, kiểm tra quyền rồi thử lại.';
+const formRecent = f => { const t = Date.parse(f && f.created_time); return Number.isFinite(t) && t > Date.now() - RECENT_DAYS * 86400000; };
 const fail = (message, extra = {}) => Object.assign(new Error(message), { expose: true, status: 502 }, extra);
 
 /** Lỗi Meta → câu tiếng Việt nói rõ cần làm gì. */
@@ -17,6 +21,8 @@ export function explainMeta(e, what) {
   if (code === 200 || code === 10 || code === 299 || /leads_retrieval|pages_read_engagement|pages_manage_ads|pages_show_list|permission/i.test(msg)) return perm + ' (' + what + ')';
   if (code === 100 && /nonexisting field|does not exist|unsupported get request/i.test(msg)) return 'Meta không cho đọc ' + what + ' bằng token này (Trang sai hoặc người dùng hệ thống chưa được gán Trang).';
   if (e && e.meta && e.meta.code === 'timeout') return 'Meta không phản hồi kịp khi lấy ' + what + '.';
+  if (e && e.meta && e.meta.code === 'badshape') return 'Meta trả dữ liệu sai dạng khi lấy ' + what + ': thử lại sau.';
+  if (e && e.meta && e.meta.code === 'badtoken') return e.message;
   if (e && e.meta && e.meta.code === 'truncated') return 'Danh sách ' + what + ' dài bất thường: dừng để không lấy thiếu. Kiểm tra lại Trang/biểu mẫu hoặc rút ngắn khoảng thời gian.';
   return 'Meta báo lỗi khi lấy ' + what + (code ? ' (mã ' + code + ')' : '') + '.';
 }
@@ -64,7 +70,7 @@ async function leadsOfForm(formId, ptoken, sinceUnix, fields) {
    nên lô lỗi được chia đôi để các quảng cáo còn lại vẫn tra được (tối đa CAMPAIGN_CALLS lần gọi). Còn không tra được thì để nguyên (lead hiện "chưa rõ chiến dịch"). */
 const CAMPAIGN_CALLS = 120;
 async function fillCampaigns(leads, token) {
-  const need = [...new Set(leads.filter(l => !l.campaign_id && l.ad_id).map(l => String(l.ad_id)))].slice(0, 2000);
+  const need = [...new Set(leads.filter(l => l.ad_id && (!l.campaign_id || !l.campaign_name)).map(l => String(l.ad_id)))];
   if (!need.length) return 0;
   const map = {}; let calls = 0;
   async function look(ids) {
@@ -81,20 +87,25 @@ async function fillCampaigns(leads, token) {
   }
   for (let i = 0; i < need.length; i += 50) await look(need.slice(i, i + 50));
   let n = 0;
-  for (const l of leads) if (!l.campaign_id && map[String(l.ad_id)]) { l.campaign_id = map[String(l.ad_id)].id; l.campaign_name = l.campaign_name || map[String(l.ad_id)].name; n++; }
+  for (const l of leads) {
+    const m = map[String(l.ad_id)]; if (!m) continue;
+    if (!l.campaign_id) { l.campaign_id = m.id; l.campaign_name = l.campaign_name || m.name; n++; }
+    else if (!l.campaign_name && m.name && String(l.campaign_id) === m.id) { l.campaign_name = m.name; n++; }
+  }
   return n;
 }
 
 /**
  * Lấy mọi lead từ ngày `sinceDay` (YYYY-MM-DD, giờ Việt Nam) của các Trang. Hoặc lấy đủ, hoặc báo lỗi: không bao giờ trả một phần
  * (một biểu mẫu thiếu sẽ làm các ngày trong cửa sổ bị ghi đè bằng số hụt).
- * @returns {Promise<{leads: object[], pages: number, forms: number, skippedForms: number, source: string}>}
+ * check: số lead mà các biểu mẫu mới tạo báo có (expected) và số lead thật sự đọc được từ chúng (got): got = 0 trong khi expected > 0 là dấu hiệu Meta không cho đọc lead (ứng dụng ở chế độ Development, thiếu quyền Leads access).
+ * @returns {Promise<{leads: object[], pages: number, forms: number, skippedForms: number, source: string, check: {expected: number, got: number}}>}
  */
 export async function fetchLeads({ token, accts = [], sinceDay, env = process.env }) {
   const sinceUnix = sinceDay ? Math.floor(Date.parse(sinceDay + 'T00:00:00+07:00') / 1000) - 86400 : 0; // lùi một ngày để không sót lead sát mốc
   const { pages, source, errors } = await pagesOf({ token, accts, env });
   if (!pages.length) throw fail(errors[0] || 'Không tìm thấy Trang Facebook nào để đọc lead. Đặt biến META_PAGE_IDS (ID Trang) hoặc gán Trang cho người dùng hệ thống.');
-  const leads = [], seenId = new Set(); let forms = 0, skipped = 0;
+  const leads = [], seenId = new Set(); let forms = 0, skipped = 0, expected = 0, got = 0;
   for (const p of pages) {
     const pt = await pageToken(p.id, token), fl = await formsOf(p.id, pt.token);
     for (const f of fl) {
@@ -102,13 +113,14 @@ export async function fetchLeads({ token, accts = [], sinceDay, env = process.en
       if (++forms > MAX_FORMS) throw fail('Có quá nhiều biểu mẫu lead (hơn ' + MAX_FORMS + ').');
       let rows;
       try { rows = await leadsOfForm(f.id, pt.token, sinceUnix, LEAD_FIELDS.slice()); }
-      catch (e) { if (/^(ARCHIVED|DELETED)$/i.test(String(f.status || ''))) { skipped++; continue; } throw e; } // biểu mẫu đã lưu trữ không đọc được: bỏ qua; biểu mẫu đang dùng lỗi thì dừng cả lần
+      catch (e) { if (/^(ARCHIVED|DELETED)$/i.test(String(f.status || '')) && e && e.meta && FORM_GONE.has(e.meta.code)) { skipped++; continue; } throw e; } // biểu mẫu đã lưu trữ mà Meta chắc chắn không cho đọc: bỏ qua; mọi lỗi khác (hết giờ, 5xx, giới hạn tần suất…) hay biểu mẫu đang dùng lỗi thì dừng cả lần
+      if (formRecent(f)) { expected += Number(f.leads_count) || 0; got += rows.length; }
       for (const l of rows) { if (!l || !l.id || seenId.has(l.id)) continue; seenId.add(l.id); leads.push(l); }
       if (leads.length > MAX_LEADS) throw fail('Quá nhiều lead (hơn ' + MAX_LEADS + ') trong khoảng thời gian đọc.');
     }
   }
   await fillCampaigns(leads, token);
-  return { leads, pages: pages.length, forms, skippedForms: skipped, source };
+  return { leads, pages: pages.length, forms, skippedForms: skipped, source, check: { expected, got } };
 }
 
 /**
@@ -140,8 +152,11 @@ export async function checkLeads({ token, accts = [], env = process.env }) {
     add('page-' + p.id, true, 'Trang "' + (pt.name || p.name || p.id) + '": ' + fl.length + ' biểu mẫu, ' + total + ' lead.');
     const f = !tested && fl.find(x => Number(x.leads_count) > 0);
     if (f) {
-      try { const r = await graph(f.id + '/leads', { fields: 'id,created_time', limit: 1 }, pt.token); tested = true; add('leads', true, 'Đọc thử lead thành công (' + ((r.data || []).length ? 'có lead' : 'chưa có lead trong khoảng 90 ngày') + ').'); }
-      catch (e) { add('leads', false, explainMeta(e, 'lead của biểu mẫu')); }
+      try {
+        const r = await graph(f.id + '/leads', { fields: 'id,created_time', limit: 1 }, pt.token); tested = true; const any = (r.data || []).length > 0;
+        if (!any && formRecent(f)) add('leads', false, 'Biểu mẫu mới tạo báo có ' + Number(f.leads_count) + ' lead nhưng Meta không trả lead nào: ' + NO_LEADS_HINT);
+        else add('leads', true, 'Đọc thử lead thành công (' + (any ? 'có lead' : 'chưa có lead trong khoảng 90 ngày') + ').');
+      } catch (e) { add('leads', false, explainMeta(e, 'lead của biểu mẫu')); }
     }
   }
   if (!tested && !steps.some(s => s.id === 'leads')) add('leads', false, 'Chưa có biểu mẫu nào có lead để đọc thử.');
