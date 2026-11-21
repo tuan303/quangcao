@@ -669,7 +669,7 @@ test('runLeadSync: khi Sheet vừa đủ SĐT (cổng độ phủ mở) thì cá
     const m = store.docs.fbmatch;
     assert.deepEqual(m.days['2026-10-01']['111111'], [1, 0, 0, 1, 1, 1, 1]);          // tính lại theo Sheet mới (trước đó là số hụt [9,…])
     assert.deepEqual(m.days['2026-08-25']['111111'], [7, 0, 0, 2, 1, 2, 1]);           // cũ hơn khoảng lead đọc được: giữ nguyên
-    assert.equal(m.lowCovUntil, '2026-10-01'); assert.ok(M.validate(m).ok);
+    assert.equal(m.lowCovUntil, '2026-10-31'); assert.ok(M.validate(m).ok);                // 30 ngày đầu cửa sổ đọc chưa có vùng nhận ra phụ huynh từ trước
   } finally { f.restore(); G.resetTokenCache(); }
   // Sheet không đổi (vẫn thiếu SĐT như lần trước): không tính lại, số đã chốt giữ nguyên, không có mốc
   store = memStore({ fbmatch: prev }); G.resetTokenCache(); f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
@@ -760,3 +760,57 @@ test('safelog: log lỗi bất ngờ không còn dãy chữ số, ngày, số đ
   assert.equal(scrub('lỗi tại hàng (reading \'x\')'), 'lỗi tại hàng (reading \'x\')');                          // thông báo kỹ thuật không chứa dữ liệu vẫn đọc được
   const src = fs.readFileSync(new URL('../api/leadsync.js', import.meta.url), 'utf8'); assert.match(src, /describeUnknown\(e\)/); assert.ok(!/console\.error\('\[leadsync\]', e && e\.expose \? e\.message : e\)/.test(src));
 });
+
+test('runLeadSync: sau một đợt gián đoạn, các ngày còn sống ở lần chạy tốt cuối được tính lại (giữ 14 ngày đầu cửa sổ làm vùng nhận ra); không gián đoạn thì số đã chốt giữ nguyên', async () => {
+  const M = globalThis.FBMatch, TODAY2 = '2026-12-20', L16 = glead('G1', '2026-10-16', '111111', 'TS6-LEAD | Form', '0' + P.p3);               // 16/10: nằm giữa "mốc chốt hôm nay" (21/10) và mốc chốt của lần chạy tốt cuối (11/09 → bị chặn ở 15/10 vì vùng nhận ra)
+  const cov = { students: 5, withPhone: 3, ext: 4, extWithPhone: 3, extWithRegDate: 4, paidExt: 3, paidExtWithPhone: 2, paidByProg: {} };
+  const mkPrev = syncedAt => ({ v: 1, season: '2027–28', leads: { rows: 3 }, cov, days: { '2026-10-16': { 111111: [9, 0, 0, 0, 0, 0, 0] } }, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, unmatchedPaid: {}, paidNoPhone: {}, winFrom: '2026-10-01', syncedAt });
+  const run = async syncedAt => { const prev = mkPrev(syncedAt); assert.ok(M.validate(prev).ok, M.validate(prev).error); G.resetTokenCache(); const store = memStore({ fbmatch: prev }), f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes({ leads: [LEADS[0], L16], forms: [{ id: 'f1', status: 'ACTIVE', leads_count: 2 }] })]);
+    try { await S.runLeadSync({ env: ENV, today: TODAY2, store }); return store.docs.fbmatch; } finally { f.restore(); G.resetTokenCache(); } };
+  assert.notDeepEqual((await run('2026-11-10T00:00:00.000Z')).days['2026-10-16']['111111'], [9, 0, 0, 0, 0, 0, 0]);          // gián đoạn 40 ngày: tính lại
+  assert.deepEqual((await run('2026-12-19T00:00:00.000Z')).days['2026-10-16']['111111'], [9, 0, 0, 0, 0, 0, 0]);          // chạy hằng ngày: giữ số đã chốt
+});
+
+/* ---- bộ kiểm thử bổ sung cho logic prev/next/độ phủ tăng/mốc/lưu trữ (bắt các đột biến mà bộ trên bỏ sót) ---- */
+{
+  const M = globalThis.FBMatch, TODAY2 = '2026-12-20', dayOf = (base, n) => A.addDays(base, n);
+  const run = (store, o = {}) => S.runLeadSync(Object.assign({ env: ENV, today: TODAY, store }, o));
+  const withNet = async (sheet, graphCfg, fn) => { G.resetTokenCache(); const f = stubFetch([...googleRoutes(sheet), ...graphRoutes(graphCfg)]); try { return await fn(); } finally { f.restore(); G.resetTokenCache(); } };
+  const prevCov = { students: 5, withPhone: 3, ext: 4, extWithPhone: 2, extWithRegDate: 4, paidExt: 3, paidExtWithPhone: 1, paidByProg: {} };
+  const mkPrev = (extra = {}) => Object.assign({ v: 1, season: '2027–28', leads: { rows: 3 }, cov: prevCov, days: { '2026-08-25': { 111111: [7, 0, 0, 2, 1, 2, 1] }, '2026-10-01': { 111111: [9, 0, 0, 1, 0, 1, 0] } }, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, unmatchedPaid: {}, paidNoPhone: {}, winFrom: '2026-08-25', syncedAt: '2026-12-19T00:00:00.000Z' }, extra);
+  const improved = () => { const d = sheetData(); d.values['Danh sách đăng ký'][6][5] = '0' + phn(40); return d; };
+
+  test('mốc lowCovUntil: còn nguyên ở lần chạy thường kế tiếp; không có mốc khi không còn ngày cũ nào được giữ; lần tăng độ phủ sau đẩy mốc tới, không lùi', async () => {
+    let store = memStore({ fbmatch: mkPrev() });
+    await withNet(improved(), {}, async () => { await run(store, { today: TODAY2 }); assert.equal(store.docs.fbmatch.lowCovUntil, '2026-10-31'); await run(store, { today: dayOf(TODAY2, 1) }); });
+    assert.equal(store.docs.fbmatch.lowCovUntil, '2026-10-31'); assert.ok(M.validate(store.docs.fbmatch).ok);
+    store = memStore({ fbmatch: mkPrev({ days: { '2026-10-01': { 111111: [9, 0, 0, 1, 0, 1, 0] } }, winFrom: '2026-10-01' }) });
+    await withNet(improved(), {}, async () => { await run(store, { today: TODAY2 }); }); assert.equal(store.docs.fbmatch.lowCovUntil, undefined);
+    store = memStore({ fbmatch: mkPrev({ lowCovUntil: '2026-12-01' }) }); await withNet(improved(), {}, async () => { await run(store, { today: TODAY2 }); }); assert.equal(store.docs.fbmatch.lowCovUntil, '2026-12-01');
+    store = memStore({ fbmatch: mkPrev({ lowCovUntil: '2026-09-01' }) }); await withNet(improved(), {}, async () => { await run(store, { today: TODAY2 }); }); assert.equal(store.docs.fbmatch.lowCovUntil, '2026-10-31');
+  });
+  test('số lưu không có mùa vẫn được gộp; không ghi fbmatch_<mùa> khi mùa không đổi; có syncedAt; admissions của mùa khác không dùng để so', async () => {
+    let store = memStore({ fbmatch: mkPrev({ season: '' }) });
+    await withNet(sheetData(), {}, async () => { await run(store, { today: TODAY2 }); });
+    assert.deepEqual(store.docs.fbmatch.days['2026-08-25']['111111'], [7, 0, 0, 2, 1, 2, 1]);
+    assert.equal(Object.keys(store.docs).filter(k => /^fbmatch_\d/.test(k)).length, 0); assert.ok(store.docs.fbmatch_prev); assert.ok(/^\d{4}-\d{2}-\d{2}T/.test(store.docs.fbmatch.syncedAt));
+    const s0 = memStore(); await withNet(sheetData(), {}, async () => { await run(s0); });
+    const adm = JSON.parse(JSON.stringify(s0.docs.admissions)); adm.season = '2026–27'; adm.total = { reg: 500, regInt: 0, paid: 400, paidInt: 0 }; adm.programs = { TS6: adm.total }; adm.khoi = { 'Khối 6': adm.total }; adm.paidSheets = { GHOST: 1 };
+    assert.ok(A.validate(adm).ok, A.validate(adm).error);
+    store = memStore({ admissions: adm }); await withNet(sheetData(), {}, async () => { assert.equal((await run(store)).ok, true); });
+  });
+  test('số lưu không còn hợp lệ: dừng (409, ghi đè được), không đè lên bản sao lưu hợp lệ cũ hơn; ghi đè thì giữ bản hỏng ở fbmatch_invalid', async () => {
+    const older = mkPrev({ syncedAt: '2026-12-01T00:00:00.000Z' }), broken = { v: 7, season: '2027–28', days: 'x' };
+    const store = memStore({ fbmatch: broken, fbmatch_prev: older });
+    await withNet(sheetData(), {}, async () => {
+      await assert.rejects(() => run(store, { today: TODAY2 }), e => e.status === 409 && e.canForce === true && /không đọc được theo cấu trúc hiện tại/.test(e.message)); assert.deepEqual(store.docs.fbmatch, broken);
+      assert.equal((await run(store, { today: TODAY2, force: true })).ok, true);
+    });
+    assert.deepEqual(store.docs.fbmatch_prev, older); assert.deepEqual(store.docs.fbmatch_invalid, broken);
+  });
+  test('chốt chặn số lead tụt: tụt 45% bị chặn, tụt nhẹ thì không; dưới 20 lead đã lưu thì không chặn', async () => {
+    const mk = n => { const d = {}; for (let i = 1; i <= n; i++) d[dayOf(TODAY, -i)] = { 111111: [1, 0, 0, 0, 0, 0, 0] }; return mkPrev({ days: d, winFrom: dayOf(TODAY, -n) }); };
+    await withNet(sheetData(), {}, async () => { await assert.rejects(() => run(memStore({ fbmatch: mk(25) })), e => e.status === 409 && /thấp hơn hẳn/.test(e.message)); });
+    await withNet(sheetData(), {}, async () => { assert.equal((await run(memStore({ fbmatch: mk(8) }))).ok, true); });
+  });
+}

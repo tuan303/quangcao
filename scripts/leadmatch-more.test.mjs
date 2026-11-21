@@ -93,3 +93,50 @@ test('K12: packOf: by_program lists only programmes with parents (spend alone do
   const p = M.packOf(m, '2026-11-20', () => ({ byProgram: { TS6: 5000000, JS: 4000000 }, byCampaign: {} }));
   assert.deepEqual(p.last_30d.by_program.map(x => x.program), ['TS6']); assert.deepEqual(p.last_30d.top_campaigns.map(x => x.campaign), ['TS6 big']);
 });
+
+/* ---- bổ sung vòng 3: khoá dùng chung theo khoá riêng, gộp lần mới/cũ, ngưỡng độ phủ, gói phân tích, biên của validate ---- */
+{
+  const mk = (id, day, phones, emails = [], cid = '111111', name = 'TS6-LEAD | Form') => M.leadFromGraph({ id, created_time: at(day), campaign_id: cid, campaign_name: name, field_data: [...phones.map((p, i) => ({ name: i ? 'zalo' : 'phone_number', values: ['0' + p] })), ...emails.map(e => ({ name: 'email', values: [e] }))] });
+  const good = () => Object.assign(M.matchLeads([mk('1', '2026-10-01', [phn(1)])], { 1: st('TS6', { paid: true, ph: [phn(1)], rd: '2026-10-05', pd: '2026-10-09' }) }), { season: '2027–28', syncedAt: '2026-11-20T01:00:00.000Z', winFrom: '2026-09-01' });
+  const emptyNext = extra => Object.assign({ season: '2027–28', leads: {}, cov: {}, lag: {}, unmatchedPaid: {}, paidNoPhone: {}, winFrom: '2026-08-23', days: {}, camps: {} }, extra);
+
+  test('khoá dùng chung: phụ huynh điền cùng một form 4 lần trở lên (chỉ một số, hay cùng số kèm cùng email) vẫn là MỘT người; số và email của người môi giới luôn đi cùng nhau đều bị nhận ra', () => {
+    const k = phn(5), S = { 1: st('TS6', { paid: true, ph: [k], rd: '2026-10-20', pd: '2026-10-25' }) };
+    let r = M.matchLeads([1, 2, 3, 4, 5].map(i => mk('a' + i, '2026-10-0' + i, [k])), S);                                 // chỉ một số, năm lần
+    assert.equal(r.leads.parents, 1); assert.equal(r.leads.hubKeys, 0); assert.deepEqual(r.days['2026-10-01']['111111'], [1, 0, 0, 1, 1, 1, 1]);
+    r = M.matchLeads([1, 2, 3, 4, 5].map(i => mk('b' + i, '2026-10-0' + i, [k], ['gia.dinh@example.com'])), S);             // cùng số, cùng email
+    assert.equal(r.leads.parents, 1); assert.equal(r.leads.hubKeys, 0); assert.deepEqual(r.days['2026-10-01']['111111'], [1, 0, 0, 1, 1, 1, 1]);
+    const agent = phn(900), agentMail = 'moi.gioi@example.com';                                                           // mỗi lead: số phụ huynh + số và email của người môi giới
+    r = M.matchLeads([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => M.leadFromGraph({ id: 'g' + i, created_time: at('2026-10-01'), campaign_id: '111111', campaign_name: 'TS6-LEAD', field_data: [{ name: 'phone_number', values: ['0' + phn(200 + i)] }, { name: 'zalo', values: ['0' + agent] }, { name: 'email', values: [agentMail] }] })), {});
+    assert.equal(r.leads.parents, 10); assert.equal(r.leads.hubKeys, 2);
+  });
+  test('khoá dùng chung không được dùng để tra học sinh (học sinh mang email chung không khớp với các phụ huynh không liên quan)', () => {
+    const hub = 'thongtin.chung@example.com', S = { 1: st('TS6', { paid: true, em: [hub], rd: '2026-10-20', pd: '2026-10-25' }) };
+    const r = M.matchLeads([1, 2, 3, 4, 5].map(i => mk('h' + i, '2026-10-0' + i, [phn(100 + i)], [hub])), S);
+    assert.equal(r.leads.hubKeys, 1); assert.equal(r.leads.matched, 0); assert.deepEqual(r.unmatchedPaid, { TS6: 1 }); const t = M.summarize(r).total; assert.deepEqual([t.l, t.r, t.p, t.rs, t.ps], [5, 0, 0, 0, 0]);
+  });
+  test('mergeMatch: lần đầu giữ cả các ngày cũ hơn mốc chốt; chiến dịch đổi tên theo tên hiện tại (kể cả khi không còn mã chương trình), chỉ giữ mục cũ khi lần mới mất tên', () => {
+    const next = emptyNext({ winFrom: '2026-08-25', days: { '2026-08-25': { 111111: [3, 0, 0, 1, 0, 1, 0] }, '2026-10-05': { 111111: [2, 0, 0, 0, 0, 0, 0] } }, camps: { 111111: { n: 'TS6-LEAD', p: 'TS6' } } });
+    assert.deepEqual(Object.keys(M.mergeMatch(null, next, '2026-09-01').days).sort(), ['2026-08-25', '2026-10-05']);
+    const prev = { v: 1, season: '2027–28', winFrom: '2026-08-23', camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, days: { '2026-09-01': { 111111: [1, 0, 0, 0, 0, 0, 0] } } };
+    assert.deepEqual(M.mergeMatch(prev, emptyNext({ camps: { 111111: { n: 'Chiến dịch thương hiệu', p: 'OTHER' } } }), M.windowFrom('2026-11-20')).camps['111111'], { n: 'Chiến dịch thương hiệu', p: 'OTHER' });
+    assert.deepEqual(M.mergeMatch(prev, emptyNext({ camps: { 111111: { n: '', p: 'OTHER' } } }), M.windowFrom('2026-11-20')).camps['111111'], { n: 'TS6-LEAD | Form', p: 'TS6' });
+  });
+  test('gates: cổng ngày mở đúng ở 90%; gói phân tích: học sinh tính chi phí không gồm chiến dịch chưa ghép, mốc low_coverage_before lấy từ số đã lưu, tuổi dữ liệu không âm', () => {
+    assert.equal(M.gates({ ext: 100, extWithPhone: 100, extWithRegDate: 90 }).dated, true); assert.equal(M.gates({ ext: 100, extWithPhone: 100, extWithRegDate: 89 }).dated, false);
+    assert.equal(M.coverageGain({ ext: 100, extWithPhone: 100, extWithRegDate: 89 }, { ext: 100, extWithPhone: 100, extWithRegDate: 90 }), true);
+    const m = { v: 1, winFrom: '2026-10-01', camps: { 111111: { n: 'TS6-LEAD', p: 'TS6' }, 333333: { n: 'Thương hiệu', p: 'OTHER' } }, days: { '2026-11-05': { 111111: [40, 0, 0, 20, 12, 20, 12], 333333: [30, 0, 0, 10, 8, 10, 8] } }, lag: { reg: [0, 0, 0], paid: [0, 0, 0] }, cov: { ext: 50, extWithPhone: 50, extWithRegDate: 50, paidExt: 20, paidExtWithPhone: 20, paidByProg: {} }, unmatchedPaid: {}, paidNoPhone: {} };
+    const p = M.packOf(m, '2026-11-20', () => ({ byProgram: { TS6: 6000000 }, byCampaign: {} })); assert.equal(p.last_30d.total.students_paid, 20); assert.equal(p.last_30d.total.students_paid_in_costed_programs, 12);
+    assert.equal(M.packOf(M.validate(Object.assign(good(), { lowCovUntil: '2026-09-15' })).match, '2026-11-20', null).data_quality.low_coverage_before, '2026-09-15'); assert.equal(M.packOf(M.validate(good()).match, '2026-11-20', null).data_quality.low_coverage_before, null);
+    assert.equal(M.packOf(M.validate(Object.assign(good(), { syncedAt: '2026-11-25T01:00:00.000Z' })).match, '2026-11-20', null).data_freshness.age_days, 0);
+  });
+  test('validate: biên của ô số liệu (6 em mỗi phụ huynh là hợp lệ; ps > 6p bị từ chối dù rs <= 6r), các giới hạn 8000 ô / 300 chiến dịch / 800 ngày chỉ từ chối khi vượt; giữ winFrom, bỏ syncedAt và mùa sai dạng', () => {
+    const put = c => { const x = JSON.parse(JSON.stringify(good())); x.days['2026-10-01']['111111'] = c; return M.validate(x); };
+    assert.equal(put([1, 0, 0, 1, 1, 6, 6]).ok, true); assert.equal(put([2, 0, 0, 2, 2, 12, 12]).ok, true); assert.equal(put([2, 0, 0, 2, 1, 7, 7]).ok, false); assert.equal(put([1, 0, 0, 1, 1, 7, 6]).ok, false);
+    const x = JSON.parse(JSON.stringify(good())); x.camps = {}; for (let c = 0; c < 300; c++) x.camps[String(100000 + c)] = { n: '', p: 'TS6' };
+    x.days = {}; for (let i = 0; i < 400; i++) { const d = A.addDays('2026-01-01', i); x.days[d] = {}; for (let c = 0; c < 20; c++) x.days[d][String(100000 + c)] = [1, 0, 0, 0, 0, 0, 0]; }
+    const v = M.validate(x); assert.equal(v.ok, true, v.error); assert.equal(Object.keys(v.match.camps).length, 300);
+    const g = M.validate(good()).match; assert.equal(g.winFrom, '2026-09-01'); assert.equal(g.syncedAt, '2026-11-20T01:00:00.000Z');
+    const b = M.validate(Object.assign(good(), { syncedAt: 'yesterday', season: 'next year' })).match; assert.equal(b.syncedAt, ''); assert.equal(b.season, '');
+  });
+}

@@ -96,19 +96,20 @@
     dated.sort(function (a, b) { return a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }); // ổn định: cùng giờ thì theo mã lead
     // Một phụ huynh = các lead nối với nhau bằng bất kỳ SĐT hay email chung (nhiều số trong một form, hoặc lead sau có thêm số/email đã gặp ở lead trước).
     // Duyệt theo thời gian nên phụ huynh được lập bởi lead sớm nhất; khi một lead nối hai phụ huynh đã lập, giữ phụ huynh sớm hơn (first touch).
-    // Khoá "trung tâm": một email/SĐT đi cùng từ HUB khoá khác nhau trở lên trong các lead (chữ giữ chỗ như abc@..., số dùng chung của người khác) không xác định một phụ huynh:
+    // Khoá "trung tâm": một email/SĐT xuất hiện ở các lead của từ HUB người khác nhau trở lên (chữ giữ chỗ như abc@..., số của văn phòng hay người môi giới) không xác định một phụ huynh:
     // bỏ khỏi việc nối phụ huynh và tra học sinh, nếu không nhiều gia đình không liên quan bị gộp làm một (mất chuyển đổi hoặc co mẫu số).
     var HUB = 4, byKey = Object.create(null), hub = Object.create(null), hubOnly = 0;
     var keysOf = function (l) { return l.ph.map(function (k) { return 'p' + k; }).concat(l.em.map(function (k) { return 'e' + k; })); };
     dated.forEach(function (l, i) { keysOf(l).forEach(function (k) { (byKey[k] || (byKey[k] = [])).push(i); }); });
-    // Khoá dùng chung (địa chỉ giữ chỗ, số của văn phòng) không xác định một phụ huynh: các lead chứa khoá đó thuộc từ HUB người khác nhau trở lên, trong đó hai lead là cùng một người nếu còn chung một khoá khác.
-    // (Một phụ huynh điền form nhiều lần với Zalo hay email khác nhau vẫn là một người nên không làm số điện thoại chính của họ thành khoá dùng chung.)
+    // Khoá dùng chung (địa chỉ giữ chỗ, số của văn phòng hay của người môi giới) không xác định một phụ huynh. Bằng chứng một người khác: lead có một khoá RIÊNG (khoá khác mà không lead nào khác chứa khoá k có).
+    // Từ HUB lead như vậy trở lên thì k là khoá dùng chung. Một phụ huynh điền cùng một form nhiều lần (chỉ một số điện thoại, hay cùng số kèm cùng email) không có khoá riêng nên không bị coi là nhiều người;
+    // hai khoá luôn đi cùng nhau (số và email của người môi giới) đều có khoá riêng ở mỗi lead (số của từng phụ huynh) nên đều bị nhận ra.
     Object.keys(byKey).forEach(function (k) {
       var L = byKey[k]; if (L.length < HUB) return;
-      var u = L.map(function (_, j) { return j; }), f2 = function (j) { while (u[j] !== j) { u[j] = u[u[j]]; j = u[j]; } return j; }, owner = Object.create(null);
-      L.forEach(function (li, j) { keysOf(dated[li]).forEach(function (o) { if (o === k) return; if (owner[o] == null) owner[o] = j; else { var a = f2(owner[o]), b = f2(j); if (a !== b) u[a] = b; } }); });
-      var roots = Object.create(null); L.forEach(function (_, j) { roots[f2(j)] = 1; });
-      if (Object.keys(roots).length >= HUB) hub[k] = 1;
+      var cnt = Object.create(null), people = 0;
+      L.forEach(function (li) { keysOf(dated[li]).forEach(function (o) { if (o !== k) cnt[o] = (cnt[o] || 0) + 1; }); });
+      L.forEach(function (li) { if (keysOf(dated[li]).some(function (o) { return o !== k && cnt[o] === 1; })) people++; });
+      if (people >= HUB) hub[k] = 1;
     });
     var P = [], uf = [], keyOwner = Object.create(null), noContact = all.length - dated.length;
     var find = function (i) { while (uf[i] !== i) { uf[i] = uf[uf[i]]; i = uf[i]; } return i; };
@@ -189,7 +190,7 @@
     Object.keys(next.days).forEach(function (d) { if (d >= windowFrom || !prev) out.days[d] = next.days[d]; });
     // Số đã chốt cũ hơn HISTORY_DAYS thì bỏ (hơn một mùa tuyển sinh): giữ kích thước tài liệu và giới hạn của validate() không bị chạm dù tiêu đề mùa nhiều năm không đổi.
     var oldest = adm().addDays(windowFrom, -(HISTORY_DAYS - KEEP_DAYS)); Object.keys(out.days).forEach(function (d) { if (d < oldest) delete out.days[d]; });
-    var pc = prev && prev.camps || {}; Object.keys(pc).forEach(function (c) { out.camps[c] = pc[c]; }); Object.keys(next.camps).forEach(function (c) { var nc = next.camps[c], oc = out.camps[c]; out.camps[c] = oc && oc.n && (!nc.n || nc.p === 'OTHER') ? oc : nc; }); // lần mới không tra được tên hay chương trình thì không đè lên chiến dịch đã biết (chương trình lưu theo chiến dịch nên cũng đổi cả các ngày đã chốt)
+    var pc = prev && prev.camps || {}; Object.keys(pc).forEach(function (c) { out.camps[c] = pc[c]; }); Object.keys(next.camps).forEach(function (c) { var nc = next.camps[c], oc = out.camps[c]; out.camps[c] = oc && oc.n && !nc.n ? oc : nc; }); // lần mới không tra được tên chiến dịch thì không đè lên mục đã biết (chương trình lưu theo chiến dịch nên cũng đổi cả các ngày đã chốt); chiến dịch đổi tên thì theo tên hiện tại, cùng cách ghép với chi tiêu
     var used = {}; Object.keys(out.days).forEach(function (d) { Object.keys(out.days[d]).forEach(function (c) { used[c] = 1; }); });
     Object.keys(out.camps).forEach(function (c) { if (!used[c]) delete out.camps[c]; });
     Object.keys(used).forEach(function (c) { if (!out.camps[c]) out.camps[c] = { n: '', p: 'OTHER' }; });
@@ -326,7 +327,7 @@
     var out = { as_of: today, method: 'Mỗi phụ huynh điền form lead Facebook được đối chiếu với học sinh trong file tuyển sinh theo số điện thoại hoặc email; lead đầu tiên của phụ huynh quyết định ngày và chiến dịch; học sinh nội bộ và học sinh đã đăng ký trước khi điền form không tính cho quảng cáo.',
       data_freshness: freshness(m, today, info), lead_history_from: m && m.winFrom || null, last_30d: win(A.addDays(today, -30), A.addDays(today, -1)), prev_30d: win(A.addDays(today, -60), A.addDays(today, -31)), all_time: win('', ''),
       data_quality: { registration_stage_reliable: v0.regOk, phone_share_of_external_registered: round(at.regPhoneShare), phone_share_of_paid: round(at.phoneShare), registration_date_share: round(at.regDateShare), paid_rows_not_linked_to_registration: at.unlinkedPaid, low_coverage_before: m && m.lowCovUntil || null, programs_without_paid_phone: Object.keys(v0.lowPhone),
-        note: 'low_coverage_before (nếu có): các ngày điền form trước mốc đó được chốt khi Sheet còn thiếu SĐT/ngày nên số thấp hơn thực tế; paid_rows_not_linked_to_registration > 0: số đóng phí thấp hơn thực tế ngần ấy. Khi registration_stage_reliable = false thì không nhận định về số đăng ký hay tỷ lệ đăng ký → đóng phí. Chương trình trong programs_without_paid_phone không có tỷ lệ và không nằm trong tổng. registration_date_share thấp nghĩa là chưa loại được học sinh đã đăng ký trước khi phụ huynh điền form nên tỷ lệ có thể cao hơn thực tế.' },
+        note: 'low_coverage_before (nếu có): các ngày điền form trước mốc đó được chốt khi Sheet còn thiếu SĐT/ngày (hoặc tính lại không đủ lead cũ để nhận ra phụ huynh điền nhiều lần) nên kém tin cậy, thường thấp hơn thực tế; paid_rows_not_linked_to_registration > 0: số đóng phí thấp hơn thực tế ngần ấy. Khi registration_stage_reliable = false thì không nhận định về số đăng ký hay tỷ lệ đăng ký → đóng phí. Chương trình trong programs_without_paid_phone không có tỷ lệ và không nằm trong tổng. registration_date_share thấp nghĩa là chưa loại được học sinh đã đăng ký trước khi phụ huynh điền form nên tỷ lệ có thể cao hơn thực tế.' },
       attribution: { paid_students_external: at.paidExt, matched_to_facebook_ads: at.fromAds, matched_share: round(at.share), paid_without_phone_in_sheet: at.noPhone, phone_share_of_paid: round(at.phoneShare) },
       maturity: { days_from_form_to_payment_median: mat.known ? mat.p50 : null, days_p90: mat.known ? mat.p90 : null, parents_filling_form_after: mat.recentFrom, note: 'Phụ huynh điền form sau mốc này chưa đủ thời gian để đóng phí nên tỷ lệ của nhóm đó thấp hơn thực tế.' } };
     return out;
