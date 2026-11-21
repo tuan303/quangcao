@@ -1870,9 +1870,9 @@ function fbmEmpty(st) {
 }
 function fbmWarnings(x) {
   var w = [], m = x.m, v = x.v, at = x.at, st = fbmStatus(), cov = m.cov || {}, adm = S.editor;
-  if (st && st.ok === false) w.push(['Lần cập nhật gần nhất chưa thành công', (adm && st.error ? esc(st.error) + ' ' : '') + 'Số liệu bên dưới là của lần cập nhật thành công trước (' + esc(fbmWhen(m.syncedAt) || 'chưa rõ') + ').']);
+  if (st && st.ok === false) w.push(['Lần cập nhật gần nhất chưa thành công', (adm && st.error ? esc(st.error) + ' ' : '') + 'Số liệu bên dưới là của lần cập nhật thành công trước (' + esc(fbmWhen(m.syncedAt) || 'chưa rõ') + ').', true]);
   var age = m.syncedAt ? Math.floor((Date.now() - Date.parse(m.syncedAt)) / 86400000) : null;
-  if (!(st && st.ok === false) && age != null && age >= 2) w.push(['Số đối chiếu chưa được cập nhật ' + age + ' ngày', 'Lần cập nhật gần nhất: ' + esc(fbmWhen(m.syncedAt)) + '.']);
+  if (!(st && st.ok === false) && age != null && age >= 2) w.push(['Số đối chiếu chưa được cập nhật ' + age + ' ngày', 'Lần cập nhật gần nhất: ' + esc(fbmWhen(m.syncedAt)) + '.', true]);
   if (!v.regOk) w.push(['Chưa tính được số đăng ký', 'Mới có SĐT hoặc email của ' + int(cov.extWithPhone) + '/' + int(cov.ext) + ' học sinh ngoài nội bộ (' + pct(at.regPhoneShare, 0) + '), chủ yếu là học sinh đã đóng phí. Học sinh đăng ký nhưng chưa đóng phí chưa có SĐT nên chưa khớp được với phụ huynh; vì vậy trang chưa hiện số đăng ký, “Form → đăng ký” và “Chi phí / đăng ký” (số đã đóng phí không bị ảnh hưởng).' + (adm ? ' Thêm cột SĐT bố, SĐT mẹ vào tab Danh sách đăng ký của Sheet.' : ' Nhờ quản trị viên bổ sung SĐT phụ huynh vào Sheet.')]);
   var low = Object.keys(v.lowPhone || {});
   if (low.length) w.push(['Chưa tính tỷ lệ cho ' + esc(low.join(', ')), low.map(function (k) { var a = v.lowPhone[k]; return esc(FBMatch.progLabel(k)) + ' (' + esc(k) + '): chỉ ' + int(a[0]) + '/' + int(a[1]) + ' học sinh đã đóng phí có SĐT/email trong Sheet'; }).join('; ') + ', nên chưa khớp được với phụ huynh. Chương trình này không nằm trong dòng Tổng.' + (adm ? ' Thêm cột SĐT vào tab ĐP tương ứng.' : '')]);
@@ -1939,9 +1939,10 @@ function fbmHtml() {
   if (!x) return html + fbmEmpty(st);
   var v = x.v, t = v.total, m = x.m, low = fbmLowNames(v);
   html += '<p class="sec-sub">' + (v.days ? 'Phụ huynh điền form từ ' + esc(dlong(x.since)) + ' đến ' + esc(dlong(x.until)) : esc(p.label)) + ' · lead Facebook và chi tiêu của ' + esc(admScopeShort()) + ' · đối chiếu cập nhật ' + esc(fbmWhen(m.syncedAt) || 'chưa rõ') + '.</p>';
-  fbmWarnings(x).forEach(function (w) { html += fbmNotice(w[0], w[1]); });
-  if (admScoped()) html += fbmNotice('Không theo bộ lọc tài khoản', 'Tab này luôn tính chung ' + esc(admScopeShort()) + ' (' + esc(acctOptions()[0].ids.map(acctName).join(', ')) + ') vì số đăng ký và đóng phí trong Sheet không chia theo tài khoản quảng cáo.');
-  var mature = fbmMatureNote(x); if (mature && v.days) html += fbmNotice('Nhóm phụ huynh mới chưa đủ thời gian đóng phí', esc(mature));
+  var ws = fbmWarnings(x), notes = ws.filter(function (w) { return !w[2]; });
+  ws.filter(function (w) { return w[2]; }).forEach(function (w) { html += fbmNotice(w[0], w[1]); });
+  if (admScoped()) notes.push(['Không theo bộ lọc tài khoản', 'Tab này luôn tính chung ' + esc(admScopeShort()) + ' (' + esc(acctOptions()[0].ids.map(acctName).join(', ')) + ') vì số đăng ký và đóng phí trong Sheet không chia theo tài khoản quảng cáo.']);
+  var mature = fbmMatureNote(x); if (mature && v.days) notes.push(['Nhóm phụ huynh mới chưa đủ thời gian đóng phí', esc(mature)]);
   if (!v.days || !(t.l > 0)) return html + '<div class="card"><div class="empty">Không có phụ huynh điền form Facebook trong kỳ này. Số đối chiếu có từ ' + esc(dlong(m.from)) + ' đến ' + esc(dlong(m.to)) + '; chọn kỳ trong khoảng đó (ví dụ “Năm học” hoặc “30 ngày qua”).</div></div>' + (v.days ? '' : '<div class="grid" style="margin-top:16px">' + fbmCoverageHtml(x) + '</div>');
   var kpi = function (label, icon, val, sub, extra) { return kpiTile('fbm', label, icon, val, sub, '', null, 'var(--series)', extra); };
   var excl = (t.i > 0 ? int(t.i) + ' chỉ khớp học sinh nội bộ' : '') + (t.i > 0 && t.b > 0 ? ' · ' : '') + (t.b > 0 ? int(t.b) + ' đã đăng ký trước khi điền form' : '');
@@ -1953,6 +1954,7 @@ function fbmHtml() {
     kpi('Form → ĐP', ICON.cursor, t.leadToPaid == null ? '—' : pct(t.leadToPaid, 1), t.leadToPaid == null ? 'chưa đủ số để tính tỷ lệ' : 'phụ huynh điền form có con đã đóng phí') +
     kpi('Chi phí / đăng ký', ICON.tag, t.costPerReg == null ? '—' : esc(NF.format(Math.round(t.costPerReg))) + '<small>₫</small>', !v.regOk ? noReg : v.spend > 0 ? 'chi tiêu ' + mshort(v.spend) + ' ÷ học sinh đăng ký' : 'chưa có chi tiêu') +
     kpi('Chi phí / học sinh ĐP', ICON.wallet, t.costPerPaid == null ? '—' : esc(NF.format(Math.round(t.costPerPaid))) + '<small>₫</small>', v.spend > 0 ? 'chi tiêu ' + mshort(v.spend) + ' ÷ ' + int(v.mapped.ps) + ' học sinh' : 'chưa có chi tiêu', 'lead') + '</div>';
+  if (notes.length) html += '<div class="card" style="margin-top:16px"><div class="card-hd"><div><h2>Lưu ý khi đọc số</h2><p>Những điều làm số liệu bên dưới thấp hơn hoặc cao hơn thực tế, và cách khắc phục.</p></div></div><ul class="rep-points">' + notes.map(function (n) { return '<li><b>' + n[0] + '.</b> ' + n[1] + '</li>'; }).join('') + '</ul></div>';
   html += '<div class="grid" style="margin-top:16px"><div class="card s5"><div class="card-hd"><div><h2>Phễu chuyển đổi</h2><p>Từ phụ huynh điền form Facebook đến có con đã đóng phí (ĐP).</p></div></div>' + fbmFunnelHtml(v) +
     '<p class="note-s">Mỗi phụ huynh tính một lần, theo lần điền form đầu tiên; mỗi học sinh chỉ tính cho một lead. Không tính học sinh nội bộ và học sinh đã đăng ký trước khi phụ huynh điền form.' + (v.regOk ? '' : ' Bước “Đã đăng ký” chưa hiện vì Sheet chưa có SĐT của học sinh chưa đóng phí.') + (v.organic.l > 0 ? ' Không tính ' + int(v.organic.l) + ' phụ huynh điền form tự nhiên (không từ quảng cáo).' : '') + '</p></div>';
   html += '<div class="card s7"><div class="card-hd"><div><h2>Theo tháng điền form</h2><p>Các tháng gần đây chưa đủ thời gian để đóng phí nên tỷ lệ còn thấp.</p></div></div>' + (fbmMonthTable(v) || '<div class="empty">Chưa có số liệu theo tháng.</div>') + '</div>';
