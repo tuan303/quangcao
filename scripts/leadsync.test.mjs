@@ -1,6 +1,7 @@
 // Kiểm thử offline cho phần máy chủ của đối chiếu phụ huynh: đọc Google Sheet bằng service account, lấy lead qua Graph API, điều phối và ghi số tổng hợp.
 // Google và Meta được thay bằng bản giả (fetch giả); kho số liệu là bộ nhớ. Mọi SĐT, email, họ tên là dữ liệu giả dựng lúc chạy.
 import test from 'node:test';
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, createVerify } from 'node:crypto';
 import '../fbads-core.js';
@@ -10,6 +11,7 @@ import * as G from '../server/gsheets.js';
 import * as L from '../server/leads.js';
 import { graph, allPages, withDeadline, setDeadline } from '../server/meta.js';
 import * as S from '../server/leadsync.js';
+import { describeUnknown, scrub } from '../server/safelog.js';
 const A = globalThis.FBAdm;
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -692,4 +694,69 @@ test('checkSetup: tab (ĐP) của mùa hiện tại bị trống vẫn báo ✗ 
     G.resetTokenCache(); const g = stubFetch([...googleRoutes(mk(gap)), ...graphRoutes()]);
     try { const r = await S.checkSetup({ env: ENV, today: TODAY }); assert.equal(r.sheet.steps.find(s => s.id === 'coverage').ok, want, JSON.stringify(r.sheet.steps.find(s => s.id === 'coverage'))); } finally { g.restore(); G.resetTokenCache(); }
   }
+});
+
+test('runLeadSync: ghi đè theo mã chốt chặn — chỉ chốt chặn đã xác nhận mới bị bỏ qua, chốt chặn khác vẫn dừng; true là tất cả', async () => {
+  const M = globalThis.FBMatch, day = d => A.addDays(TODAY, -d);
+  const prevDays = {}; for (let i = 1; i <= 25; i++) prevDays[day(i)] = { 111111: [1, 0, 0, 0, 0, 0, 0] };
+  const prev = { v: 1, season: '2027–28', leads: { rows: 25 }, cov: { students: 5 }, days: prevDays, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, unmatchedPaid: {}, paidNoPhone: {}, syncedAt: '2026-11-01T00:00:00.000Z' };
+  assert.ok(M.validate(prev).ok, M.validate(prev).error);
+  const forms = [{ id: 'f1', status: 'ACTIVE', leads_count: 6, created_time: RECENT }];
+  const routes = empty => [...googleRoutes(sheetData()), ...(empty ? [u => u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname) && json({ data: [] })] : []), ...graphRoutes({ forms })];
+  const run = async (force, empty) => { G.resetTokenCache(); const store = memStore({ fbmatch: prev }), f = stubFetch(routes(empty)); try { return await S.runLeadSync({ env: ENV, today: TODAY, store, force }).then(r => ({ ok: r.ok, store }), e => ({ err: e, store })); } finally { f.restore(); G.resetTokenCache(); } };
+  // đọc ít lead hơn hẳn: chốt chặn "drop"
+  let r = await run(undefined, false); assert.deepEqual(r.err.guards, ['drop']); assert.equal(r.err.canForce, true);
+  r = await run(['sheet'], false); assert.deepEqual(r.err.guards, ['drop']);                      // xác nhận chốt chặn khác thì vẫn dừng
+  r = await run(['drop'], false); assert.equal(r.ok, true);
+  r = await run(true, false); assert.equal(r.ok, true);
+  r = await run(['not-a-guard', 5, null], false); assert.deepEqual(r.err.guards, ['drop']);       // mã lạ bị bỏ
+  // Meta không trả lead nào dù biểu mẫu mới báo có: chốt chặn "empty" đứng trước, xác nhận "drop" không đủ
+  r = await run(['drop'], true); assert.deepEqual(r.err.guards, ['empty']);
+  r = await run(['empty'], true); assert.deepEqual(r.err.guards, ['drop']);                       // qua "empty" thì gặp tiếp "drop" (số lead tụt vì đọc rỗng)
+  r = await run(['empty', 'drop'], true); assert.equal(r.ok, true);
+});
+
+test('runLeadSync: lần trước không có ngày nào (đọc rỗng) không chốt lịch sử — lần sau vẫn giữ các ngày 60–90 còn đọc được; số lưu không đọc được được ghi đè thì giữ một bản ở fbmatch_invalid', async () => {
+  const M = globalThis.FBMatch, TODAY2 = '2026-12-20';                                              // 01–09/10 đã nằm ngoài 60 ngày
+  const empty = { v: 1, season: '2027–28', leads: {}, cov: { students: 5, withPhone: 3, ext: 4, extWithPhone: 3, extWithRegDate: 4, paidExt: 3, paidExtWithPhone: 2, paidByProg: {} }, days: {}, camps: {}, unmatchedPaid: {}, paidNoPhone: {}, syncedAt: '2026-12-19T00:00:00.000Z' };   // cùng độ phủ với lần đọc sau: không có "độ phủ tăng" để tính lại thay
+  assert.ok(M.validate(empty).ok, M.validate(empty).error);
+  G.resetTokenCache(); let store = memStore({ fbmatch: empty }), f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
+  try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY2, store })).ok, true); assert.ok(store.docs.fbmatch.days['2026-10-01'], 'phải còn ngày 01/10'); } finally { f.restore(); G.resetTokenCache(); }
+  const bad = { v: 1, season: '2027–28', days: { '2026-10-01': { 111111: [1, 5, 5, 5, 5, 5, 5] } }, camps: { 111111: { n: 'x', p: 'TS6' } }, marker: 'ban-cu' };
+  assert.equal(M.validate(bad).ok, false);
+  store = memStore({ fbmatch: bad }); G.resetTokenCache(); f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
+  try {
+    await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 409 && e.canForce === true && JSON.stringify(e.guards) === '["stored"]');
+    assert.equal(store.docs.fbmatch_invalid, undefined);
+    assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store, force: ['stored'] })).ok, true); assert.deepEqual(store.docs.fbmatch_invalid, bad); assert.ok(M.validate(store.docs.fbmatch).ok);
+  } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('fetchLeads/checkLeads: Trang tự tìm ra mà token không đọc được thì nói cách loại ra bằng META_PAGE_IDS; kiểm tra kết nối đọc thử mọi biểu mẫu có lead và bỏ qua biểu mẫu lưu trữ chắc chắn không đọc được như lần cập nhật thật', async () => {
+  const PAGE2 = ['777', '000', '222'].join('');
+  const routes = [u => u.host === 'graph.facebook.com' && /\/act_895057262833914\/promote_pages$/.test(u.pathname) && json({ data: [{ id: PAGE, name: 'Trang trường' }, { id: PAGE2, name: 'Trang khác' }] }),
+    u => u.host === 'graph.facebook.com' && u.pathname.endsWith('/' + PAGE2) && json({ error: { code: 100, message: '(#100) Unsupported get request' } }, 400), ...graphRoutes()];
+  let f = stubFetch(routes);
+  try {
+    await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: ['895057262833914'], sinceDay: '2026-08-22', env: {} }), e => e.expose === true && /META_PAGE_IDS/.test(e.message));
+    const chk = await L.checkLeads({ token: 'tok-test', accts: ['895057262833914'], env: {} }); assert.match(chk.steps.find(s => s.id === 'page-' + PAGE2).text, /META_PAGE_IDS/);
+  } finally { f.restore(); }
+  // META_PAGE_IDS đã đặt: không thêm gợi ý (lỗi Trang là lỗi thật)
+  f = stubFetch([u => u.host === 'graph.facebook.com' && u.pathname.endsWith('/' + PAGE) && json({ error: { code: 100, message: '(#100) Unsupported get request' } }, 400)]);
+  try { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => !/đặt biến META_PAGE_IDS/.test(e.message)); } finally { f.restore(); }
+  // kiểm tra kết nối: biểu mẫu mới (không phải biểu mẫu đầu tiên) bị Meta trả rỗng cũng báo đỏ; biểu mẫu lưu trữ đọc lỗi (#200) không làm đỏ
+  const forms = [{ id: 'f2', status: 'ARCHIVED', leads_count: 4, created_time: OLD }, { id: 'f9', status: 'ACTIVE', leads_count: 50, created_time: OLD }, { id: 'f1', status: 'ACTIVE', leads_count: 6, created_time: RECENT }];
+  f = stubFetch([u => u.host === 'graph.facebook.com' && /\/f9\/leads$/.test(u.pathname) && json({ data: [] }), ...graphRoutes({ forms })]);
+  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, true, JSON.stringify(s)); } finally { f.restore(); }
+  f = stubFetch([u => u.host === 'graph.facebook.com' && /\/f1\/leads$/.test(u.pathname) && json({ data: [] }), u => u.host === 'graph.facebook.com' && /\/f9\/leads$/.test(u.pathname) && json({ data: [] }), ...graphRoutes({ forms })]);
+  try { const s = (await L.checkLeads({ token: 'tok-test', accts: [], env: ENV })).steps.find(x => x.id === 'leads'); assert.equal(s.ok, false); assert.match(s.text, /Live/); } finally { f.restore(); }
+});
+
+test('safelog: log lỗi bất ngờ không còn dãy chữ số, ngày, số điện thoại viết cách, email hay chuỗi trong ngoặc kép; api/leadsync.js dùng nó thay vì in nguyên lỗi', async () => {
+  const k = phn(5), grouped = '0' + k.slice(0, 2) + ' ' + k.slice(2, 5) + ' ' + k.slice(5);                                 // số điện thoại giả viết cách nhóm, dựng lúc chạy
+  const e = new TypeError('cannot write record "Nguyen Van A" ' + grouped + ' sinh 12/03/2015 ten.phu.huynh@example.com id 20260001'); e.code = 'EWRITE';
+  const line = describeUnknown(e);
+  assert.match(line, /TypeError \| EWRITE/); assert.ok(!/Nguyen|12\/03|2015|example\.com|20260001/.test(line) && !line.includes(k.slice(2, 5)) && !line.includes(grouped.slice(0, 5)), line);
+  assert.equal(scrub('lỗi tại hàng (reading \'x\')'), 'lỗi tại hàng (reading \'x\')');                          // thông báo kỹ thuật không chứa dữ liệu vẫn đọc được
+  const src = fs.readFileSync(new URL('../api/leadsync.js', import.meta.url), 'utf8'); assert.match(src, /describeUnknown\(e\)/); assert.ok(!/console\.error\('\[leadsync\]', e && e\.expose \? e\.message : e\)/.test(src));
 });

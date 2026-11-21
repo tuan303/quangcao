@@ -1,10 +1,11 @@
 // /api/leadsync – cập nhật số liệu "Phụ huynh điền form Facebook → đóng phí" (đối chiếu từng phụ huynh).
 //   GET  – Vercel Cron (Authorization: Bearer <CRON_SECRET>): chạy nếu đã cấu hình
-//   POST – quản trị (Bearer <Firebase ID token>, email trong FBADS_ADMINS): body { action: "run" | "check", force?: true }
+//   POST – quản trị (Bearer <Firebase ID token>, email trong FBADS_ADMINS): body { action: "run" | "check", force?: true | [mã chốt chặn đã xác nhận] }
 //          run   = đọc Google Sheet + lead Facebook rồi đối chiếu ngay;  check = kiểm tra từng bước kết nối (không in nội dung dữ liệu)
 // Cần: ADMISSIONS_SHEET_ID (Sheet đã chia sẻ cho service account), META_ACCESS_TOKEN có quyền đọc lead. Xem README.
 import { authorize } from '../server/auth.js';
 import { send, safeError, readJson } from '../server/http.js';
+import { describeUnknown } from '../server/safelog.js';
 
 const HARD_MS = 100000; // vercel.json cho hàm này 120 giây: mọi yêu cầu Meta dừng sau 100 giây để còn thời gian ghi
 
@@ -26,10 +27,10 @@ async function run(req, res) {
     const body = await readJson(req, 4096);
     const action = body && body.action;
     if (action === 'check') return send(res, 200, Object.assign({ ok: true }, await ls.checkSetup()));
-    if (action === 'run') return send(res, 200, await ls.runLeadSync({ by: 'admin', force: body.force === true }));
+    if (action === 'run') return send(res, 200, await ls.runLeadSync({ by: 'admin', force: Array.isArray(body.force) ? body.force.filter(g => typeof g === 'string').slice(0, 10) : body.force === true }));
     return send(res, 400, { ok: false, error: 'action phải là "run" hoặc "check".' });
   } catch (e) {
-    console.error('[leadsync]', e && e.expose ? e.message : e);
-    send(res, e.busy ? 409 : e.status && e.status < 600 ? e.status : 500, { ok: false, error: safeError(e), stage: e && e.stage || undefined, canForce: e && e.canForce === true ? true : undefined });
+    console.error('[leadsync]', e && e.expose ? e.message : describeUnknown(e));
+    send(res, e.busy ? 409 : e.status && e.status < 600 ? e.status : 500, { ok: false, error: safeError(e), stage: e && e.stage || undefined, canForce: e && e.canForce === true ? true : undefined, guards: e && e.canForce === true && Array.isArray(e.guards) ? e.guards : undefined });
   }
 }

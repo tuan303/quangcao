@@ -2013,12 +2013,13 @@ async function fbmRun() {
   fbmBusy = true; fbmLock(true);
   try {
     toast('Đang đọc Google Sheet và lead Facebook rồi đối chiếu… (khoảng 30–90 giây, cứ để trang mở)', 90000);
-    var r = await fbmCall('run', {});
-    // Cần xác nhận ghi đè: giữ cờ bận suốt lúc hỏi và lúc chạy ghi đè (không gọi lại hàm này: khối finally sẽ nhả cờ ngay khi lần gọi lồng nhau vừa bắt đầu).
-    if (!r.ok && r.status === 409 && r.j.canForce) {
+    var r = await fbmCall('run', {}), ack = [];
+    // Mỗi chốt chặn chạm phải được xác nhận riêng (máy chủ báo mã ở r.j.guards); chốt chặn chưa xác nhận vẫn dừng và được hỏi ở vòng sau. Giữ cờ bận suốt lúc hỏi và lúc chạy ghi đè (không gọi lại hàm này: khối finally sẽ nhả cờ ngay khi lần gọi lồng nhau vừa bắt đầu).
+    for (var round = 0; !r.ok && r.status === 409 && r.j.canForce && round < 6; round++) {
       if (!window.confirm(r.j.error + '\n\nChỉ ghi đè nếu bạn chắc số mới là đúng. Ghi đè bằng số mới?')) { toast('Đã huỷ, giữ nguyên số liệu cũ.', 6000); return; }
+      (r.j.guards || []).forEach(function (g) { if (ack.indexOf(g) < 0) ack.push(g); });
       toast('Đang ghi đè bằng số mới… (khoảng 30–90 giây, cứ để trang mở)', 90000);
-      r = await fbmCall('run', { force: true });
+      r = await fbmCall('run', { force: ack });
     }
     if (!r.ok) {
       toast((r.j.stage ? '[' + ({ sheet: 'Google Sheet', meta: 'Facebook', match: 'Đối chiếu', write: 'Ghi số liệu' }[r.j.stage] || r.j.stage) + '] ' : '') + (r.j.error || 'Không cập nhật được.'), 14000);

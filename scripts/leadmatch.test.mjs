@@ -514,3 +514,10 @@ test('matchLeads: gia đình hai phụ huynh cùng điền form — tỷ lệ Fo
   assert.equal(c1[6] + c2[6], 30); assert.equal(c1[5] + c2[5], 100);                                 // học sinh: mỗi em một lần (chi phí cho mỗi học sinh không bị nhân đôi)
   assert.ok(Math.abs((c1[4] + c2[4]) / (c1[0] + c2[0]) - 0.3) < 1e-9);
 });
+
+test('packOf + prompt: data_quality có low_coverage_before và paid_rows_not_linked_to_registration, và lời nhắc cho Claude nhắc tới cả hai', async () => {
+  const m = { v: 1, winFrom: '2026-08-23', lowCovUntil: '2026-10-01', camps: { 111111: { n: 'TS6', p: 'TS6' } }, days: { '2026-11-05': { 111111: [10, 0, 0, 4, 2, 4, 2] } }, lag: { reg: [0, 0, 0], paid: [0, 0, 0] }, cov: { students: 10, ext: 10, extWithPhone: 10, extWithRegDate: 10, paidExt: 5, paidExtWithPhone: 5, unlinkedPaid: 3, paidByProg: {} }, unmatchedPaid: {}, paidNoPhone: {} };
+  const p = M.packOf(m, '2026-11-20', null); assert.equal(p.data_quality.low_coverage_before, '2026-10-01'); assert.equal(p.data_quality.paid_rows_not_linked_to_registration, 3);
+  assert.match(p.data_quality.note, /low_coverage_before/); assert.match(p.data_quality.note, /paid_rows_not_linked_to_registration/);
+  const prompt = (await import('node:fs')).readFileSync(new URL('../server/insights-ai.js', import.meta.url), 'utf8'); assert.match(prompt, /low_coverage_before/); assert.match(prompt, /paid_rows_not_linked_to_registration/);
+});
