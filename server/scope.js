@@ -61,8 +61,8 @@ const iso = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(
 const num = v => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1e9 ? v : null;
 /* Tài liệu đối chiếu phụ huynh (fbmatch) và trạng thái cập nhật (leadsync) cũng chỉ ra trang khi đúng cấu trúc đã biết; chuỗi lạ bị loại. */
 export async function checkedMatchDocs(docs) {
-  if (!docs.fbmatch && !docs.leadsync) return docs;
-  const next = Object.assign({}, docs);
+  const next = Object.assign({}, docs); delete next.fbmatch_prev;            // bản sao lưu của máy chủ, trang không cần
+  if (!docs.fbmatch && !docs.leadsync) return next;
   if (docs.fbmatch) {
     await import('../admissions.js'); await import('../leadmatch.js');
     const v = globalThis.FBMatch.validate(docs.fbmatch);

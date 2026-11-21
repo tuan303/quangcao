@@ -17,7 +17,8 @@
 
   var PROGRAMS = ['TS1', 'JS', 'TS6', 'TS10', 'HB', 'OTHER'];   // OTHER: chiến dịch không ghép được chương trình
   var MAX_SIBLINGS = 6;          // một số điện thoại khớp quá nhiều học sinh: số dùng chung, không khớp
-  var KEEP_DAYS = 88;            // Meta chỉ cho đọc lead trong 90 ngày (lần đọc lấy từ 90 ngày trước); ngày cũ hơn 88 ngày mới đóng băng, để còn vài lần chạy sửa được nếu một lần đọc bị hụt
+  var KEEP_DAYS = 60;            // Ngày điền form cũ hơn 60 ngày được đóng băng (giữ số của lần chạy trước). Meta chỉ cho đọc lead trong 90 ngày; khoảng 60–90 ngày chỉ dùng để nhận ra phụ huynh đã điền form từ trước.
+                                 // Cửa sổ ngắn hơn 90 ngày để một phụ huynh điền form hai lần không bị tính hai lần khi lần đầu đã quá hạn 90 ngày mà lần sau còn trong cửa sổ (chỉ còn xảy ra khi hai lần cách nhau hơn 30 ngày).
   var ORGANIC = 'organic', NONE = 'none';
   /* Ô số liệu theo ngày điền form × chiến dịch, thứ tự cố định:
    *  l  phụ huynh (gia đình) điền form        i  chỉ khớp học sinh nội bộ          b  chỉ khớp học sinh đã đăng ký trước form
@@ -32,11 +33,11 @@
     var v = new Date(t + 7 * 3600000).toISOString(); return { day: v.slice(0, 10), at: v.slice(0, 19) };
   }
   function daysBetween(a, b) { var x = Date.parse(a + 'T00:00:00Z'), y = Date.parse(b + 'T00:00:00Z'); return isFinite(x) && isFinite(y) ? Math.round((y - x) / 86400000) : null; }
-  function cleanName(s) { return String(s == null ? '' : s).normalize('NFC').replace(/[^\p{L}\p{N} _\-|·()\[\].,+&/:%#]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 120); }
+  function cleanName(s) { return String(s == null ? '' : s).normalize('NFC').replace(/[^\p{L}\p{N} _\-|·()\[\].,+&/:%#]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
 
   /* ---------------- lead ---------------- */
   var PHONE_FIELD = /(phone|sdt|dien.?thoai|di.?dong|zalo|mobile)/, MAIL_FIELD = /e.?mail/;
-  /** Lead từ Graph API (mục leads của biểu mẫu) → { id, day, at, cid, cname, organic, ph, em }. ph/em là khoá đã chuẩn hoá, chỉ để khớp và không bao giờ được lưu. */
+  /** Lead từ Graph API (mục leads của biểu mẫu) → { id, day, at, cid, cname, prog, organic, ph, em } (prog: chương trình theo tên chiến dịch nguyên văn, cùng cách ghép với chi tiêu). ph/em là khoá đã chuẩn hoá, chỉ để khớp và không bao giờ được lưu. */
   function leadFromGraph(l) {
     var A = adm(), ph = [], em = [], push = function (arr, k) { if (k && arr.indexOf(k) < 0) arr.push(k); };
     (l && Array.isArray(l.field_data) ? l.field_data : []).forEach(function (f) {
@@ -50,7 +51,8 @@
     });
     var t = vnDay(l && l.created_time), cid = String(l && l.campaign_id || '').replace(/\D/g, '');
     var organic = !!(l && (l.is_organic === true || l.is_organic === 'true'));
-    return { id: String(l && l.id || '').slice(0, 40), day: t.day, at: t.at, cid: organic ? ORGANIC : (cid && cid.length <= 20 ? cid : NONE), cname: cleanName(l && l.campaign_name), organic: organic, ph: ph, em: em };
+    var raw = String(l && l.campaign_name || '');
+    return { id: String(l && l.id || '').slice(0, 40), day: t.day, at: t.at, cid: organic ? ORGANIC : (cid && cid.length <= 20 ? cid : NONE), cname: cleanName(raw), prog: raw ? A.programOf(raw) || '' : '', organic: organic, ph: ph, em: em };
   }
 
   /* ---------------- học sinh ---------------- */
@@ -92,15 +94,22 @@
     dated.sort(function (a, b) { return a.at < b.at ? -1 : a.at > b.at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }); // ổn định: cùng giờ thì theo mã lead
     // Một phụ huynh = các lead nối với nhau bằng bất kỳ SĐT hay email chung (nhiều số trong một form, hoặc lead sau có thêm số/email đã gặp ở lead trước).
     // Duyệt theo thời gian nên phụ huynh được lập bởi lead sớm nhất; khi một lead nối hai phụ huynh đã lập, giữ phụ huynh sớm hơn (first touch).
+    // Khoá "trung tâm": một email/SĐT đi cùng từ HUB khoá khác nhau trở lên trong các lead (chữ giữ chỗ như abc@..., số dùng chung của người khác) không xác định một phụ huynh:
+    // bỏ khỏi việc nối phụ huynh và tra học sinh, nếu không nhiều gia đình không liên quan bị gộp làm một (mất chuyển đổi hoặc co mẫu số).
+    var HUB = 4, partner = Object.create(null), hub = Object.create(null), hubOnly = 0;
+    var keysOf = function (l) { return l.ph.map(function (k) { return 'p' + k; }).concat(l.em.map(function (k) { return 'e' + k; })); };
+    dated.forEach(function (l) { var ks = keysOf(l); ks.forEach(function (k) { var s = partner[k] || (partner[k] = Object.create(null)); ks.forEach(function (o) { if (o !== k) s[o] = 1; }); }); });
+    Object.keys(partner).forEach(function (k) { if (Object.keys(partner[k]).length >= HUB) hub[k] = 1; });
     var P = [], uf = [], keyOwner = Object.create(null), noContact = all.length - dated.length;
     var find = function (i) { while (uf[i] !== i) { uf[i] = uf[uf[i]]; i = uf[i]; } return i; };
     dated.forEach(function (l) {
-      var keys = l.ph.map(function (k) { return 'p' + k; }).concat(l.em.map(function (k) { return 'e' + k; }));
-      if (!keys.length) { noContact++; return; }
+      var allKeys = keysOf(l), keys = allKeys.filter(function (k) { return !hub[k]; });
+      l = Object.assign({}, l, { ph: l.ph.filter(function (k) { return !hub['p' + k]; }), em: l.em.filter(function (k) { return !hub['e' + k]; }) });
+      if (!keys.length) { if (allKeys.length) hubOnly++; noContact++; return; }
       var roots = [];
       keys.forEach(function (k) { if (keyOwner[k] != null) { var r = find(keyOwner[k]); if (roots.indexOf(r) < 0) roots.push(r); } });
       var id;
-      if (!roots.length) { id = P.length; P.push({ day: l.day, cid: l.cid, cname: l.cname, ph: [], em: [] }); uf.push(id); } // lead đầu tiên (đã sắp theo thời gian) là first touch
+      if (!roots.length) { id = P.length; P.push({ day: l.day, cid: l.cid, cname: l.cname, prog: l.prog, ph: [], em: [] }); uf.push(id); } // lead đầu tiên (đã sắp theo thời gian) là first touch
       else {
         id = Math.min.apply(null, roots);
         roots.forEach(function (r) { if (r === id) return; uf[r] = id; P[r].ph.forEach(function (k) { if (P[id].ph.indexOf(k) < 0) P[id].ph.push(k); }); P[r].em.forEach(function (k) { if (P[id].em.indexOf(k) < 0) P[id].em.push(k); }); });
@@ -112,12 +121,12 @@
     var order = [], organic = 0, parents = {};
     P.forEach(function (q, i) { if (uf[i] === i) { parents[i] = q; order.push(i); if (q.cid === ORGANIC) organic++; } });
     var days = Object.create(null), camps = Object.create(null), claimed = Object.create(null), lagReg = [], lagPaid = [];
-    var st = { rows: all.length, parents: order.length, noContact: noContact, organic: organic, dupFamily: 0, ambiguous: 0, matched: 0, internalOnly: 0, preRegistered: 0, crossProgram: 0 };
+    var st = { rows: all.length, parents: order.length, noContact: noContact, hubKeys: Object.keys(hub).length, organic: organic, dupFamily: 0, ambiguous: 0, matched: 0, internalOnly: 0, preRegistered: 0, crossProgram: 0 };
     var cellOf = function (q) {
       var cell = (days[q.day] || (days[q.day] = Object.create(null)))[q.cid] || (days[q.day][q.cid] = zero());
       var cp = camps[q.cid];
-      if (!cp) camps[q.cid] = { n: q.cid === ORGANIC ? 'Lead tự nhiên (không từ quảng cáo)' : q.cid === NONE ? 'Chưa rõ chiến dịch' : q.cname, p: q.cid === ORGANIC || q.cid === NONE ? 'OTHER' : (A.programOf(q.cname) || 'OTHER') };
-      else if (!cp.n && q.cname) { cp.n = q.cname; cp.p = A.programOf(q.cname) || 'OTHER'; }
+      if (!cp) camps[q.cid] = { n: q.cid === ORGANIC ? 'Lead tự nhiên (không từ quảng cáo)' : q.cid === NONE ? 'Chưa rõ chiến dịch' : q.cname, p: q.cid === ORGANIC || q.cid === NONE ? 'OTHER' : (q.prog || 'OTHER') };
+      else if (!cp.n && q.cname) { cp.n = q.cname; cp.p = q.prog || 'OTHER'; }
       return cell;
     };
     order.forEach(function (pid) {
@@ -159,12 +168,14 @@
     };
   }
 
-  /** Gộp lần đối chiếu mới với lần trước: ngày từ `windowFrom` trở đi lấy theo lần mới (số cập nhật khi phụ huynh đăng ký/đóng phí), ngày cũ hơn giữ nguyên số của lần trước
+  /** Gộp lần đối chiếu mới với lần trước: ngày từ `windowFrom` trở đi lấy theo lần mới (số cập nhật khi phụ huynh đăng ký/đóng phí), ngày cũ hơn giữ nguyên số của lần trước (kể cả khi lần trước không có ô ngày đó)
    *  (Meta chỉ cho đọc lead trong 90 ngày nên lead cũ hơn không còn để tính lại). Khác mùa tuyển sinh thì không gộp (prev = null). */
   function mergeMatch(prev, next, windowFrom) {
     var out = { v: 1, season: next.season || '', leads: next.leads, cov: next.cov, lag: next.lag, unmatchedPaid: next.unmatchedPaid, paidNoPhone: next.paidNoPhone, days: {}, camps: {} };
     if (prev && prev.days) Object.keys(prev.days).forEach(function (d) { if (d < windowFrom) out.days[d] = prev.days[d]; });
-    Object.keys(next.days).forEach(function (d) { if (d >= windowFrom || !out.days[d]) out.days[d] = next.days[d]; });
+    // Ngày cũ hơn mốc đóng băng chỉ lấy từ lần mới khi chưa có lần trước (lần đầu). Có lần trước mà ngày đó không có ô thì giữ không có ô: lần mới chỉ thấy các lead còn trong 90 ngày nên một phụ huynh
+    // đã điền form từ trước đó (lần đầu đã hết hạn) hiện ra như phụ huynh mới ở ngày này và sẽ bị tính hai lần.
+    Object.keys(next.days).forEach(function (d) { if (d >= windowFrom || !prev) out.days[d] = next.days[d]; });
     var pc = prev && prev.camps || {}; Object.keys(pc).forEach(function (c) { out.camps[c] = pc[c]; }); Object.keys(next.camps).forEach(function (c) { out.camps[c] = next.camps[c]; });
     Object.keys(out.days).forEach(function (d) { Object.keys(out.days[d]).forEach(function (c) { if (!out.camps[c]) out.camps[c] = { n: '', p: 'OTHER' }; }); });
     var ks = Object.keys(out.days).sort(); out.from = ks[0] || ''; out.to = ks[ks.length - 1] || '';
@@ -248,7 +259,8 @@
    *  chưa đủ mẫu thì dùng 30 ngày. recentFrom = ngày sớm nhất mà nhóm lead từ đó trở đi còn chưa đủ thời gian. */
   function maturity(m, today) {
     var lag = m && m.lag && m.lag.paid || [0, 0, 0], known = lag[0] >= 10, days = known ? Math.max(7, lag[2]) : 30;
-    return { known: known, n: lag[0], p50: lag[1], p90: lag[2], days: days, recentFrom: adm().addDays(today, -days), regP50: m && m.lag && m.lag.reg ? m.lag.reg[1] : 0 };
+    // binding: nhóm lead bị chốt sau KEEP_DAYS ngày, nên đóng phí muộn hơn mốc đó không được tính và số ngày đo được bị cắt (thấp hơn thực tế) khi phân vị 90 đã gần mốc chốt
+    return { known: known, n: lag[0], p50: lag[1], p90: lag[2], days: days, binding: known && lag[2] >= KEEP_DAYS * 0.8, closeAfter: KEEP_DAYS, recentFrom: adm().addDays(today, -days), regP50: m && m.lag && m.lag.reg ? m.lag.reg[1] : 0 };
   }
   /** Học sinh đã đóng phí (ngoài nội bộ) khớp được với một phụ huynh điền form Facebook quảng cáo, so với tổng số: dùng để biết kết quả đáng tin đến đâu. */
   function attribution(m) {
@@ -292,7 +304,7 @@
     if (!m || typeof m !== 'object' || m.v !== 1) return bad('Dữ liệu đối chiếu không đúng định dạng.');
     var out = { v: 1 }, L = m.leads && typeof m.leads === 'object' ? m.leads : {}, cv = m.cov && typeof m.cov === 'object' ? m.cov : {};
     out.season = typeof m.season === 'string' && /^20\d{2}–\d{2}$/.test(m.season) ? m.season : '';
-    out.leads = {}; ['rows', 'parents', 'noContact', 'organic', 'dupFamily', 'ambiguous', 'matched', 'internalOnly', 'preRegistered', 'crossProgram'].forEach(function (k) { out.leads[k] = int0(L[k]) || 0; });
+    out.leads = {}; ['rows', 'parents', 'noContact', 'hubKeys', 'organic', 'dupFamily', 'ambiguous', 'matched', 'internalOnly', 'preRegistered', 'crossProgram'].forEach(function (k) { out.leads[k] = int0(L[k]) || 0; });
     out.cov = {}; ['students', 'withPhone', 'ext', 'extWithPhone', 'extWithRegDate', 'paidExt', 'paidExtWithPhone'].forEach(function (k) { out.cov[k] = int0(cv[k]) || 0; });
     if (out.cov.withPhone > out.cov.students || out.cov.extWithPhone > out.cov.ext || out.cov.paidExtWithPhone > out.cov.paidExt || out.cov.extWithRegDate > out.cov.ext || out.cov.paidExt > out.cov.ext) return bad('Độ phủ số điện thoại không hợp lệ.');
     out.cov.paidByProg = {};

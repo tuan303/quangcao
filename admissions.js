@@ -45,6 +45,8 @@
     if (d.charAt(0) === '0') d = d.slice(1);
     var seen = {}, n = 0; for (var i = 0; i < d.length; i++) if (!seen[d.charAt(i)]) { seen[d.charAt(i)] = 1; n++; }
     if (n <= 2) return '';
+    var up = true, dn = true, t7 = d.slice(-7); for (var j = 1; j < 7; j++) { var df = (t7.charCodeAt(j) - t7.charCodeAt(j - 1) + 10) % 10; if (df !== 1) up = false; if (df !== 9) dn = false; }
+    if (up || dn) return ''; // số giả (bảy chữ số cuối là dãy tăng hoặc giảm liên tiếp): không xác định được người
     return d.length === 9 && /^[35789]/.test(d) ? d : d.length === 10 && d.charAt(0) === '2' ? d : '';
   }
   /** Mọi khoá điện thoại trong một ô: một số, hoặc nhiều số cách nhau bằng dấu phẩy, chấm phẩy, gạch chéo, xuống dòng, chữ ("và", "Bố:", "Mẹ:"), ngoặc,
@@ -66,7 +68,9 @@
     return out;
   }
   /** Khoá email: chữ thường, đúng dạng, tối đa 120 ký tự; ngược lại ''. */
-  function emailKey(v) { if (typeof v !== 'string') return ''; var t = v.trim().toLowerCase(); return t.length <= 120 && /^[^\s@,;<>()]+@[^\s@,;<>()]+\.[a-z]{2,}$/.test(t) ? t : ''; }
+  /* Địa chỉ giữ chỗ người ta hay gõ khi không muốn cho email (abc@…, test@…, a@…): không xác định được người nên không dùng để khớp. */
+  var PLACEHOLDER_MAIL = /^(a|aa|aaa|abc|abcd|abcde|xyz|xxx|test|tests|testing|demo|sample|example|email|mail|none|null|unknown|noemail|nomail|khongco|khong)$/;
+  function emailKey(v) { if (typeof v !== 'string') return ''; var t = v.trim().toLowerCase(); return t.length <= 120 && /^[^\s@,;<>()]+@[^\s@,;<>()]+\.[a-z]{2,}$/.test(t) && !PLACEHOLDER_MAIL.test(t.split('@')[0]) ? t : ''; }
   function emailKeys(v) { if (typeof v !== 'string') return []; var out = []; v.split(/[\s,;|]+/).forEach(function (t) { var k = emailKey(t); if (k && out.indexOf(k) < 0) out.push(k); }); return out; }
 
   /* ---------------- ngày ---------------- */
@@ -117,6 +121,11 @@
     var c = {};
     for (var j = 0; j < header.length; j++) {
       var n = norm(header[j]); if (!n) continue;
+      // Cột liên hệ của phụ huynh: nhận mọi tên có SĐT/điện thoại/zalo/email (kể cả đuôi số "SĐT1", ghép "Họ tên và SĐT phụ huynh"), trừ cột của trường, giáo viên, tư vấn viên (số dùng chung cho nhiều học sinh).
+      if (!/(^| )(truong|nha truong|giao vien|gv|tu van|nhan vien|can bo|tuyen sinh|hotline)( |$)/.test(n)) {
+        if (/(^| )(sdt\w*|so dien thoai|dien thoai|so dt|dt (bo|me|ph|phu huynh|uu tien|hs|hoc sinh)|di dong|didong|phone\d*|zalo|tel|mobile)( |$)/.test(n) || (/(^| )dt( |$)/.test(n) && !/(^| )(ma|ngay|han|gio|loai)( |$)/.test(n))) { (c.phones || (c.phones = [])).push(j); (c.phoneHeaders || (c.phoneHeaders = [])).push(String(header[j]).replace(/\s+/g, ' ').trim().slice(0, 30)); }
+        if (/(^| )(email\d*|e mail|mail\d*|gmail|thu dien tu)( |$)/.test(n)) { (c.emails || (c.emails = [])).push(j); (c.emailHeaders || (c.emailHeaders = [])).push(String(header[j]).replace(/\s+/g, ' ').trim().slice(0, 30)); }
+      }
       if (n === 'mdt' && c.mdt == null) c.mdt = j;
       else if (isInternalHeader(n) && c.internal == null) c.internal = j;
       else if (/^khoi/.test(n) && c.khoi == null) { c.khoi = j; c.khoiHeader = String(header[j]); }
@@ -125,8 +134,6 @@
         if (c.name == null || (strict && !c.nameStrict)) { c.name = j; c.nameStrict = strict; }
       }
       else if (n === 'chien dich' && c.program == null) c.program = j;
-      else if (/(^| )(sdt\w*|so dien thoai|dien thoai|so dt|dt (bo|me|ph|phu huynh|uu tien|hs|hoc sinh)|di dong|didong|phone\d*|zalo|tel|mobile|hotline)( |$)/.test(n) || (/(^| )dt( |$)/.test(n) && !/(^| )(ma|ngay|han|gio|loai)( |$)/.test(n))) (c.phones || (c.phones = [])).push(j);
-      else if (/(^| )(email\d*|e mail|mail\d*|gmail|thu dien tu)( |$)/.test(n)) (c.emails || (c.emails = [])).push(j);
       else if (/(^| )ngay (nhan )?(dang k[yi]|dk)( |$)/.test(n) && c.regDate == null) c.regDate = j;
       else if (/(^| )ngay ((dong|nop|thu) (hoc )?phi|dp|da dong phi)( |$)/.test(n) && c.paidDate == null) c.paidDate = j;
     }
@@ -330,7 +337,7 @@
   function columnsInfo(rows) {
     var h = findHeader(rows || []); if (h < 0) return null;
     var c = columnsOf(rows[h]);
-    return { headerRow: h + 1, phones: (c.phones || []).length, emails: (c.emails || []).length, internal: c.internal != null, program: c.program != null, khoi: c.khoi != null, regDate: c.regDate != null, paidDate: c.paidDate != null };
+    return { headerRow: h + 1, phones: (c.phones || []).length, emails: (c.emails || []).length, phoneHeaders: c.phoneHeaders || [], emailHeaders: c.emailHeaders || [], internal: c.internal != null, program: c.program != null, khoi: c.khoi != null, regDate: c.regDate != null, paidDate: c.paidDate != null };
   }
   var NOT_XLSX = 'Chỉ đọc được file Excel .xlsx (Google Sheets: Tệp → Tải xuống → Microsoft Excel). File .xls, .xlsb, .ods, .csv hoặc file có mật khẩu không đọc được.';
   /** Đọc workbook bằng thư viện SheetJS (đối tượng X) từ ArrayBuffer rồi tổng hợp. `today` (YYYY-MM-DD, giờ Việt Nam) dùng để loại ngày nhập sai năm; mặc định là hôm nay. */

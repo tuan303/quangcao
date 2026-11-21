@@ -308,7 +308,8 @@ test('checkSetup: báo từng bước cho quản trị — cột SĐT, độ ph�
     const r = await S.checkSetup({ env: ENV, today: TODAY });
     assert.deepEqual(r.serviceAccount, { email: SA.client_email, projectId: SA.project_id }); assert.deepEqual(r.config, { sheet: true, sheetSet: true, meta: true, ready: true });
     const by = id => r.sheet.steps.find(s => s.id === id);
-    assert.ok(by('read').ok && /DATA TUYỂN SINH/.test(by('read').text)); assert.ok(by('reg').ok); assert.ok(by('phones-reg').ok && /2 cột SĐT, 1 cột email/.test(by('phones-reg').text));
+    assert.ok(by('read').ok && /DATA TUYỂN SINH/.test(by('read').text)); assert.ok(by('reg').ok); assert.ok(by('phones-reg').ok && /2 cột SĐT \("SĐT bố", "SĐT mẹ"\), 1 cột email \("Email phụ huynh"\)/.test(by('phones-reg').text), by('phones-reg').text);
+    assert.equal(by('dates').ok, true); assert.match(by('dates').text, /4\/4 học sinh ngoài nội bộ \(100%\)/);
     assert.ok(by('paid-LỚP 10 2728 (ĐP)').ok && /1 cột SĐT/.test(by('paid-LỚP 10 2728 (ĐP)').text)); assert.equal(by('skipped').ok, false);
     assert.equal(by('coverage').ok, false); assert.match(by('coverage').text, /đã đóng phí có SĐT\/email: 2\/3 \(67%\)/);   // dưới 90%: chưa đáng tin
     assert.ok(r.meta.steps.some(s => s.id === 'pages' && s.ok)); nope(JSON.stringify(r), PII);

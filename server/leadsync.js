@@ -77,7 +77,10 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     stage = 'match';
     const next = M.matchLeads(raw.leads.map(M.leadFromGraph), ag.students);
     next.season = vs.summary.season || '';
-    const pv = prevDocs.fbmatch && M.validate(prevDocs.fbmatch), prev = pv && pv.ok && pv.match.season === next.season ? pv.match : null;
+    // Số đã gộp của lần trước chỉ bị bỏ khi chuyển sang mùa khác hợp lệ (cả hai mùa đều đọc được và khác nhau). Số lưu không còn đọc được theo cấu trúc hiện tại thì không tự bỏ: dừng để quản trị quyết định.
+    const pv = prevDocs.fbmatch && M.validate(prevDocs.fbmatch);
+    if (prevDocs.fbmatch && !(pv && pv.ok) && !force) throw fail('Số đối chiếu đang lưu không đọc được theo cấu trúc hiện tại (' + String(pv && pv.error || 'sai dạng').slice(0, 120) + ') nên chưa ghi đè. Nếu bạn chắc muốn bắt đầu lại từ lead còn đọc được (90 ngày gần nhất), bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true });
+    const prev = pv && pv.ok && (!pv.match.season || pv.match.season === next.season) ? pv.match : null;
     const from = M.windowFrom(today), before = leadsFrom(prev, from), after = leadsFrom(next, from);
     if (!force && prev && before >= 20 && after < before * 0.7) throw fail('Số lead đọc được lần này (' + after + ') thấp hơn hẳn lần trước (' + before + ') cho cùng khoảng ngày nên chưa ghi đè. Kiểm tra quyền đọc lead của token Meta và các biểu mẫu; nếu đúng là số mới, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true });
     // Sheet đọc kém hẳn lần trước (cùng mùa): dừng trước khi ghi đè hay đóng băng số hụt
@@ -92,6 +95,7 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     const stats = { rows: next.leads.rows, parents: next.leads.parents, matched: next.leads.matched, students: next.cov.students, studentsWithPhone: next.cov.withPhone, paidExt: next.cov.paidExt, paidExtWithPhone: next.cov.paidExtWithPhone, forms: raw.forms, pages: raw.pages, skippedForms: raw.skippedForms, from: next.winFrom };
     const ms = Date.now() - started;
     await store.writeDocs({
+      ...(pv && pv.ok ? { fbmatch_prev: prevDocs.fbmatch } : {}),   // một bản sao của số đã gộp trước đó, để quay lại được nếu một lần ghi sai lọt qua các chốt chặn
       fbmatch: vm.match,
       admissions: Object.assign({}, vs.summary, { uploadedAt: new Date().toISOString(), by: null, source: 'sheet' }),
       leadsync: Object.assign({}, base, { ok: true, stage: null, error: null, ms, stats, runningUntil: null })
@@ -132,8 +136,9 @@ export async function checkSetup({ env = process.env, today: todayArg } = {}) {
       add('read', true, 'Đọc được Google Sheet "' + book.title + '" (' + book.tabs.length + ' tab cần dùng).');
       const ri = A.columnsInfo(book.reg);
       add('reg', !!ri && ri.internal && ri.program, ri ? 'Tab "' + book.tabs[0].slice(0, 40) + '": ' + (book.reg.length - ri.headerRow) + ' dòng; cột HS nội bộ ' + (ri.internal ? 'có' : 'THIẾU') + ', Chiến dịch ' + (ri.program ? 'có' : 'THIẾU') + ', Ngày đăng ký ' + (ri.regDate ? 'có' : 'chưa có') + ', Ngày đóng phí ' + (ri.paidDate ? 'có' : 'chưa có') + '.' : 'Không thấy dòng tiêu đề có cột MDT ở tab Danh sách đăng ký.');
-      add('phones-reg', !!ri && ri.phones > 0, ri && ri.phones > 0 ? 'Tab Danh sách đăng ký có ' + ri.phones + ' cột SĐT' + (ri.emails ? ', ' + ri.emails + ' cột email' : '') + '.' : 'Tab Danh sách đăng ký CHƯA có cột SĐT phụ huynh (tên cột như "SĐT bố", "SĐT mẹ", "SĐT ưu tiên", "Zalo"). Cần thêm để đối chiếu.');
-      book.paid.forEach(p => { const pi = A.columnsInfo(p.rows); add('paid-' + p.name, !!pi, 'Tab "' + p.name.slice(0, 40) + '": ' + (pi ? (p.rows.length - pi.headerRow) + ' dòng, ' + pi.phones + ' cột SĐT' : 'không thấy cột MDT') + '.'); });
+      const hn = a => a.length ? ' (' + a.slice(0, 6).map(s => '"' + s + '"').join(', ') + ')' : '';
+      add('phones-reg', !!ri && ri.phones > 0, ri && ri.phones > 0 ? 'Tab Danh sách đăng ký có ' + ri.phones + ' cột SĐT' + hn(ri.phoneHeaders) + (ri.emails ? ', ' + ri.emails + ' cột email' + hn(ri.emailHeaders) : '') + '.' : 'Tab Danh sách đăng ký CHƯA có cột SĐT phụ huynh (tên cột như "SĐT bố", "SĐT mẹ", "SĐT ưu tiên", "Zalo"). Cần thêm để đối chiếu.');
+      book.paid.forEach(p => { const pi = A.columnsInfo(p.rows); add('paid-' + p.name, !!pi, 'Tab "' + p.name.slice(0, 40) + '": ' + (pi ? (p.rows.length - pi.headerRow) + ' dòng, ' + pi.phones + ' cột SĐT' + (pi.phones ? hn(pi.phoneHeaders) : '') : 'không thấy cột MDT') + '.'); });
       if (book.skipped.length) add('skipped', false, 'Tab (ĐP) chưa đọc được vì tên không kết thúc bằng "(ĐP)": ' + book.skipped.slice(0, 5).map(s => '"' + s.slice(0, 40) + '"').join(', ') + '.');
       const ag = A.aggregate({ reg: book.reg, paid: book.paid, skipped: book.skipped, collect: true, today: A.isDayKey(todayArg) ? todayArg : C.dates.todayVN() });
       if (!ag.ok) add('aggregate', false, ag.error);
@@ -141,6 +146,7 @@ export async function checkSetup({ env = process.env, today: todayArg } = {}) {
         const S = Object.values(ag.students), ext = S.filter(s => !s.int), paid = ext.filter(s => s.paid), has = s => (s.ph && s.ph.length) || (s.em && s.em.length);
         const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '—';
         add('coverage', paid.length ? paid.filter(has).length / paid.length >= 0.9 : false, 'Học sinh ngoài (không nội bộ) có SĐT/email: ' + ext.filter(has).length + '/' + ext.length + ' (' + pct(ext.filter(has).length, ext.length) + '); đã đóng phí có SĐT/email: ' + paid.filter(has).length + '/' + paid.length + ' (' + pct(paid.filter(has).length, paid.length) + '). Cần từ 90% để kết quả đáng tin.');
+        const dated = ext.filter(s => s.rd).length; add('dates', ext.length > 0 && dated / ext.length >= 0.9, 'Ngày đăng ký đọc được ở ' + dated + '/' + ext.length + ' học sinh ngoài nội bộ (' + pct(dated, ext.length) + '). Cần từ 90% để loại học sinh đã đăng ký trước khi phụ huynh điền form.');
       }
     } catch (e) { add('read', false, e && e.expose ? e.message : 'Không đọc được Google Sheet.'); }
   }
