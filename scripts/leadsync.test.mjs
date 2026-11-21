@@ -309,6 +309,9 @@ test('runLeadSync: không ghi đè khi Meta trả ít lead hơn hẳn lần trư
   // khoá: đang có lần chạy khác
   store = memStore({ leadsync: { v: 1, runningUntil: new Date(Date.now() + 60000).toISOString() } }); f = stubFetch(routes());
   try { await assert.rejects(() => S.runLeadSync({ env: ENV, today: TODAY, store }), e => e.status === 409 && e.busy === true); assert.equal(f.calls.length, 0); assert.deepEqual(store.writes, []); } finally { f.restore(); }
+  // khoá vô lý (năm 2100) là dữ liệu hỏng: không chặn mãi
+  store = memStore({ leadsync: { v: 1, runningUntil: '2100-01-01T00:00:00.000Z' } }); G.resetTokenCache(); f = stubFetch(routes());
+  try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store })).ok, true); } finally { f.restore(); G.resetTokenCache(); }
   // khoá đã quá hạn thì chạy được
   store = memStore({ leadsync: { v: 1, runningUntil: new Date(Date.now() - 60000).toISOString() } }); G.resetTokenCache(); f = stubFetch(routes());
   try { assert.equal((await S.runLeadSync({ env: ENV, today: TODAY, store })).ok, true); } finally { f.restore(); G.resetTokenCache(); }

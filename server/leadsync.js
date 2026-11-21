@@ -56,8 +56,9 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
   const { C, A, M } = await libs();
   const today = A.isDayKey(todayArg) ? todayArg : C.dates.todayVN();
   const prevDocs = await store.readDocs(['leadsync', 'fbmatch', 'admissions']);
-  const lock = prevDocs.leadsync && prevDocs.leadsync.runningUntil ? Date.parse(prevDocs.leadsync.runningUntil) : 0;
-  if (lock > Date.now()) throw fail('Đang có một lần cập nhật khác chạy. Đợi vài phút rồi thử lại.', { status: 409, busy: true });
+  const left = (prevDocs.leadsync && prevDocs.leadsync.runningUntil ? Date.parse(prevDocs.leadsync.runningUntil) : 0) - Date.now();
+  // khoá xa hơn nhiều so với hạn tối đa là dữ liệu hỏng: bỏ qua thay vì chặn cập nhật mãi
+  if (left > 0 && left <= LOCK_MS * 2) throw fail('Đang có một lần cập nhật khác chạy. Đợi vài phút rồi thử lại.', { status: 409, busy: true });
   const base = { v: 1, at: new Date().toISOString(), by: String(by).slice(0, 20) };
   await store.writeDocs({ leadsync: Object.assign({}, prevDocs.leadsync || {}, { runningUntil: new Date(started + LOCK_MS).toISOString() }) }, { by: base.by });
   let stage = 'sheet';
