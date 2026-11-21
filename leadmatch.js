@@ -57,11 +57,11 @@
   /** Chỉ mục học sinh theo SĐT/email; students là kết quả aggregate({collect:true}).students. */
   function indexStudents(students) {
     var byPh = Object.create(null), byEm = Object.create(null);
-    var st = { students: 0, withPhone: 0, ext: 0, paidExt: 0, paidExtWithPhone: 0, extWithRegDate: 0, paidByProg: Object.create(null), paidPhoneByProg: Object.create(null) };
+    var st = { students: 0, withPhone: 0, ext: 0, extWithPhone: 0, paidExt: 0, paidExtWithPhone: 0, extWithRegDate: 0, paidByProg: Object.create(null), paidPhoneByProg: Object.create(null) };
     Object.keys(students || {}).forEach(function (id) {
       var s = students[id], hasPh = !!(s.ph && s.ph.length) || !!(s.em && s.em.length); st.students++; if (hasPh) st.withPhone++;
       if (!s.int) {
-        st.ext++; if (s.rd) st.extWithRegDate++;
+        st.ext++; if (s.rd) st.extWithRegDate++; if (hasPh) st.extWithPhone++;
         if (s.paid) { st.paidExt++; st.paidByProg[s.p] = (st.paidByProg[s.p] || 0) + 1; if (hasPh) { st.paidExtWithPhone++; st.paidPhoneByProg[s.p] = (st.paidPhoneByProg[s.p] || 0) + 1; } }
       }
       (s.ph || []).forEach(function (k) { (byPh[k] || (byPh[k] = [])).push(id); });
@@ -153,7 +153,7 @@
     return {
       v: 1, from: dayKeys[0] || '', to: dayKeys[dayKeys.length - 1] || '', winFrom: dated.length ? dated[0].day : '',
       leads: st,
-      cov: { students: idx.stats.students, withPhone: idx.stats.withPhone, ext: idx.stats.ext, extWithRegDate: idx.stats.extWithRegDate, paidExt: idx.stats.paidExt, paidExtWithPhone: idx.stats.paidExtWithPhone, paidByProg: outCp },
+      cov: { students: idx.stats.students, withPhone: idx.stats.withPhone, ext: idx.stats.ext, extWithPhone: idx.stats.extWithPhone, extWithRegDate: idx.stats.extWithRegDate, paidExt: idx.stats.paidExt, paidExtWithPhone: idx.stats.paidExtWithPhone, paidByProg: outCp },
       lag: { reg: quant(lagReg), paid: quant(lagPaid) },
       days: outDays, camps: outCamps, unmatchedPaid: unmatchedPaid, paidNoPhone: paidNoPhone
     };
@@ -178,8 +178,9 @@
   function blankCell() { var o = {}; CELL.forEach(function (k) { o[k] = 0; }); return o; }
   function sumInto(o, a) { for (var i = 0; i < N; i++) o[CELL[i]] += a[i]; }
   /** Cộng các ô theo ngày điền form trong [since, until] (bỏ trống = không giới hạn). Lead tự nhiên (không từ quảng cáo) tách riêng, không nằm trong `total`.
+   *  skip (tuỳ chọn): { mãChươngTrình: true } — chương trình bị bỏ khỏi `total` và `months` (vẫn có ở `programs` và `campaigns`).
    *  → { total, organic, programs: {TS6:{l,i,b,r,p,rs,ps}}, campaigns: {cid:{…,n,prog}}, months: {'2026-09':{…}}, days } */
-  function summarize(m, since, until) {
+  function summarize(m, since, until, skip) {
     var out = { total: blankCell(), organic: blankCell(), programs: {}, campaigns: {}, months: {}, days: 0 };
     if (!m || !m.days) return out;
     Object.keys(m.days).sort().forEach(function (d) {
@@ -188,10 +189,10 @@
       Object.keys(m.days[d]).forEach(function (c) {
         var a = m.days[d][c], info = m.camps && m.camps[c] || { n: '', p: 'OTHER' }, prog = info.p || 'OTHER';
         if (c === ORGANIC) { sumInto(out.organic, a); return; }
-        sumInto(out.total, a);
+        if (!(skip && skip[prog])) sumInto(out.total, a);
         sumInto(out.programs[prog] || (out.programs[prog] = blankCell()), a);
         var cc = out.campaigns[c] || (out.campaigns[c] = Object.assign(blankCell(), { n: info.n, prog: prog })); sumInto(cc, a);
-        sumInto(out.months[d.slice(0, 7)] || (out.months[d.slice(0, 7)] = blankCell()), a);
+        if (!(skip && skip[prog])) sumInto(out.months[d.slice(0, 7)] || (out.months[d.slice(0, 7)] = blankCell()), a);
       });
     });
     return out;
@@ -203,6 +204,7 @@
   }
 
   /* ---------------- số liệu hiển thị: theo kỳ, chương trình, chiến dịch, tháng ---------------- */
+  var PHONE_OK = 0.9;            // từ 90% học sinh có SĐT/email thì mới tin kết quả khớp của giai đoạn đó
   var MIN_COST = 3;              // chi phí cho mỗi học sinh chỉ tính khi có từ 3 học sinh (ít hơn thì quá nhiễu)
   function progLabel(k) {
     var P = adm() && adm().PROGRAMS || []; for (var i = 0; i < P.length; i++) if (P[i].k === k) return P[i].label;
@@ -220,18 +222,27 @@
    * @returns {{since, until, days, total, organic, programs, campaigns, months, spend}} mỗi nhóm có l,i,b,r,p,rs,ps cộng với base, leadToReg, leadToPaid, regToPaid, spend, costPerReg, costPerPaid
    */
   function view(m, since, until, spend) {
-    var s = summarize(m, since, until), bp = spend && spend.byProgram || {}, bc = spend && spend.byCampaign || {};
-    var five = ['TS1', 'JS', 'TS6', 'TS10', 'HB'], totalSpend = 0; five.forEach(function (k) { totalSpend += bp[k] > 0 ? bp[k] : 0; });
-    var order = five.concat(['OTHER']), progs = [];
-    order.forEach(function (k) { var c = s.programs[k], sp = k === 'OTHER' ? 0 : bp[k] || 0; if ((c && c.l > 0) || sp > 0) progs.push(Object.assign({ k: k, label: progLabel(k) }, withRates(c || blankCell(), sp))); });
-    var camps = Object.keys(s.campaigns).map(function (id) { var c = s.campaigns[id]; return Object.assign({ id: id, n: c.n, prog: c.prog }, withRates(c, bc[id] || 0)); }).sort(function (a, b) { return b.l - a.l || (a.id < b.id ? -1 : 1); });
-    var months = Object.keys(s.months).sort().map(function (k) { return Object.assign({ m: k }, withRates(s.months[k], 0)); });
-    // chi phí của dòng Tổng: chi tiêu của chiến dịch đã ghép chương trình ÷ học sinh của chính các chương trình đó (chiến dịch chưa ghép như thương hiệu không có chi tiêu trong số này)
-    var mapped = blankCell(); five.forEach(function (k) { var c = s.programs[k]; if (c) CELL.forEach(function (x) { mapped[x] += c[x]; }); });
-    var total = withRates(s.total, totalSpend);
-    total.costPerReg = totalSpend > 0 && mapped.rs >= MIN_COST ? totalSpend / mapped.rs : null; total.costPerPaid = totalSpend > 0 && mapped.ps >= MIN_COST ? totalSpend / mapped.ps : null;
-    var other = s.programs.OTHER || blankCell();
-    return { since: since || '', until: until || '', days: s.days, total: total, mapped: mapped, unmapped: other, organic: s.organic, programs: progs, campaigns: camps, months: months, spend: totalSpend };
+    var cov = m && m.cov || {}, bp = spend && spend.byProgram || {}, bc = spend && spend.byCampaign || {};
+    // Đăng ký mà chưa đóng phí chỉ khớp được khi học sinh ngoài nội bộ có SĐT/email trong Sheet; thiếu thì "đã đăng ký" chỉ gồm em đã đóng phí (có SĐT ở tab ĐP) và sẽ bằng "đã đóng phí".
+    var regOk = cov.ext > 0 && (cov.extWithPhone || 0) / cov.ext >= PHONE_OK;
+    // Chương trình mà học sinh đã đóng phí phần lớn chưa có SĐT: không khớp được nên không tính tỷ lệ, chi phí; cũng không đưa vào Tổng.
+    var low = {}; Object.keys(cov.paidByProg || {}).forEach(function (k) { var x = cov.paidByProg[k]; if (x[0] >= 5 && x[1] / x[0] < PHONE_OK) low[k] = [x[1], x[0]]; });
+    var s = summarize(m, since, until, low);
+    var gate = function (o, prog) {
+      if (!regOk) { o.leadToReg = null; o.regToPaid = null; o.costPerReg = null; }
+      if (prog && low[prog]) { o.leadToPaid = null; o.costPerPaid = null; o.lowPhone = true; }
+      return o;
+    };
+    var five = ['TS1', 'JS', 'TS6', 'TS10', 'HB'], okFive = five.filter(function (k) { return !low[k]; }), totalSpend = 0; okFive.forEach(function (k) { totalSpend += bp[k] > 0 ? bp[k] : 0; });
+    var progs = [];
+    five.concat(['OTHER']).forEach(function (k) { var c = s.programs[k], sp = k === 'OTHER' ? 0 : bp[k] || 0; if ((c && c.l > 0) || sp > 0) progs.push(Object.assign({ k: k, label: progLabel(k) }, gate(withRates(c || blankCell(), sp), k))); });
+    var camps = Object.keys(s.campaigns).map(function (id) { var c = s.campaigns[id]; return Object.assign({ id: id, n: c.n, prog: c.prog }, gate(withRates(c, bc[id] || 0), c.prog)); }).sort(function (a, b) { return b.l - a.l || (a.id < b.id ? -1 : 1); });
+    var months = Object.keys(s.months).sort().map(function (k) { return Object.assign({ m: k }, gate(withRates(s.months[k], 0))); });
+    // chi phí của dòng Tổng: chi tiêu của chiến dịch đã ghép chương trình (trừ chương trình thiếu SĐT) ÷ học sinh của chính các chương trình đó; chiến dịch chưa ghép như thương hiệu không có chi tiêu trong số này
+    var mapped = blankCell(); okFive.forEach(function (k) { var c = s.programs[k]; if (c) CELL.forEach(function (x) { mapped[x] += c[x]; }); });
+    var total = gate(withRates(s.total, totalSpend));
+    total.costPerReg = regOk && totalSpend > 0 && mapped.rs >= MIN_COST ? totalSpend / mapped.rs : null; total.costPerPaid = totalSpend > 0 && mapped.ps >= MIN_COST ? totalSpend / mapped.ps : null;
+    return { since: since || '', until: until || '', days: s.days, total: total, mapped: mapped, unmapped: s.programs.OTHER || blankCell(), organic: s.organic, programs: progs, campaigns: camps, months: months, spend: totalSpend, regOk: regOk, lowPhone: low };
   }
   /** Độ trưởng thành của các nhóm lead: lead mới điền form chưa kịp đóng phí. Dựa trên số ngày từ lúc điền form đến lúc đóng phí của các em đã khớp (cần từ 10 em);
    *  chưa đủ mẫu thì dùng 30 ngày. recentFrom = ngày sớm nhất mà nhóm lead từ đó trở đi còn chưa đủ thời gian. */
@@ -247,15 +258,17 @@
     Object.keys(m && m.unmatchedPaid || {}).forEach(function (k) { unmatched += m.unmatchedPaid[k]; });
     var paid = cov.paidExt || 0, attributed = Math.min(paid, ps);
     return { paidExt: paid, fromAds: attributed, fromOrganic: organicPs, noPhone: noPhone, unmatched: unmatched, share: paid > 0 ? attributed / paid : null,
-      phoneShare: paid > 0 ? (cov.paidExtWithPhone || 0) / paid : null, regPhoneShare: cov.ext > 0 ? Math.min(1, (cov.withPhone || 0) / (cov.students || 1)) : null };
+      phoneShare: paid > 0 ? (cov.paidExtWithPhone || 0) / paid : null, regPhoneShare: cov.ext > 0 ? (cov.extWithPhone || 0) / cov.ext : null, regDateShare: cov.ext > 0 ? (cov.extWithRegDate || 0) / cov.ext : null };
   }
   /**
    * Gói số liệu cho phần Phân tích (chỉ số tổng hợp, không có dữ liệu cá nhân): 30 ngày gần nhất, 30 ngày trước đó và toàn bộ thời gian đọc được.
    * spendOf(since, until) → { byProgram, byCampaign } hoặc null.
    */
   function packOf(m, today, spendOf) {
-    var A = adm(), mat = maturity(m, today), at = attribution(m), round = function (v) { return v == null ? null : Math.round(v * 1000) / 1000; };
-    var cellOut = function (c) { return { parents: c.l, only_internal_students: c.i, already_registered_before_form: c.b, registered: c.r, paid: c.p, students_registered: c.rs, students_paid: c.ps, parent_to_registered: round(c.leadToReg), parent_to_paid: round(c.leadToPaid), registered_to_paid: round(c.regToPaid), spend_vnd: Math.round(c.spend || 0), cost_per_paid_student_vnd: c.costPerPaid == null ? null : Math.round(c.costPerPaid) }; };
+    var A = adm(), mat = maturity(m, today), at = attribution(m), round = function (v) { return v == null ? null : Math.round(v * 1000) / 1000; }, v0 = view(m, '', '', null);
+    // số không đáng tin vì thiếu SĐT trong Sheet thì để null (không phải 0), để Claude không nhận định từ số hụt
+    var cellOut = function (c) { return { parents: c.l, only_internal_students: c.i, already_registered_before_form: c.b, registered: v0.regOk ? c.r : null, students_registered: v0.regOk ? c.rs : null, parent_to_registered: round(c.leadToReg), registered_to_paid: round(c.regToPaid),
+      paid: c.lowPhone ? null : c.p, students_paid: c.lowPhone ? null : c.ps, parent_to_paid: round(c.leadToPaid), spend_vnd: Math.round(c.spend || 0), cost_per_paid_student_vnd: c.costPerPaid == null ? null : Math.round(c.costPerPaid) }; };
     var win = function (since, until) {
       var v = view(m, since, until, spendOf && since && until ? spendOf(since, until) : null);
       return { from: since, to: until, total: cellOut(v.total), by_program: v.programs.filter(function (p) { return p.l > 0; }).map(function (p) { return Object.assign({ program: p.k }, cellOut(p)); }),
@@ -263,6 +276,8 @@
     };
     var out = { as_of: today, method: 'Mỗi phụ huynh điền form lead Facebook được đối chiếu với học sinh trong file tuyển sinh theo số điện thoại hoặc email; lead đầu tiên của phụ huynh quyết định ngày và chiến dịch; học sinh nội bộ và học sinh đã đăng ký trước khi điền form không tính cho quảng cáo.',
       lead_history_from: m && m.winFrom || null, last_30d: win(A.addDays(today, -30), A.addDays(today, -1)), prev_30d: win(A.addDays(today, -60), A.addDays(today, -31)), all_time: win('', ''),
+      data_quality: { registration_stage_reliable: v0.regOk, phone_share_of_external_registered: round(at.regPhoneShare), phone_share_of_paid: round(at.phoneShare), registration_date_share: round(at.regDateShare), programs_without_paid_phone: Object.keys(v0.lowPhone),
+        note: 'Khi registration_stage_reliable = false thì không nhận định về số đăng ký hay tỷ lệ đăng ký → đóng phí. Chương trình trong programs_without_paid_phone không có tỷ lệ và không nằm trong tổng. registration_date_share thấp nghĩa là chưa loại được học sinh đã đăng ký trước khi phụ huynh điền form nên tỷ lệ có thể cao hơn thực tế.' },
       attribution: { paid_students_external: at.paidExt, matched_to_facebook_ads: at.fromAds, matched_share: round(at.share), paid_without_phone_in_sheet: at.noPhone, phone_share_of_paid: round(at.phoneShare) },
       maturity: { days_from_form_to_payment_median: mat.known ? mat.p50 : null, days_p90: mat.known ? mat.p90 : null, parents_filling_form_after: mat.recentFrom, note: 'Phụ huynh điền form sau mốc này chưa đủ thời gian để đóng phí nên tỷ lệ của nhóm đó thấp hơn thực tế.' } };
     return out;
@@ -278,8 +293,8 @@
     var out = { v: 1 }, L = m.leads && typeof m.leads === 'object' ? m.leads : {}, cv = m.cov && typeof m.cov === 'object' ? m.cov : {};
     out.season = typeof m.season === 'string' && /^20\d{2}–\d{2}$/.test(m.season) ? m.season : '';
     out.leads = {}; ['rows', 'parents', 'noContact', 'organic', 'dupFamily', 'ambiguous', 'matched', 'internalOnly', 'preRegistered', 'crossProgram'].forEach(function (k) { out.leads[k] = int0(L[k]) || 0; });
-    out.cov = {}; ['students', 'withPhone', 'ext', 'extWithRegDate', 'paidExt', 'paidExtWithPhone'].forEach(function (k) { out.cov[k] = int0(cv[k]) || 0; });
-    if (out.cov.withPhone > out.cov.students || out.cov.paidExtWithPhone > out.cov.paidExt || out.cov.extWithRegDate > out.cov.ext || out.cov.paidExt > out.cov.ext) return bad('Độ phủ số điện thoại không hợp lệ.');
+    out.cov = {}; ['students', 'withPhone', 'ext', 'extWithPhone', 'extWithRegDate', 'paidExt', 'paidExtWithPhone'].forEach(function (k) { out.cov[k] = int0(cv[k]) || 0; });
+    if (out.cov.withPhone > out.cov.students || out.cov.extWithPhone > out.cov.ext || out.cov.paidExtWithPhone > out.cov.paidExt || out.cov.extWithRegDate > out.cov.ext || out.cov.paidExt > out.cov.ext) return bad('Độ phủ số điện thoại không hợp lệ.');
     out.cov.paidByProg = {};
     var pb = cv.paidByProg && typeof cv.paidByProg === 'object' ? cv.paidByProg : {}, pk = Object.keys(pb); if (pk.length > 12) return bad('Quá nhiều chương trình.');
     for (i = 0; i < pk.length; i++) { var a = pb[pk[i]]; if (!PROG_KEY.test(pk[i]) || !Array.isArray(a) || a.length !== 2 || int0(a[0]) == null || int0(a[1]) == null || a[1] > a[0]) return bad('Độ phủ số điện thoại theo chương trình không hợp lệ.'); out.cov.paidByProg[pk[i]] = [int0(a[0]), int0(a[1])]; }

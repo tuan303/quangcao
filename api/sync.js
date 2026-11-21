@@ -227,7 +227,8 @@ async function run(req, res) {
     releaseLock = null; // syncstate vừa ghi không còn runningUntil
     // Cron buổi sáng cũng cập nhật số liệu "phụ huynh điền form Facebook → đóng phí" (đọc Google Sheet + lead) nếu đã cấu hình; còn thời gian mới chạy, lỗi không làm hỏng lần đồng bộ.
     let leadsync = null;
-    if (!dry && who.kind === 'cron' && Date.now() - started < 150000) { const { maybeLeadSync } = await import('../server/leadsync.js'); leadsync = await maybeLeadSync({ by: 'cron' }); }
+    // còn ít nhất 80 giây tới hạn chót 270 giây của các yêu cầu Meta; chưa kịp thì /api/insights (cron thứ hai) làm tiếp
+    if (!dry && who.kind === 'cron' && Date.now() - started < 190000) { const { maybeLeadSync } = await import('../server/leadsync.js'); leadsync = await maybeLeadSync({ by: 'cron' }); }
     send(res, 200, { ok: true, dry, leadsync: leadsync && (leadsync.skipped ? { skipped: leadsync.skipped } : { ok: leadsync.ok !== false, error: leadsync.error || null }), groups, pending: pending.map(x => x.g), ignoredAccounts, calls: calls.length, written, fresh: Object.keys(fresh).length, failed, skipped, checks: checkOut, summary, perAccount, ms: Date.now() - started });
   } catch (e) {
     console.error('[sync]', e);

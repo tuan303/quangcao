@@ -15,7 +15,15 @@ export default async function handler(req, res) {
     if (!who.ok) return send(res, who.status, who);
     if (who.kind === 'cron' && req.method !== 'GET') return send(res, 405, { ok: false, error: 'Cron dùng GET.' });
     if (who.kind === 'user' && (req.method !== 'POST' || who.role !== 'admin')) return send(res, 403, { ok: false, error: 'Chỉ quản trị (FBADS_ADMINS) được yêu cầu viết lại phân tích.' });
-    if (!String(process.env.ANTHROPIC_API_KEY || '').trim()) return send(res, 501, { ok: false, error: 'Chưa cấu hình ANTHROPIC_API_KEY trên Vercel nên máy chủ chưa tự viết được phân tích.' });
+    const started = Date.now();
+    // Cron buổi sáng: cập nhật đối chiếu phụ huynh Facebook → đóng phí nếu lần gần nhất đã cũ (ví dụ lần đồng bộ sớm hơn không còn thời gian). Làm TRƯỚC kiểm tra khoá Anthropic
+    // để việc cập nhật vẫn chạy khi chưa có khoá, và để bài phân tích (nếu có) dùng số mới. Lỗi ở đây không làm hỏng việc còn lại.
+    let leadsync = null;
+    if (who.kind === 'cron') {
+      try { const { withDeadline, setDeadline } = await import('../server/meta.js'); const { maybeLeadSync } = await import('../server/leadsync.js'); leadsync = await withDeadline(async () => { setDeadline(Date.now() + 80000); return maybeLeadSync({ by: 'cron' }); }); }
+      catch (e) { console.error('[insights] bỏ qua cập nhật đối chiếu:', e && e.expose ? e.message : 'lỗi'); }
+    }
+    if (!String(process.env.ANTHROPIC_API_KEY || '').trim()) return send(res, 501, { ok: false, error: 'Chưa cấu hình ANTHROPIC_API_KEY trên Vercel nên máy chủ chưa tự viết được phân tích.', leadsync: leadsync && (leadsync.skipped ? { skipped: leadsync.skipped } : { ok: leadsync.ok !== false, error: leadsync.error || null }) });
 
     await import('../fbads-core.js');
     await import('../benchmarks.js');
@@ -24,11 +32,8 @@ export default async function handler(req, res) {
     const { writeInsights, validate, MODEL } = await import('../server/insights-ai.js');
     const { readAll, writeDocs } = await import('../server/store.js');
     const dry = /^(1|true)$/.test(String((req.query || {}).dry || ''));
-    const started = Date.now(), today = C.dates.todayVN();
+    const today = C.dates.todayVN();
 
-    // đối chiếu phụ huynh Facebook → đóng phí chưa được cập nhật gần đây (ví dụ lần đồng bộ sáng không còn thời gian): làm trước để bài phân tích dùng số mới
-    try { const { withDeadline, setDeadline } = await import('../server/meta.js'); const { maybeLeadSync } = await import('../server/leadsync.js'); await withDeadline(async () => { setDeadline(Date.now() + 80000); await maybeLeadSync({ by: who.kind === 'cron' ? 'cron' : 'admin' }); }); }
-    catch (e) { console.error('[insights] bỏ qua cập nhật đối chiếu:', e && e.expose ? e.message : 'lỗi'); }
     let docs = await readAll();
     // đang có lần đồng bộ chạy (khoá syncstate.runningUntil): chờ tối đa khoảng 50 giây để không phân tích số liệu cũ
     for (let i = 0; i < 5 && docs.syncstate && docs.syncstate.runningUntil && Date.parse(docs.syncstate.runningUntil) > Date.now(); i++) { await new Promise(r => setTimeout(r, 10000)); docs = await readAll(); }

@@ -55,7 +55,7 @@ test('matchLeads: kịch bản cơ bản — đăng ký, đóng phí, chỉ họ
   assert.deepEqual([r.from, r.to, r.winFrom], ['2026-10-01', '2026-10-06', '2026-10-01']);
   assert.deepEqual(r.camps['222222'], { n: 'TS6 remarketing', p: 'TS6' }); assert.equal(r.camps['333333'].p, 'TS10');
   assert.deepEqual(r.unmatchedPaid, {}); assert.deepEqual(r.paidNoPhone, { HB: 1 });               // HS nội bộ không tính; em HB chưa có SĐT nên chưa thể khớp
-  assert.deepEqual(r.cov, { students: 5, withPhone: 4, ext: 4, extWithRegDate: 3, paidExt: 3, paidExtWithPhone: 2, paidByProg: { TS6: [1, 1], TS10: [1, 1], HB: [1, 0] } });
+  assert.deepEqual(r.cov, { students: 5, withPhone: 4, ext: 4, extWithPhone: 3, extWithRegDate: 3, paidExt: 3, paidExtWithPhone: 2, paidByProg: { TS6: [1, 1], TS10: [1, 1], HB: [1, 0] } });
   assert.deepEqual(r.lag, { reg: [3, 1, 2], paid: [2, 9, 10] });
   assert.ok(M.validate(r).ok, M.validate(r).error);
 });
@@ -225,7 +225,7 @@ test('từ file đến kết quả: aggregate({collect:true}) rồi matchLeads; 
 });
 
 test('view: theo kỳ, chương trình của chiến dịch, chiến dịch, tháng; chi phí chỉ khi đủ học sinh; lead tự nhiên tách riêng', () => {
-  const m = { v: 1, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' }, 222222: { n: 'TS10-LEAD', p: 'TS10' }, 333333: { n: 'Thương hiệu', p: 'OTHER' }, organic: { n: 'tự nhiên', p: 'OTHER' } }, days: {
+  const m = { v: 1, cov: { ext: 100, extWithPhone: 100, paidByProg: { TS6: [20, 20], TS10: [20, 20] } }, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' }, 222222: { n: 'TS10-LEAD', p: 'TS10' }, 333333: { n: 'Thương hiệu', p: 'OTHER' }, organic: { n: 'tự nhiên', p: 'OTHER' } }, days: {
     '2026-09-30': { 111111: [10, 1, 1, 6, 3, 7, 4] }, '2026-10-01': { 111111: [20, 0, 0, 10, 5, 11, 6], 222222: [5, 0, 0, 1, 0, 1, 0], 333333: [4, 0, 0, 0, 0, 0, 0], organic: [7, 0, 0, 2, 1, 2, 1] }, '2026-10-02': { 222222: [30, 2, 3, 12, 6, 13, 7] } } };
   const sp = { byProgram: { TS6: 30000000, TS10: 20000000, JS: 0 }, byCampaign: { 111111: 30000000, 222222: 20000000 } };
   const v = M.view(m, '2026-10-01', '2026-10-31', sp);
@@ -235,11 +235,11 @@ test('view: theo kỳ, chương trình của chiến dịch, chiến dịch, th�
   assert.equal(v.programs[0].l, 20); assert.equal(v.programs[0].costPerPaid, 30000000 / 6); assert.equal(v.programs[1].spend, 20000000); assert.equal(v.programs[2].costPerPaid, null);
   assert.deepEqual(v.campaigns.map(c => c.id), ['222222', '111111', '333333']); assert.equal(v.campaigns[0].costPerPaid, 20000000 / 7); assert.equal(v.campaigns[0].prog, 'TS10');
   assert.deepEqual(v.months.map(x => x.m), ['2026-10']); assert.equal(M.view(m, '', '', null).months.length, 2); assert.equal(M.view(m, '', '', null).total.costPerPaid, null);
-  const few = M.view({ v: 1, camps: { 111111: { n: 'a', p: 'TS6' } }, days: { '2026-10-01': { 111111: [30, 0, 0, 5, 2, 5, 2] } } }, '', '', { byProgram: { TS6: 9000000 }, byCampaign: {} });
+  const few = M.view({ v: 1, cov: { ext: 50, extWithPhone: 50 }, camps: { 111111: { n: 'a', p: 'TS6' } }, days: { '2026-10-01': { 111111: [30, 0, 0, 5, 2, 5, 2] } } }, '', '', { byProgram: { TS6: 9000000 }, byCampaign: {} });
   assert.equal(few.total.costPerPaid, null); assert.equal(few.total.costPerReg, 9000000 / 5);            // dưới 3 học sinh đóng phí: không tính chi phí
   assert.equal(M.view(null, '', '', null).total.l, 0);
   // chi phí của dòng Tổng chỉ chia cho học sinh của các chương trình đã ghép (chiến dịch chưa ghép không có chi tiêu trong số chi tiêu đó)
-  const un = { v: 1, camps: { 111111: { n: 'a', p: 'TS6' }, 333333: { n: 'Thương hiệu', p: 'OTHER' } }, days: { '2026-10-01': { 111111: [20, 0, 0, 10, 5, 10, 5], 333333: [10, 0, 0, 5, 5, 5, 5] } } };
+  const un = { v: 1, cov: { ext: 50, extWithPhone: 50 }, camps: { 111111: { n: 'a', p: 'TS6' }, 333333: { n: 'Thương hiệu', p: 'OTHER' } }, days: { '2026-10-01': { 111111: [20, 0, 0, 10, 5, 10, 5], 333333: [10, 0, 0, 5, 5, 5, 5] } } };
   const vu = M.view(un, '', '', { byProgram: { TS6: 10000000 }, byCampaign: {} });
   assert.equal(vu.total.ps, 10); assert.equal(vu.mapped.ps, 5); assert.equal(vu.total.costPerPaid, 2000000); assert.equal(vu.unmapped.ps, 5); assert.equal(vu.total.costPerReg, 1000000);
 });
@@ -258,7 +258,7 @@ test('maturity và attribution: nhóm lead mới chưa đủ thời gian; phần
 
 test('packOf: gói cho phần Phân tích chỉ có số tổng hợp; 30 ngày gần nhất, 30 ngày trước và toàn bộ; không có tên, số điện thoại', () => {
   const day = d => A.addDays('2026-11-20', -d);
-  const m = { v: 1, winFrom: day(80), lag: { reg: [20, 3, 9], paid: [15, 12, 30] }, cov: { students: 100, ext: 80, paidExt: 60, paidExtWithPhone: 54, withPhone: 90 }, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } },
+  const m = { v: 1, winFrom: day(80), lag: { reg: [20, 3, 9], paid: [15, 12, 30] }, cov: { students: 100, ext: 80, extWithPhone: 78, extWithRegDate: 80, paidExt: 60, paidExtWithPhone: 54, withPhone: 90 }, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } },
     days: { [day(5)]: { 111111: [40, 2, 3, 15, 8, 16, 9] }, [day(40)]: { 111111: [30, 0, 0, 12, 6, 12, 6] } }, unmatchedPaid: {}, paidNoPhone: { HB: 2 } };
   const calls = []; const p = M.packOf(m, '2026-11-20', (s, u) => { calls.push([s, u]); return { byProgram: { TS6: 10000000 }, byCampaign: { 111111: 10000000 } }; });
   assert.equal(p.last_30d.total.parents, 40); assert.equal(p.last_30d.total.students_paid, 9); assert.equal(p.prev_30d.total.parents, 30); assert.equal(p.all_time.total.parents, 70);
@@ -266,4 +266,51 @@ test('packOf: gói cho phần Phân tích chỉ có số tổng hợp; 30 ngày 
   assert.deepEqual(calls[0], [day(30), day(1)]); assert.equal(p.attribution.paid_without_phone_in_sheet, 2); assert.equal(p.maturity.days_from_form_to_payment_median, 12); assert.equal(p.lead_history_from, day(80));
   assert.equal(p.last_30d.total.already_registered_before_form, 3); assert.equal(p.last_30d.total.only_internal_students, 2);
   assert.ok(M.packOf(m, '2026-11-20', null).all_time.total.spend_vnd === 0);
+});
+
+test('view: thiếu SĐT thì không tính đăng ký; chương trình thiếu SĐT của học sinh đóng phí bị bỏ khỏi Tổng, tỷ lệ và chi phí (không hiện số 0 sai)', () => {
+  const camps = { 111111: { n: 'TS6-LEAD', p: 'TS6' }, 222222: { n: 'HB-LEAD', p: 'HB' } };
+  const days = { '2026-10-01': { 111111: [40, 0, 0, 20, 12, 20, 12], 222222: [30, 0, 0, 1, 1, 1, 1] } };
+  const sp = { byProgram: { TS6: 10000000, HB: 6000000 }, byCampaign: { 111111: 10000000, 222222: 6000000 } };
+  const mk = cov => ({ v: 1, camps, days, cov });
+  // đủ SĐT ở mọi chương trình và ở học sinh chưa đóng phí
+  let v = M.view(mk({ ext: 100, extWithPhone: 95, paidByProg: { TS6: [30, 30], HB: [20, 19] } }), '', '', sp);
+  assert.equal(v.regOk, true); assert.deepEqual(v.lowPhone, {}); assert.equal(v.total.l, 70); assert.equal(v.spend, 16000000);
+  assert.ok(Math.abs(v.total.leadToReg - 21 / 70) < 1e-9); assert.ok(Math.abs(v.total.costPerPaid - 16000000 / 13) < 1e-6); assert.ok(v.total.costPerReg != null);
+  // học sinh chưa đóng phí chưa có SĐT (như Sheet hiện tại): chưa tính được đăng ký, nhưng đóng phí vẫn tính
+  v = M.view(mk({ ext: 100, extWithPhone: 60, paidByProg: { TS6: [30, 30], HB: [20, 19] } }), '', '', sp);
+  assert.equal(v.regOk, false);
+  for (const row of [v.total, v.programs[0], v.programs[1], v.campaigns[0], v.months[0]]) { assert.equal(row.leadToReg, null); assert.equal(row.regToPaid, null); assert.equal(row.costPerReg, null); }
+  assert.ok(v.total.leadToPaid != null && v.total.costPerPaid != null); assert.equal(v.total.p, 13);
+  // HB: chỉ 5/20 học sinh đã đóng phí có SĐT → không tính tỷ lệ/chi phí của HB, và HB không nằm trong Tổng, theo tháng và chi tiêu của Tổng
+  v = M.view(mk({ ext: 100, extWithPhone: 95, paidByProg: { TS6: [30, 30], HB: [20, 5] } }), '', '', sp);
+  assert.deepEqual(v.lowPhone, { HB: [5, 20] }); const hb = v.programs.find(p => p.k === 'HB'), ts6 = v.programs.find(p => p.k === 'TS6');
+  assert.equal(hb.lowPhone, true); assert.equal(hb.leadToPaid, null); assert.equal(hb.costPerPaid, null); assert.equal(hb.l, 30); assert.equal(ts6.lowPhone, undefined); assert.ok(ts6.leadToPaid != null);
+  assert.equal(v.total.l, 40); assert.equal(v.total.p, 12); assert.equal(v.spend, 10000000); assert.equal(v.total.costPerPaid, 10000000 / 12); assert.equal(v.months[0].l, 40);
+  assert.equal(v.campaigns.find(c => c.id === '222222').lowPhone, true); assert.equal(v.campaigns.find(c => c.id === '222222').costPerPaid, null);
+  // dưới 5 học sinh đóng phí: mẫu quá nhỏ để kết luận thiếu SĐT
+  v = M.view(mk({ ext: 100, extWithPhone: 95, paidByProg: { TS6: [30, 30], HB: [4, 0] } }), '', '', sp); assert.deepEqual(v.lowPhone, {}); assert.equal(v.total.l, 70);
+  // tài liệu cũ không có độ phủ: coi là chưa đủ SĐT cho đăng ký, không ném lỗi
+  assert.equal(M.view({ v: 1, camps, days }, '', '', sp).regOk, false);
+  // summarize(skip) chỉ bỏ khỏi Tổng và theo tháng
+  const s = M.summarize(mk({}), '', '', { HB: true }); assert.equal(s.total.l, 40); assert.equal(s.programs.HB.l, 30); assert.equal(s.campaigns['222222'].l, 30); assert.equal(s.months['2026-10'].l, 40);
+});
+
+test('attribution và packOf: độ phủ SĐT/ngày; số không đáng tin là null trong gói cho Claude', () => {
+  const day = d => A.addDays('2026-11-20', -d), camps = { 111111: { n: 'TS6-LEAD', p: 'TS6' }, 222222: { n: 'HB-LEAD', p: 'HB' } };
+  const m = { v: 1, winFrom: day(40), lag: { reg: [0, 0, 0], paid: [0, 0, 0] }, camps, days: { [day(10)]: { 111111: [40, 0, 0, 20, 12, 20, 12], 222222: [30, 0, 0, 1, 1, 1, 1] } },
+    cov: { students: 200, withPhone: 120, ext: 100, extWithPhone: 60, extWithRegDate: 30, paidExt: 50, paidExtWithPhone: 25, paidByProg: { TS6: [30, 29], HB: [20, 0] } }, unmatchedPaid: {}, paidNoPhone: { HB: 20 } };
+  const at = M.attribution(m); assert.equal(at.regPhoneShare, 0.6); assert.equal(at.regDateShare, 0.3); assert.equal(at.phoneShare, 0.5);
+  assert.equal(M.attribution({ v: 1, cov: {} }).regPhoneShare, null);
+  const p = M.packOf(m, '2026-11-20', null);
+  assert.equal(p.data_quality.registration_stage_reliable, false); assert.deepEqual(p.data_quality.programs_without_paid_phone, ['HB']); assert.equal(p.data_quality.phone_share_of_external_registered, 0.6); assert.equal(p.data_quality.registration_date_share, 0.3);
+  const t = p.all_time.total; assert.equal(t.registered, null); assert.equal(t.students_registered, null); assert.equal(t.parent_to_registered, null); assert.equal(t.registered_to_paid, null); assert.equal(t.parents, 40); assert.equal(t.paid, 12);
+  const hb = p.all_time.by_program.find(x => x.program === 'HB'); assert.equal(hb.paid, null); assert.equal(hb.students_paid, null); assert.equal(hb.parent_to_paid, null); assert.equal(hb.parents, 30);
+  assert.ok(/registration_stage_reliable/.test(p.data_quality.note));
+});
+
+test('validate: extWithPhone được giữ lại và không vượt số học sinh ngoài nội bộ', () => {
+  const k = phn(5), S = { 1: st('TS6', { paid: true, ph: [k], rd: '2026-10-05', pd: '2026-10-09' }), 2: st('TS6') };
+  const r = M.matchLeads([lead('x1', at('2026-10-01'), '111111', FORM, '0' + k)], S); assert.equal(r.cov.extWithPhone, 1); assert.equal(M.validate(r).match.cov.extWithPhone, 1);
+  const bad = JSON.parse(JSON.stringify(r)); bad.cov.extWithPhone = bad.cov.ext + 1; assert.equal(M.validate(bad).ok, false);
 });
