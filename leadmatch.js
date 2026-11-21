@@ -293,8 +293,11 @@
     var cellOut = function (c) { return { parents: c.l, only_internal_students: c.i, already_registered_before_form: c.b, registered: v0.regOk ? c.r : null, students_registered: v0.regOk ? c.rs : null, parent_to_registered: round(c.leadToReg), registered_to_paid: round(c.regToPaid),
       paid: c.lowPhone ? null : c.p, students_paid: c.lowPhone ? null : c.ps, parent_to_paid: round(c.leadToPaid), spend_vnd: Math.round(c.spend || 0), cost_per_paid_student_vnd: c.costPerPaid == null ? null : Math.round(c.costPerPaid) }; };
     var win = function (since, until) {
-      var v = view(m, since, until, spendOf && since && until ? spendOf(since, until) : null);
-      return { from: since, to: until, total: cellOut(v.total), by_program: v.programs.filter(function (p) { return p.l > 0; }).map(function (p) { return Object.assign({ program: p.k }, cellOut(p)); }),
+      // như trang: lead chỉ đọc được từ winFrom nên chi tiêu của những ngày trước đó không được tính (nếu không chi phí / học sinh ĐP bị đẩy lên)
+      var s = since && m && m.winFrom && since < m.winFrom ? m.winFrom : since;
+      var v = view(m, s, until, spendOf && s && until && s <= until ? spendOf(s, until) : null);
+      var empty = !!(s && until && s > until);                      // cửa sổ nằm hết trước khoảng lead đọc được: không có lead, không tra chi tiêu
+      return { from: empty ? null : s, to: empty ? null : until, total: cellOut(v.total), by_program: v.programs.filter(function (p) { return p.l > 0; }).map(function (p) { return Object.assign({ program: p.k }, cellOut(p)); }),
         top_campaigns: v.campaigns.filter(function (c) { return c.l >= 5; }).slice(0, 8).map(function (c) { return Object.assign({ campaign: c.n, program: c.prog }, cellOut(c)); }), organic_parents: v.organic.l };
     };
     var out = { as_of: today, method: 'Mỗi phụ huynh điền form lead Facebook được đối chiếu với học sinh trong file tuyển sinh theo số điện thoại hoặc email; lead đầu tiên của phụ huynh quyết định ngày và chiến dịch; học sinh nội bộ và học sinh đã đăng ký trước khi điền form không tính cho quảng cáo.',

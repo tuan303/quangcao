@@ -317,6 +317,16 @@ test('attribution và packOf: độ phủ SĐT/ngày; số không đáng tin là
   const f3 = M.packOf(m2, '2026-11-20', null, { leadsync: { ok: true, stage: null } }).data_freshness; assert.deepEqual([f3.last_update_ok, f3.last_update_stage], [true, null]);
 });
 
+test('packOf: cửa sổ được cắt theo khoảng lead đọc được (winFrom), chi tiêu cũ hơn không được cộng', () => {
+  const camps = { 111111: { n: 'TS6-LEAD', p: 'TS6' } }, asked = [];
+  const m = { v: 1, winFrom: '2026-11-01', camps, days: { '2026-11-05': { 111111: [40, 0, 0, 20, 12, 20, 12] } }, lag: { reg: [0, 0, 0], paid: [0, 0, 0] }, cov: { students: 100, withPhone: 100, ext: 100, extWithPhone: 100, extWithRegDate: 100, paidExt: 50, paidExtWithPhone: 50, paidByProg: { TS6: [50, 50] } }, unmatchedPaid: {}, paidNoPhone: {} };
+  const spendOf = (since, until) => { asked.push([since, until]); return { byProgram: { TS6: 1000000 }, byCampaign: { 111111: 1000000 } }; };
+  const p = M.packOf(m, '2026-11-20', spendOf);
+  assert.deepEqual(asked, [['2026-11-01', '2026-11-19']]);              // last_30d bắt đầu 21/10 < winFrom nên cắt về 01/11; prev_30d kết thúc trước winFrom nên không tra chi tiêu
+  assert.equal(p.last_30d.from, '2026-11-01'); assert.equal(p.last_30d.total.parents, 40); assert.equal(p.last_30d.total.spend_vnd, 1000000);
+  assert.deepEqual([p.prev_30d.from, p.prev_30d.to, p.prev_30d.total.parents, p.prev_30d.total.spend_vnd], [null, null, 0, 0]); assert.equal(p.all_time.from, '');
+});
+
 test('mergeMatch: số đã chốt cũ hơn một mùa (400 ngày) bị bỏ cùng chiến dịch không còn ngày nào; số trong hạn giữ nguyên', () => {
   const wf = M.windowFrom('2026-11-20'), oldest = A.addDays(wf, -340);
   const cell = n => [n, 0, 0, 0, 0, 0, 0], camps = { 111111: { n: 'A', p: 'TS6' }, 222222: { n: 'B', p: 'TS6' }, 333333: { n: 'C', p: 'TS1' } };
