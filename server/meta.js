@@ -23,6 +23,8 @@ let deadlineAt = 0;
 export function withDeadline(fn) { return runCtx.run({ deadlineAt: 0 }, fn); }
 export function setDeadline(ts) { const s = runCtx.getStore(); if (s) s.deadlineAt = ts || 0; else deadlineAt = ts || 0; }
 const currentDeadline = () => { const s = runCtx.getStore(); return s ? s.deadlineAt : deadlineAt; };
+/** Số mili giây còn lại đến hạn chót của lần gọi này (Infinity nếu chưa đặt hạn): để các nguồn khác (Google Sheets) cũng dừng đúng giờ. */
+export function msLeft() { const d = currentDeadline(); return d ? d - Date.now() : Infinity; }
 // mỗi yêu cầu chờ tối đa 45 giây (truy vấn mẫu quảng cáo, khán giả trên khoảng dài có thể chậm), không vượt hạn chung của lần đồng bộ
 const REQUEST_TIMEOUT_MS = 45000;
 const timeoutError = why => Object.assign(new Error('Meta API: ' + why), { status: 504, expose: true, meta: { code: 'timeout' } });

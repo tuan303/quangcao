@@ -3,6 +3,7 @@
 //   (2) chia sẻ Sheet cho email của service account với quyền Người xem (Viewer). Id Sheet đặt ở biến môi trường ADMISSIONS_SHEET_ID (id hoặc cả đường dẫn).
 // Nội dung Sheet (họ tên, ngày sinh, số điện thoại…) chỉ nằm trong bộ nhớ của hàm trong lúc tính; không ghi log, không lưu.
 import { createSign } from 'node:crypto';
+import { msLeft } from './meta.js';
 import { getServiceAccount } from './firebase.js';
 
 const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
@@ -34,8 +35,13 @@ export function buildJwt(sa, now = Math.floor(Date.now() / 1000)) {
   const sig = createSign('RSA-SHA256').update(head + '.' + claim).sign(sa.private_key).toString('base64url');
   return head + '.' + claim + '.' + sig;
 }
+// Hạn chót chung của lần gọi (server/meta.js setDeadline): không bắt đầu yêu cầu mới khi sắp hết giờ, và không thử lại nếu không còn đủ thời gian.
+const canRetry = attempt => attempt < 2 && msLeft() > 5000;
+const why = e => e && e.name === 'TimeoutError' ? 'hết thời gian chờ' : e && e.name === 'DeadlineError' ? 'hết thời gian của lần cập nhật này' : 'mất kết nối';
 async function fetchJson(url, init) {
-  const res = await fetch(url, Object.assign({ signal: AbortSignal.timeout(TIMEOUT_MS) }, init));
+  const left = msLeft();
+  if (left < 1500) throw Object.assign(new Error('hết thời gian của lần cập nhật này'), { name: 'DeadlineError' });
+  const res = await fetch(url, Object.assign({ signal: AbortSignal.timeout(Math.min(TIMEOUT_MS, left)) }, init));
   const text = await res.text(); let j = null; try { j = text ? JSON.parse(text) : {}; } catch { /* không phải JSON */ }
   return { res, j };
 }
@@ -49,12 +55,12 @@ export async function accessToken(env = process.env) {
     let out;
     try { out = await fetchJson(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + encodeURIComponent(jwt) }); }
     catch (e) {
-      if (attempt < 2) { await sleep(800 * (attempt + 1)); continue; }
-      throw fail('Không kết nối được Google để lấy quyền đọc (' + (e && e.name === 'TimeoutError' ? 'hết thời gian chờ' : 'mất kết nối') + ').');
+      if (canRetry(attempt)) { await sleep(800 * (attempt + 1)); continue; }
+      throw fail('Không kết nối được Google để lấy quyền đọc (' + why(e) + ').');
     }
     const { res, j } = out;
     if (res.ok && j && j.access_token) { cached = { token: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 }; return cached.token; }
-    if ((res.status === 429 || res.status >= 500) && attempt < 2) { await sleep(1200 * (attempt + 1)); continue; }
+    if ((res.status === 429 || res.status >= 500) && canRetry(attempt)) { await sleep(1200 * (attempt + 1)); continue; }
     const code = j && typeof j.error === 'string' ? j.error : '';
     throw fail(code === 'invalid_grant' ? 'Google từ chối khoá service account (khoá đã bị xoá hoặc thu hồi, hoặc đồng hồ máy chủ lệch). Tạo khoá mới cho service account rồi cập nhật FIREBASE_SERVICE_ACCOUNT.'
       : res.status >= 500 || res.status === 429 ? 'Google tạm thời lỗi khi cấp quyền đọc (' + res.status + '). Thử lại sau vài phút.'
@@ -84,13 +90,13 @@ async function sheetsGet(path, params, sa, env) {
     let out;
     try { out = await fetchJson(url, { headers: { Authorization: 'Bearer ' + token } }); }
     catch (e) {
-      if (attempt < 2) { await sleep(800 * (attempt + 1)); continue; }
-      throw fail('Không đọc được Google Sheet (' + (e && e.name === 'TimeoutError' ? 'hết thời gian chờ' : 'mất kết nối') + ').');
+      if (canRetry(attempt)) { await sleep(800 * (attempt + 1)); continue; }
+      throw fail('Không đọc được Google Sheet (' + why(e) + ').');
     }
     const { res, j } = out;
     if (res.ok && j) return j;
-    if (res.status === 401 && attempt < 1) { cached = null; continue; }
-    if ((res.status === 429 || res.status >= 500) && attempt < 2) { await sleep(1500 * (attempt + 1)); continue; }
+    if (res.status === 401 && attempt < 1 && msLeft() > 5000) { cached = null; continue; }
+    if ((res.status === 429 || res.status >= 500) && canRetry(attempt)) { await sleep(1500 * (attempt + 1)); continue; }
     throw fail(describeSheetsError(res.status, j, sa), { status: res.status === 403 || res.status === 404 || res.status === 400 ? 502 : res.status === 429 ? 429 : 502 });
   }
 }

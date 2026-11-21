@@ -8,7 +8,7 @@ import '../admissions.js';
 import '../leadmatch.js';
 import * as G from '../server/gsheets.js';
 import * as L from '../server/leads.js';
-import { graph, allPages } from '../server/meta.js';
+import { graph, allPages, withDeadline, setDeadline } from '../server/meta.js';
 import * as S from '../server/leadsync.js';
 const A = globalThis.FBAdm;
 
@@ -157,6 +157,16 @@ test('readAdmissionsSheet: chọn tab Danh sách đăng ký và tab (ĐP), đọ
     assert.ok(f.calls.every(c => c.u.host !== 'sheets.googleapis.com' || c.init.method == null || c.init.method === 'GET'), 'chỉ đọc');
     assert.ok(f.calls.filter(c => c.u.host === 'sheets.googleapis.com').every(c => c.init.headers.Authorization === 'Bearer gtok'));
   } finally { f.restore(); G.resetTokenCache(); }
+});
+
+test('readAdmissionsSheet: sắp hết hạn chót của lần gọi thì dừng ngay với thông báo rõ, không gọi Google; còn thời gian thì đọc bình thường', async () => {
+  G.resetTokenCache(); let f = stubFetch(googleRoutes(sheetData()));
+  try {
+    await withDeadline(async () => { setDeadline(Date.now() + 800); await assert.rejects(() => G.readAdmissionsSheet(SHEET, { pickTabs: A.pickTabs, env: ENV }), e => e.expose === true && /hết thời gian của lần cập nhật/.test(e.message)); });
+    assert.equal(f.calls.length, 0);
+  } finally { f.restore(); G.resetTokenCache(); }
+  f = stubFetch(googleRoutes(sheetData()));
+  try { await withDeadline(async () => { setDeadline(Date.now() + 60000); const b = await G.readAdmissionsSheet(SHEET, { pickTabs: A.pickTabs, env: ENV }); assert.equal(b.tabs.length, 3); }); } finally { f.restore(); G.resetTokenCache(); }
 });
 
 test('readAdmissionsSheet: lỗi Google thành câu hướng dẫn; thiếu tab đăng ký; ID sai', async () => {
