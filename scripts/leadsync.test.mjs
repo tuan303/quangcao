@@ -324,11 +324,11 @@ test('runLeadSync: từ Google Sheet và lead đến số tổng hợp; chỉ gh
   G.resetTokenCache(); const store = memStore(), f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
   try {
     const r = await S.runLeadSync({ by: 'admin', env: ENV, today: TODAY, store });
-    assert.equal(r.ok, true); assert.deepEqual(r.stats, { rows: 6, parents: 6, matched: 3, students: 5, studentsWithPhone: 4, paidExt: 3, paidExtWithPhone: 2, forms: 2, pages: 1, skippedForms: 1, from: '2026-10-01' });
+    assert.equal(r.ok, true); assert.deepEqual(r.stats, { rows: 6, parents: 6, matched: 4, students: 5, studentsWithPhone: 4, paidExt: 3, paidExtWithPhone: 2, forms: 2, pages: 1, skippedForms: 1, from: '2026-10-01' });
     const m = store.docs.fbmatch;
     assert.equal(m.season, '2027–28'); assert.equal(m.leads.dupFamily, 1); assert.equal(m.leads.internalOnly, 1); assert.ok(typeof m.syncedAt === 'string');
     assert.deepEqual(m.days['2026-10-01']['111111'], [1, 0, 0, 1, 1, 1, 1]); assert.deepEqual(m.days['2026-10-02']['111111'], [1, 0, 0, 1, 0, 1, 0]); assert.deepEqual(m.days['2026-10-06']['222222'], [1, 0, 0, 1, 1, 1, 1]);
-    assert.deepEqual(m.days['2026-10-07']['111111'], [1, 1, 0, 0, 0, 0, 0]); assert.deepEqual(m.days['2026-10-09']['222222'], [1, 0, 0, 0, 0, 0, 0]); assert.equal(m.days['2026-10-03'], undefined);
+    assert.deepEqual(m.days['2026-10-07']['111111'], [1, 1, 0, 0, 0, 0, 0]); assert.deepEqual(m.days['2026-10-09']['222222'], [1, 0, 0, 0, 0, 0, 0]); assert.deepEqual(m.days['2026-10-03']['333333'], [1, 0, 0, 1, 1, 0, 0]);          // lead của mẹ em 1: cũng là phụ huynh có con đã đóng phí, không thêm học sinh
     assert.deepEqual(m.paidNoPhone, { TS1: 1 }); assert.deepEqual(m.unmatchedPaid, {});
     assert.equal(store.docs.admissions.source, 'sheet'); assert.equal(store.docs.admissions.by, null); assert.equal(store.docs.admissions.total.reg, 5); assert.equal(store.docs.admissions.season, '2027–50'.replace('50', '28'));
     assert.equal(store.docs.leadsync.ok, true); assert.equal(store.docs.leadsync.runningUntil, null); assert.equal(store.docs.leadsync.by, 'admin');
@@ -653,4 +653,26 @@ test('fetchLeads: biểu mẫu có leads_count rỗng hoặc thiếu vẫn đư�
     try { await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); } finally { f.restore(); }
     assert.equal(read, reads, 'leads_count = ' + JSON.stringify(cnt));
   }
+});
+
+test('runLeadSync: khi Sheet vừa đủ SĐT (cổng độ phủ mở) thì các ngày đã chốt trong khoảng lead đọc được được tính lại, ngày cũ hơn giữ nguyên kèm mốc lowCovUntil; không cải thiện thì số đã chốt giữ nguyên', async () => {
+  const M = globalThis.FBMatch, TODAY2 = '2026-12-20';                                  // mốc chốt = 21/10: các ngày lead 01–09/10 nằm trong vùng đã chốt
+  const prevCov = { students: 5, withPhone: 3, ext: 4, extWithPhone: 2, extWithRegDate: 4, paidExt: 3, paidExtWithPhone: 1, paidByProg: {} };
+  const prev = { v: 1, season: '2027–28', leads: { rows: 3 }, cov: prevCov, days: { '2026-08-25': { 111111: [7, 0, 0, 2, 1, 2, 1] }, '2026-10-01': { 111111: [9, 0, 0, 1, 0, 1, 0] } }, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, unmatchedPaid: {}, paidNoPhone: {}, winFrom: '2026-08-25', syncedAt: '2026-12-19T00:00:00.000Z' };
+  assert.ok(M.validate(prev).ok, M.validate(prev).error);
+  const improved = sheetData(); improved.values['Danh sách đăng ký'][6][5] = '0' + phn(40);              // học sinh 5 có SĐT: 4/4 học sinh ngoài nội bộ có SĐT
+  let store = memStore({ fbmatch: prev }); G.resetTokenCache(); let f = stubFetch([...googleRoutes(improved), ...graphRoutes()]);
+  try {
+    assert.equal((await S.runLeadSync({ env: ENV, today: TODAY2, store })).ok, true);
+    const m = store.docs.fbmatch;
+    assert.deepEqual(m.days['2026-10-01']['111111'], [1, 0, 0, 1, 1, 1, 1]);          // tính lại theo Sheet mới (trước đó là số hụt [9,…])
+    assert.deepEqual(m.days['2026-08-25']['111111'], [7, 0, 0, 2, 1, 2, 1]);           // cũ hơn khoảng lead đọc được: giữ nguyên
+    assert.equal(m.lowCovUntil, '2026-10-01'); assert.ok(M.validate(m).ok);
+  } finally { f.restore(); G.resetTokenCache(); }
+  // Sheet không đổi (vẫn thiếu SĐT như lần trước): không tính lại, số đã chốt giữ nguyên, không có mốc
+  store = memStore({ fbmatch: prev }); G.resetTokenCache(); f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
+  try {
+    assert.equal((await S.runLeadSync({ env: ENV, today: TODAY2, store })).ok, true);
+    assert.deepEqual(store.docs.fbmatch.days['2026-10-01']['111111'], [9, 0, 0, 1, 0, 1, 0]); assert.equal(store.docs.fbmatch.lowCovUntil, undefined);
+  } finally { f.restore(); G.resetTokenCache(); }
 });

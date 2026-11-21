@@ -1839,9 +1839,9 @@ var FBM_WHY = {
 function fbmDashNote(tbl) { return tbl + (tbl.indexOf('role="img"') >= 0 ? '<p class="note-s">Dấu “—”: chưa tính được (thiếu SĐT/email trong Google Sheet hoặc chưa đủ số phụ huynh); lý do ở mục “Lưu ý khi đọc số” và khi rê chuột vào dấu.</p>' : ''); }
 function fbmDash(kind) { var why = esc(FBM_WHY[kind] || FBM_WHY.n); return '<span role="img" aria-label="' + why + '" title="' + why + '">—</span>'; }
 function fbmNoDates(x) { return !!(x && x.at && x.at.regDateShare != null && x.at.regDateShare < 0.9); } // Sheet chưa đủ Ngày đăng ký: chưa loại được em đã đăng ký trước khi phụ huynh điền form
-function fbmCount(v, q, kind, val) { return kind === 'reg' ? (v.regOk ? int(val) : fbmDash('reg')) : (q && q.lowPhone ? fbmDash('paid') : int(val)); }
-function fbmRate(v, q, key, kind) { var x = q[key]; return x != null ? pct(x, 1) : kind === 'reg' && !v.regOk ? fbmDash('reg') : kind === 'paid' && q.lowPhone ? fbmDash('paid') : fbmDash('n'); }
-function fbmCostCell(v, q, key, kind, bold) { var x = q[key]; return x != null ? (bold ? '<b>' + mny(x) + '</b>' : mny(x)) : kind === 'reg' && !v.regOk ? fbmDash('reg') : kind === 'paid' && q.lowPhone ? fbmDash('paid') : fbmDash('cost'); }
+function fbmCount(v, q, kind, val) { return kind === 'reg' ? (q && q.lowPhone ? fbmDash('paid') : v.regOk ? int(val) : fbmDash('reg')) : (q && q.lowPhone ? fbmDash('paid') : int(val)); }
+function fbmRate(v, q, key, kind) { var x = q[key]; return x != null ? pct(x, 1) : q.lowPhone ? fbmDash('paid') : kind === 'reg' && !v.regOk ? fbmDash('reg') : fbmDash('n'); }
+function fbmCostCell(v, q, key, kind, bold) { var x = q[key]; return x != null ? (bold ? '<b>' + mny(x) + '</b>' : mny(x)) : q.lowPhone ? fbmDash('paid') : kind === 'reg' && !v.regOk ? fbmDash('reg') : fbmDash('cost'); }
 function fbmLowNames(v) { return Object.keys(v.lowPhone || {}).map(function (k) { return k; }); }
 function fbmMatureNote(x) {
   if (x.until < x.mat.recentFrom) return '';
@@ -1881,6 +1881,7 @@ function fbmWarnings(x) {
   if (low.length) w.push(['Chưa tính tỷ lệ cho ' + esc(low.join(', ')), low.map(function (k) { var a = v.lowPhone[k]; return esc(FBMatch.progLabel(k)) + ' (' + esc(k) + '): chỉ ' + int(a[0]) + '/' + int(a[1]) + ' học sinh đã đóng phí có SĐT/email trong Sheet'; }).join('; ') + ', nên chưa khớp được với phụ huynh. Chương trình này không nằm trong dòng Tổng.' + (adm ? ' Thêm cột SĐT vào tab ĐP tương ứng.' : '')]);
   else if (at.paidExt >= FBAdm.MIN_BASE && at.phoneShare != null && at.phoneShare < 0.9) w.push(['Thiếu số điện thoại trong Google Sheet', 'Chỉ ' + int(cov.paidExtWithPhone) + '/' + int(at.paidExt) + ' học sinh đã đóng phí (ngoài nội bộ) có SĐT hoặc email trong Sheet (' + pct(at.phoneShare, 0) + '). Em chưa có thì không thể khớp với phụ huynh đã điền form, nên số khớp thấp hơn thực tế.' + (adm ? ' Hãy bổ sung cột SĐT bố, SĐT mẹ (hoặc SĐT ưu tiên) cho các tab ĐP.' : ' Nhờ quản trị viên bổ sung SĐT phụ huynh vào Sheet.')]);
   if (at.unlinkedPaid > 0) { var ush = at.paidExt > 0 ? at.unlinkedPaid / (at.paidExt + at.unlinkedPaid) : 1; w.push(['Có ' + int(at.unlinkedPaid) + ' dòng ở tab ĐP chưa nối được với Danh sách đăng ký', 'Các em này (MDT không có trong Danh sách đăng ký hoặc sai dạng) chưa được đối chiếu với phụ huynh, nên số đã đóng phí và tỷ lệ có thể thấp hơn thực tế.' + (adm ? ' Kiểm tra cột MDT ở các tab ĐP.' : ''), ush >= 0.05]); }
+  if (m.lowCovUntil && m.from < m.lowCovUntil && x.since < m.lowCovUntil) w.push(['Số trước ngày ' + esc(dlong(m.lowCovUntil)) + ' thấp hơn thực tế', 'Các ngày điền form trước ngày này được chốt khi Google Sheet còn thiếu SĐT (hoặc ngày) nên số đã đăng ký, đã đóng phí của các ngày đó thấp hơn thực tế và không tính lại được (Meta chỉ cho đọc lại lead trong 90 ngày). Từ ngày ' + esc(dlong(m.lowCovUntil)) + ' trở đi đã tính đủ.', true]);
   if (at.regDateShare != null && at.regDateShare < 0.9) w.push(['Chưa loại được học sinh đã đăng ký trước khi phụ huynh điền form', 'Cột Ngày đăng ký mới đọc được ở ' + pct(at.regDateShare, 0) + ' học sinh ngoài nội bộ nên chưa thể bỏ những em đã đăng ký từ trước (nếu có); tỷ lệ có thể cao hơn thực tế.' + (adm ? ' Thêm cột Ngày đăng ký (và Ngày đóng phí) vào Sheet.' : '')]);
   if (x.clipped) w.push(['Kỳ được cắt theo khoảng lead đọc được', 'Meta chỉ cho đọc lead trong 90 ngày gần nhất; lead Facebook đã đối chiếu có từ ' + esc(dlong(m.winFrom)) + ', nên kỳ này chỉ tính từ ngày đó đến ' + esc(dlong(x.until)) + '.']);
   return w;
@@ -1929,7 +1930,7 @@ function fbmCoverageHtml(x) {
   if (mt.known) li.push('Từ lúc điền form đến lúc đóng phí: trung vị <b>' + int(mt.p50) + '</b> ngày, 90% trong <b>' + int(mt.p90) + '</b> ngày (tính từ ' + int(mt.n) + ' học sinh).');
   li.push('Lead Facebook đọc được từ <b>' + esc(dlong(m.winFrom)) + '</b> (Meta chỉ cho đọc lead trong 90 ngày). Nhóm phụ huynh điền form cũ hơn ' + int(mt.closeAfter) + ' ngày được chốt và giữ nguyên từ các lần cập nhật trước: học sinh đóng phí muộn hơn mốc đó không còn được cộng vào nhóm.');
   var rules = [];
-  if (L.dupFamily > 0) rules.push(int(L.dupFamily) + ' phụ huynh là bố/mẹ khác của cùng một em (tính một gia đình)');
+  if (L.dupFamily > 0) rules.push(int(L.dupFamily) + ' phụ huynh là bố/mẹ khác của cùng một em (vẫn tính là phụ huynh có con đã đóng phí; học sinh chỉ tính một lần)');
   if (L.ambiguous > 0) rules.push(int(L.ambiguous) + ' số điện thoại dùng chung cho nhiều học sinh (chưa khớp)');
   if (L.crossProgram > 0) rules.push(int(L.crossProgram) + ' học sinh ở chương trình khác với chương trình của chiến dịch');
   if (L.noContact > 0) rules.push(int(L.noContact) + ' lead không có số điện thoại/email hợp lệ');

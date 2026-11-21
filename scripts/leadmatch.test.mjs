@@ -77,19 +77,19 @@ test('matchLeads: một phụ huynh điền nhiều lần (nhiều kiểu viết
   for (let t = 0; t < 5; t++) { const sh = many.slice().sort(() => rnd() - 0.5); assert.equal(JSON.stringify(M.matchLeads(sh, SS)), base); }
 });
 
-test('matchLeads: bố và mẹ cùng điền form cho một em tính một gia đình (lead sớm hơn), không tính hai lead; em thứ hai chỉ có SĐT của mẹ thì mẹ vẫn là một lead', () => {
+test('matchLeads: bố và mẹ cùng điền form cho một em: cả hai là phụ huynh có con đã đóng phí nhưng học sinh chỉ tính một lần (lead sớm hơn); em thứ hai chỉ có SĐT của mẹ thì mẹ cũng được tính cho em đó', () => {
   const [f, m] = [phn(21), phn(22)];
   const S = { 1: st('TS6', { paid: true, ph: [f, m], rd: '2026-10-05', pd: '2026-10-09' }) };
   let r = M.matchLeads([lead('1', at('2026-10-01'), '111111', FORM, '0' + f), lead('2', at('2026-10-02'), '222222', 'TS6 remarketing', '0' + m)], S);
   assert.equal(r.leads.dupFamily, 1); assert.equal(r.leads.parents, 2);
-  assert.deepEqual(cellOf(r, '2026-10-01', '111111'), [1, 0, 0, 1, 1, 1, 1]); assert.equal(r.days['2026-10-02'], undefined);
+  assert.deepEqual(cellOf(r, '2026-10-01', '111111'), [1, 0, 0, 1, 1, 1, 1]); assert.deepEqual(cellOf(r, '2026-10-02', '222222'), [1, 0, 0, 1, 1, 0, 0]);   // mẹ: một phụ huynh có con đóng phí, không thêm học sinh
   r = M.matchLeads([lead('1', at('2026-10-01'), '111111', FORM, '0' + f), lead('2', at('2026-10-02'), '222222', 'TS6 remarketing', '0' + m)].reverse(), S);
-  assert.equal(r.leads.dupFamily, 1); assert.ok(cellOf(r, '2026-10-01', '111111'));
+  assert.equal(r.leads.dupFamily, 1); assert.deepEqual(cellOf(r, '2026-10-01', '111111'), [1, 0, 0, 1, 1, 1, 1]); assert.deepEqual(cellOf(r, '2026-10-02', '222222'), [1, 0, 0, 1, 1, 0, 0]);
   // hai em: em thứ hai chỉ có SĐT của mẹ → lead của mẹ vẫn được tính, cho em đó
   const S2 = { 1: st('TS6', { paid: true, ph: [f, m], rd: '2026-10-05', pd: '2026-10-09' }), 2: st('TS10', { ph: [m], rd: '2026-10-06' }) };
   r = M.matchLeads([lead('1', at('2026-10-01'), '111111', FORM, '0' + f), lead('2', at('2026-10-02'), '222222', 'TS10 remarketing', '0' + m)], S2);
   assert.equal(r.leads.dupFamily, 0);
-  assert.deepEqual(cellOf(r, '2026-10-01', '111111'), [1, 0, 0, 1, 1, 1, 1]); assert.deepEqual(cellOf(r, '2026-10-02', '222222'), [1, 0, 0, 1, 0, 1, 0]);
+  assert.deepEqual(cellOf(r, '2026-10-01', '111111'), [1, 0, 0, 1, 1, 1, 1]); assert.deepEqual(cellOf(r, '2026-10-02', '222222'), [1, 0, 0, 1, 1, 1, 0]);   // mẹ: có con đã đóng phí (em 1, đã tính cho lead của bố) và em 2 chưa đóng phí chỉ tính cho mẹ
   // một phụ huynh có hai em: đăng ký 2, đóng phí 1; "có con đóng phí" tính một lần
   const S3 = { 1: st('TS6', { paid: true, ph: [f], rd: '2026-10-05', pd: '2026-10-09' }), 2: st('TS10', { ph: [f], rd: '2026-10-06' }), 3: st('JS', { paid: true, ph: [f], rd: '2026-10-07', pd: '2026-10-08' }) };
   r = M.matchLeads([lead('1', at('2026-10-01'), '111111', FORM, '0' + f)], S3);
@@ -182,7 +182,7 @@ test('validate: nhận kết quả hợp lệ, bỏ trường lạ, từ chối 
     'phiên bản': m => { m.v = 2; }, 'số lẻ': m => { m.days['2026-10-01']['111111'][0] = 1.5; }, 'số âm': m => { m.days['2026-10-01']['111111'][0] = -1; },
     'chuỗi': m => { m.days['2026-10-01']['111111'][0] = '1'; }, 'thiếu phần tử': m => { m.days['2026-10-01']['111111'].pop(); },
     'i+b+r > l': m => { m.days['2026-10-01']['111111'] = [1, 1, 0, 1, 0, 1, 0]; }, 'p > r': m => { m.days['2026-10-01']['111111'] = [2, 0, 0, 1, 2, 2, 2]; },
-    'ps > rs': m => { m.days['2026-10-01']['111111'] = [1, 0, 0, 1, 1, 1, 2]; }, 'r > rs': m => { m.days['2026-10-01']['111111'] = [2, 0, 0, 2, 0, 1, 0]; },
+    'ps > rs': m => { m.days['2026-10-01']['111111'] = [1, 0, 0, 1, 1, 1, 2]; }, 'rs > 6r': m => { m.days['2026-10-01']['111111'] = [1, 0, 0, 1, 0, 7, 0]; }, 'ps > 6p': m => { m.days['2026-10-01']['111111'] = [1, 0, 0, 1, 1, 7, 7]; },
     'ngày giả': m => { m.days['2026-02-31'] = m.days['2026-10-01']; }, 'chiến dịch lạ': m => { m.days['2026-10-01']['abc'] = [1, 0, 0, 0, 0, 0, 0]; },
     'chiến dịch chưa khai': m => { delete m.camps['111111']; }, 'chương trình lạ': m => { m.camps['111111'].p = 'x<script>'; },
     'khoá chương trình lạ': m => { m.unmatchedPaid['tên dài có dấu cách'] = 1; }, 'độ phủ': m => { m.cov.withPhone = m.cov.students + 1; },
@@ -267,7 +267,7 @@ test('packOf: gói cho phần Phân tích chỉ có số tổng hợp; 30 ngày 
   assert.equal(p.last_30d.total.cost_per_paid_student_vnd, Math.round(10000000 / 9)); assert.equal(p.last_30d.by_program[0].program, 'TS6'); assert.equal(p.last_30d.top_campaigns[0].campaign, 'TS6-LEAD | Form');
   assert.deepEqual(calls[0], [day(30), day(1)]); assert.equal(p.attribution.paid_without_phone_in_sheet, 2); assert.equal(p.maturity.days_from_form_to_payment_median, 12); assert.equal(p.lead_history_from, day(80));
   assert.equal(p.last_30d.total.already_registered_before_form, 3); assert.equal(p.last_30d.total.only_internal_students, 2);
-  assert.ok(M.packOf(m, '2026-11-20', null).all_time.total.spend_vnd === 0);
+  assert.equal(M.packOf(m, '2026-11-20', null).all_time.total.spend_vnd, null); assert.equal(p.last_30d.total.students_paid_in_costed_programs, 9); assert.equal(M.packOf(m, '2026-11-20', null).all_time.total.students_paid_in_costed_programs, null);   // chưa có chi tiêu là null, không phải 0
 });
 
 test('view: thiếu SĐT thì không tính đăng ký; chương trình thiếu SĐT của học sinh đóng phí bị bỏ khỏi Tổng, tỷ lệ và chi phí (không hiện số 0 sai)', () => {
@@ -324,7 +324,7 @@ test('packOf: cửa sổ được cắt theo khoảng lead đọc được (winF
   const p = M.packOf(m, '2026-11-20', spendOf);
   assert.deepEqual(asked, [['2026-11-01', '2026-11-19']]);              // last_30d bắt đầu 21/10 < winFrom nên cắt về 01/11; prev_30d kết thúc trước winFrom nên không tra chi tiêu
   assert.equal(p.last_30d.from, '2026-11-01'); assert.equal(p.last_30d.total.parents, 40); assert.equal(p.last_30d.total.spend_vnd, 1000000);
-  assert.deepEqual([p.prev_30d.from, p.prev_30d.to, p.prev_30d.total.parents, p.prev_30d.total.spend_vnd], [null, null, 0, 0]); assert.equal(p.all_time.from, '');
+  assert.deepEqual([p.prev_30d.from, p.prev_30d.to, p.prev_30d.total.parents, p.prev_30d.total.spend_vnd], [null, null, 0, null]); assert.equal(p.all_time.from, '');
 });
 
 test('mergeMatch: số đã chốt cũ hơn một mùa (400 ngày) bị bỏ cùng chiến dịch không còn ngày nào; số trong hạn giữ nguyên', () => {
@@ -428,9 +428,10 @@ test('bắt các đột biến: loại học sinh đăng ký trước form theo 
   // 6. số dùng chung: 7 học sinh (3 nội bộ + 4 ngoài) chung một số → chưa khớp (ngưỡng đếm cả học sinh nội bộ), không ai bị tính
   const shared = phn(950), S7 = {}; for (let i = 0; i < 7; i++) S7[i + 1] = st('TS6', { int: i < 3, paid: true, ph: [shared], rd: '2026-10-05', pd: '2026-10-06' });
   r = M.matchLeads([lead('s', at('2026-10-01'), '111111', FORM, '0' + shared)], S7); assert.deepEqual(cellOf(r, '2026-10-01', '111111'), [1, 0, 0, 0, 0, 0, 0]); assert.equal(r.leads.ambiguous, 1); assert.deepEqual(r.unmatchedPaid, { TS6: 4 });
-  // 7. validate: ps nhỏ hơn p; attribution không vượt tổng số đã đóng phí
+  // 7. validate: ps lớn hơn rs; attribution không vượt tổng số đã đóng phí
   const bad = JSON.parse(JSON.stringify(Object.assign(M.matchLeads([lead('v', at('2026-10-01'), '111111', FORM, '0' + a)], { 1: st('TS6', { paid: true, ph: [a], rd: '2026-10-05', pd: '2026-10-06' }) }), { season: '2027–28' })));
-  bad.days['2026-10-01']['111111'] = [1, 0, 0, 1, 1, 1, 0]; assert.equal(M.validate(bad).ok, false);
+  bad.days['2026-10-01']['111111'] = [1, 0, 0, 1, 1, 1, 2]; assert.equal(M.validate(bad).ok, false);
+  bad.days['2026-10-01']['111111'] = [2, 0, 0, 2, 2, 1, 1]; assert.equal(M.validate(bad).ok, true);                 // bố và mẹ cùng điền form cho một em: r, p lớn hơn rs, ps là hợp lệ
   assert.equal(M.attribution({ v: 1, cov: { paidExt: 5 }, days: { '2026-10-01': { 111111: [9, 0, 0, 9, 9, 9, 9] } } }).fromAds, 5);
 });
 
@@ -451,4 +452,65 @@ test('mergeMatch: lần mới không tra được tên hay chương trình của
   assert.deepEqual(c[111111], { n: 'TS6-LEAD | Form', p: 'TS6' });          // lần mới mất tên: giữ mục cũ
   assert.deepEqual(c[222222], { n: 'TS10-LEAD (đổi tên)', p: 'TS10' });     // tên mới hợp lệ: thay
   assert.deepEqual(c[333333], { n: 'JS-LEAD', p: 'JS' });                   // mục cũ chưa biết: lấy mục mới
+});
+
+test('matchLeads: khoá dùng chung tính theo số NGƯỜI — một phụ huynh điền hai lần với Zalo/email khác nhau vẫn khớp bằng số chính; bốn người cùng một email bị bỏ; một lead nhiều khoá không thành khoá dùng chung', () => {
+  const p1 = phn(81), z1 = phn(82), z2 = phn(83);
+  const S = { 1: st('TS6', { paid: true, ph: [p1], rd: '2026-10-05', pd: '2026-10-09' }) };
+  const mk = (id, day, phones, emails) => M.leadFromGraph({ id, created_time: at(day), campaign_id: '111111', campaign_name: FORM, field_data: [...phones.map(p => ({ name: 'phone_number', values: ['0' + p] })), ...emails.map(e => ({ name: 'email', values: [e] }))] });
+  let r = M.matchLeads([mk('a', '2026-10-01', [p1, z1], ['me.a@example.com']), mk('b', '2026-10-08', [p1, z2], ['me.b@example.com'])], S);
+  assert.equal(r.leads.parents, 1); assert.equal(r.leads.hubKeys, 0); assert.equal(r.leads.matched, 1); assert.deepEqual(r.unmatchedPaid, {});
+  r = M.matchLeads([mk('c', '2026-10-01', [p1, phn(84), phn(85)], ['x1@example.com', 'x2@example.com'])], S); assert.equal(r.leads.hubKeys, 0); assert.equal(r.leads.matched, 1);
+  const shared = 'cungemail@example.com', L4 = [91, 92, 93, 94].map((n, i) => mk('s' + i, '2026-10-0' + (1 + i), [phn(n)], [shared]));
+  r = M.matchLeads(L4, {}); assert.equal(r.leads.parents, 4); assert.equal(r.leads.hubKeys, 1);
+  r = M.matchLeads(L4.slice(0, 2), {}); assert.equal(r.leads.parents, 1); assert.equal(r.leads.hubKeys, 0);
+});
+
+test('leadFromGraph: mã chiến dịch ngắn hoặc không phải số là "none" (không làm hỏng validate); giá trị ngày giờ trong ô tự đặt tên không thành số điện thoại', () => {
+  for (const cid of ['0', '1234', 'abc', '']) assert.equal(M.leadFromGraph({ id: 'x', created_time: at('2026-10-01'), campaign_id: cid, field_data: [] }).cid, M.NONE, JSON.stringify(cid));
+  assert.equal(M.leadFromGraph({ id: 'x', created_time: at('2026-10-01'), campaign_id: '12345', field_data: [] }).cid, '12345');
+  const base = { id: 'x', created_time: at('2026-10-01'), campaign_id: '123456' };
+  assert.deepEqual(M.leadFromGraph(Object.assign({ field_data: [{ name: 'chon_lich', values: ['2021-08-12 07:29'] }, { name: 'khung_gio', values: ['2026-10-12T07:29:00+0700'] }] }, base)).ph, []);
+  assert.deepEqual(M.leadFromGraph(Object.assign({ field_data: [{ name: 'tra_loi', values: ['p:+84' + phn(86)] }] }, base)).ph, [phn(86)]);
+  const l = M.matchLeads([M.leadFromGraph(Object.assign({ campaign_id: '0', field_data: [{ name: 'phone_number', values: ['0' + phn(87)] }] }, { id: 'y', created_time: at('2026-10-01') }))], {});
+  assert.ok(M.validate(Object.assign(l, { season: '2027–28' })).ok);                                          // một lead mã chiến dịch lạ không chặn cả lần cập nhật
+});
+
+test('view/packOf: chương trình thiếu SĐT của học sinh đã đóng phí ẩn cả số đăng ký và mọi tỷ lệ, chi phí; chỉ xét năm chương trình có chiến dịch (KHAC không làm hỏng cảnh báo chung)', () => {
+  const camps = { 111111: { n: 'TS6-LEAD', p: 'TS6' }, 222222: { n: 'HB-LEAD', p: 'HB' } };
+  const m = { v: 1, camps, days: { '2026-10-01': { 111111: [40, 0, 0, 20, 12, 20, 12], 222222: [60, 0, 0, 14, 4, 15, 5] } }, lag: { reg: [0, 0, 0], paid: [0, 0, 0] },
+    cov: { students: 200, withPhone: 180, ext: 100, extWithPhone: 95, extWithRegDate: 100, paidExt: 60, paidExtWithPhone: 40, paidByProg: { TS6: [30, 30], HB: [20, 5], KHAC: [10, 2] } }, unmatchedPaid: {}, paidNoPhone: {} };
+  const v = M.view(m, '', '', { byProgram: { TS6: 6000000, HB: 6000000 }, byCampaign: { 111111: 6000000, 222222: 6000000 } });
+  assert.deepEqual(Object.keys(v.lowPhone), ['HB']);
+  const hb = v.programs.find(p => p.k === 'HB'); for (const k of ['leadToReg', 'regToPaid', 'costPerReg', 'leadToPaid', 'costPerPaid']) assert.equal(hb[k], null, k); assert.equal(hb.lowPhone, true);
+  const hbc = v.campaigns.find(c => c.id === '222222'); for (const k of ['leadToReg', 'regToPaid', 'costPerReg', 'leadToPaid', 'costPerPaid']) assert.equal(hbc[k], null, 'chiến dịch ' + k);
+  const ts6 = v.programs.find(p => p.k === 'TS6'); for (const k of ['leadToReg', 'leadToPaid', 'costPerPaid', 'costPerReg']) assert.ok(ts6[k] != null, k);
+  const p = M.packOf(m, '2026-10-20', () => ({ byProgram: { TS6: 6000000, HB: 6000000 }, byCampaign: {} })), pb = p.last_30d.by_program.find(x => x.program === 'HB');
+  for (const k of ['registered', 'students_registered', 'parent_to_registered', 'registered_to_paid', 'paid', 'students_paid', 'parent_to_paid', 'cost_per_paid_student_vnd']) assert.equal(pb[k], null, k);
+  assert.deepEqual(p.data_quality.programs_without_paid_phone, ['HB']);
+});
+
+test('coverageGain: chỉ khi một cổng độ phủ vừa mở (đủ SĐT, đủ ngày, chương trình hết thiếu SĐT); tụt hay không đổi thì không', () => {
+  const base = { ext: 100, extWithPhone: 50, extWithRegDate: 0, paidExt: 50, paidExtWithPhone: 40, paidByProg: { TS6: [30, 30], HB: [20, 5] } };
+  assert.equal(M.coverageGain(base, base), false);
+  assert.equal(M.coverageGain(base, Object.assign({}, base, { extWithPhone: 95 })), true);
+  assert.equal(M.coverageGain(base, Object.assign({}, base, { extWithRegDate: 95 })), true);
+  assert.equal(M.coverageGain(base, Object.assign({}, base, { paidByProg: { TS6: [30, 30], HB: [20, 19] } })), true);
+  assert.equal(M.coverageGain(Object.assign({}, base, { extWithPhone: 95 }), base), false);
+  assert.equal(M.coverageGain(null, base), false); assert.equal(M.coverageGain(base, null), false);
+});
+
+test('matchLeads: gia đình hai phụ huynh cùng điền form — tỷ lệ Form → ĐP là của phụ huynh (không lệch thấp vì chỉ gia đình đóng phí mới bị gộp); học sinh và chi phí vẫn tính một lần', () => {
+  // 100 gia đình, cùng tỷ lệ đóng phí 30% ở cả hai nhóm: 40 gia đình có cả bố lẫn mẹ điền form (12 đóng phí), 60 gia đình chỉ một phụ huynh (18 đóng phí). Tỷ lệ của phụ huynh phải đúng 30%; nếu chỉ gộp bố/mẹ của gia đình đã đóng phí thì tụt xuống 23%
+  const S = {}, leads = []; let id = 1, pn = 100;
+  for (let f = 0; f < 100; f++) {
+    const two = f < 40, paid = two ? f < 12 : f - 40 < 18, a = phn(pn++), b = two ? phn(pn++) : null;
+    S[id] = st('TS6', { paid, ph: b ? [a, b] : [a], rd: '2026-10-05', pd: paid ? '2026-10-09' : '' }); id++;
+    leads.push(lead('a' + f, at('2026-10-01'), '111111', FORM, '0' + a)); if (b) leads.push(lead('b' + f, at('2026-10-02'), '111111', FORM, '0' + b));
+  }
+  const r = M.matchLeads(leads, S), c1 = cellOf(r, '2026-10-01', '111111'), c2 = cellOf(r, '2026-10-02', '111111');
+  assert.equal(r.leads.dupFamily, 40);
+  assert.equal(c1[0] + c2[0], 140); assert.equal(c1[4] + c2[4], 24 + 18);                            // 24 phụ huynh của 12 gia đình hai phụ huynh đóng phí + 18 gia đình một phụ huynh
+  assert.equal(c1[6] + c2[6], 30); assert.equal(c1[5] + c2[5], 100);                                 // học sinh: mỗi em một lần (chi phí cho mỗi học sinh không bị nhân đôi)
+  assert.ok(Math.abs((c1[4] + c2[4]) / (c1[0] + c2[0]) - 0.3) < 1e-9);
 });

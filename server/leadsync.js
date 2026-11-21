@@ -110,7 +110,11 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
       if (why.length) reasons.push('Google Sheet đọc lần này khác hẳn lần trước (' + why.join('; ') + '). Kiểm tra tab và tên cột trong Sheet (có thể một tab bị đổi tên, bị xoá trống, cột SĐT hay cột ngày bị sửa tiêu đề).');
     }
     if (reasons.length) throw fail(reasons.join(' ') + ' Chưa ghi đè số liệu đang đúng; nếu số mới là đúng, quản trị bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true });
-    const merged = M.mergeMatch(prev, next, from); merged.syncedAt = new Date().toISOString();
+    // Lần đọc này đủ SĐT hoặc ngày hơn lần trước (một cổng độ phủ vừa mở): các ngày đã chốt trước đó được tính khi còn thiếu nên tính lại cả khoảng lead đọc được; ngày cũ hơn thì Meta không cho đọc lại, giữ nguyên và đánh dấu (lowCovUntil).
+    const gain = !!(prev && M.coverageGain(prev.cov, next.cov)), mergeFrom = gain && next.winFrom ? next.winFrom : from;
+    const merged = M.mergeMatch(prev, next, mergeFrom); merged.syncedAt = new Date().toISOString();
+    if (prev && prev.lowCovUntil) merged.lowCovUntil = prev.lowCovUntil;
+    if (gain && prev.from && next.winFrom && prev.from < next.winFrom) merged.lowCovUntil = [merged.lowCovUntil, next.winFrom].filter(Boolean).sort().pop();
     const vm = M.validate(merged); if (!vm.ok) throw fail('Kết quả đối chiếu không hợp lệ: ' + vm.error, { status: 500 });
     stage = 'write';
     const stats = { rows: next.leads.rows, parents: next.leads.parents, matched: next.leads.matched, students: next.cov.students, studentsWithPhone: next.cov.withPhone, paidExt: next.cov.paidExt, paidExtWithPhone: next.cov.paidExtWithPhone, forms: raw.forms, pages: raw.pages, skippedForms: raw.skippedForms, from: next.winFrom };

@@ -5,7 +5,7 @@
  *
  * Quy tắc tính (đều có kiểm thử):
  *  - Một phụ huynh = một khoá liên hệ (SĐT đầu tiên; không có SĐT thì email). Điền form nhiều lần chỉ tính một lần, lấy lần ĐẦU TIÊN (first touch) làm ngày và chiến dịch.
- *  - Một học sinh chỉ được tính cho một lead (lead sớm nhất khớp được em). Bố và mẹ cùng điền form cho một em: tính một gia đình, không tính hai lead.
+ *  - Mỗi phụ huynh là một phụ huynh điền form: bố và mẹ cùng điền form cho một em đều là phụ huynh có con đã đăng ký/đóng phí (nên tỷ lệ là của phụ huynh, không lệch thấp). Học sinh thì chỉ được tính một lần, cho lead sớm nhất khớp được em, để chi phí cho mỗi học sinh không bị nhân đôi.
  *  - Học sinh nội bộ (HS nội bộ) không phải từ quảng cáo: lead chỉ khớp học sinh nội bộ được ghi riêng và không nằm trong mẫu số của tỷ lệ.
  *  - Học sinh đã đăng ký (hoặc đóng phí) TRƯỚC ngày điền form không tính cho form đó (quảng cáo không gây ra việc đã xảy ra); được ghi riêng và không nằm trong mẫu số.
  *  - Số điện thoại khớp quá nhiều học sinh (> MAX_SIBLINGS) là số dùng chung: coi như chưa khớp.
@@ -22,9 +22,10 @@
   var HISTORY_DAYS = 400;        // số đã chốt giữ tối đa chừng này ngày kể từ hôm nay (hơn một mùa tuyển sinh); cũ hơn thì bỏ
   var ORGANIC = 'organic', NONE = 'none';
   /* Ô số liệu theo ngày điền form × chiến dịch, thứ tự cố định:
-   *  l  phụ huynh (gia đình) điền form        i  chỉ khớp học sinh nội bộ          b  chỉ khớp học sinh đã đăng ký trước form
+   *  l  phụ huynh điền form                   i  chỉ khớp học sinh nội bộ          b  chỉ khớp học sinh đã đăng ký trước form
    *  r  có con đăng ký (do form)             p  có con đã đóng phí (do form)
-   *  rs số học sinh đăng ký (do form)        ps số học sinh đã đóng phí (do form) */
+   *  rs số học sinh đăng ký (do form)        ps số học sinh đã đóng phí (do form)
+   *  (rs, ps tính mỗi em một lần cho lead sớm nhất khớp em, còn r, p tính từng phụ huynh nên r, p có thể lớn hơn rs, ps khi bố và mẹ cùng điền form) */
   var CELL = ['l', 'i', 'b', 'r', 'p', 'rs', 'ps'], N = CELL.length;
 
   function adm() { return root.FBAdm; }
@@ -47,13 +48,13 @@
         if (typeof v !== 'string' && typeof v !== 'number') return;
         var s = String(v);
         if (MAIL_FIELD.test(name) || s.indexOf('@') >= 0) A.emailKeys(s).forEach(function (k) { push(em, k); });
-        if (PHONE_FIELD.test(name) || /^[+()\d\s.\-p:]{9,24}$/.test(s)) A.phoneKeys(s).forEach(function (k) { push(ph, k); }); // ô tự đặt tên khác nhưng giá trị là số điện thoại
+        if (PHONE_FIELD.test(name) || (/^(p:)?[+()\d\s.\-]{9,24}$/.test(s) && !/^\d{4}-\d{2}-\d{2}/.test(s))) A.phoneKeys(s).forEach(function (k) { push(ph, k); }); // ô tự đặt tên khác nhưng giá trị là số điện thoại
       });
     });
     var t = vnDay(l && l.created_time), cid = String(l && l.campaign_id || '').replace(/\D/g, '');
     var organic = !!(l && (l.is_organic === true || l.is_organic === 'true'));
     var raw = String(l && l.campaign_name || '');
-    return { id: String(l && l.id || '').slice(0, 40), day: t.day, at: t.at, cid: organic ? ORGANIC : (cid && cid.length <= 20 ? cid : NONE), cname: cleanName(raw), prog: raw ? A.programOf(raw) || '' : '', organic: organic, ph: ph, em: em };
+    return { id: String(l && l.id || '').slice(0, 40), day: t.day, at: t.at, cid: organic ? ORGANIC : (/^\d{5,20}$/.test(cid) ? cid : NONE), cname: cleanName(raw), prog: raw ? A.programOf(raw) || '' : '', organic: organic, ph: ph, em: em };
   }
 
   /* ---------------- học sinh ---------------- */
@@ -97,10 +98,18 @@
     // Duyệt theo thời gian nên phụ huynh được lập bởi lead sớm nhất; khi một lead nối hai phụ huynh đã lập, giữ phụ huynh sớm hơn (first touch).
     // Khoá "trung tâm": một email/SĐT đi cùng từ HUB khoá khác nhau trở lên trong các lead (chữ giữ chỗ như abc@..., số dùng chung của người khác) không xác định một phụ huynh:
     // bỏ khỏi việc nối phụ huynh và tra học sinh, nếu không nhiều gia đình không liên quan bị gộp làm một (mất chuyển đổi hoặc co mẫu số).
-    var HUB = 4, partner = Object.create(null), hub = Object.create(null), hubOnly = 0;
+    var HUB = 4, byKey = Object.create(null), hub = Object.create(null), hubOnly = 0;
     var keysOf = function (l) { return l.ph.map(function (k) { return 'p' + k; }).concat(l.em.map(function (k) { return 'e' + k; })); };
-    dated.forEach(function (l) { var ks = keysOf(l); ks.forEach(function (k) { var s = partner[k] || (partner[k] = Object.create(null)); ks.forEach(function (o) { if (o !== k) s[o] = 1; }); }); });
-    Object.keys(partner).forEach(function (k) { if (Object.keys(partner[k]).length >= HUB) hub[k] = 1; });
+    dated.forEach(function (l, i) { keysOf(l).forEach(function (k) { (byKey[k] || (byKey[k] = [])).push(i); }); });
+    // Khoá dùng chung (địa chỉ giữ chỗ, số của văn phòng) không xác định một phụ huynh: các lead chứa khoá đó thuộc từ HUB người khác nhau trở lên, trong đó hai lead là cùng một người nếu còn chung một khoá khác.
+    // (Một phụ huynh điền form nhiều lần với Zalo hay email khác nhau vẫn là một người nên không làm số điện thoại chính của họ thành khoá dùng chung.)
+    Object.keys(byKey).forEach(function (k) {
+      var L = byKey[k]; if (L.length < HUB) return;
+      var u = L.map(function (_, j) { return j; }), f2 = function (j) { while (u[j] !== j) { u[j] = u[u[j]]; j = u[j]; } return j; }, owner = Object.create(null);
+      L.forEach(function (li, j) { keysOf(dated[li]).forEach(function (o) { if (o === k) return; if (owner[o] == null) owner[o] = j; else { var a = f2(owner[o]), b = f2(j); if (a !== b) u[a] = b; } }); });
+      var roots = Object.create(null); L.forEach(function (_, j) { roots[f2(j)] = 1; });
+      if (Object.keys(roots).length >= HUB) hub[k] = 1;
+    });
     var P = [], uf = [], keyOwner = Object.create(null), noContact = all.length - dated.length;
     var find = function (i) { while (uf[i] !== i) { uf[i] = uf[uf[i]]; i = uf[i]; } return i; };
     dated.forEach(function (l) {
@@ -135,21 +144,22 @@
       q.ph.forEach(function (k) { (idx.byPh[k] || []).forEach(function (id) { if (!seen[id]) { seen[id] = 1; ids.push(id); } }); });
       q.em.forEach(function (k) { (idx.byEm[k] || []).forEach(function (id) { if (!seen[id]) { seen[id] = 1; ids.push(id); } }); });
       var ext = ids.filter(function (id) { return !S[id].int; }), fresh = ext.filter(function (id) { return !claimed[id]; });
-      if (ids.length <= MAX_SIBLINGS && ext.length && !fresh.length) { st.dupFamily++; return; } // mọi em đã tính cho lead sớm hơn (bố/mẹ khác của cùng gia đình): không tính thêm một lead
+      // Mỗi phụ huynh là một phụ huynh điền form (bố và mẹ cùng điền form cho một em đều có con đã đăng ký/đóng phí); học sinh thì chỉ tính một lần, cho lead sớm nhất khớp em, để chi phí cho mỗi học sinh không bị nhân đôi.
+      if (ids.length <= MAX_SIBLINGS && ext.length && !fresh.length) st.dupFamily++;   // mọi em đã tính cho lead sớm hơn (bố/mẹ khác của cùng gia đình): chỉ ghi để báo
       var cell = cellOf(q); cell[0]++;
       if (ids.length > MAX_SIBLINGS) { st.ambiguous++; return; }                      // số dùng chung: coi là chưa khớp
       if (!ext.length) { if (ids.length) { cell[1]++; st.internalOnly++; } return; }  // chỉ khớp học sinh nội bộ: ghi riêng, không tính chuyển đổi
-      var mine = fresh.filter(function (id) { return !before(S[id], q.day); });
-      if (!mine.length) { cell[2]++; st.preRegistered++; return; }                    // chỉ khớp học sinh đã đăng ký/đóng phí trước form
+      var reg = ext.filter(function (id) { return !before(S[id], q.day); });          // em đăng ký sau ngày điền form (kể cả em đã tính cho lead sớm hơn)
+      if (!reg.length) { cell[2]++; st.preRegistered++; return; }                     // chỉ khớp học sinh đã đăng ký/đóng phí trước form
       cell[3]++; st.matched++;
-      var paidAny = false, cprog = camps[q.cid].p;
-      mine.forEach(function (id) {
+      if (reg.some(function (id) { return S[id].paid; })) cell[4]++;
+      var cprog = camps[q.cid].p;
+      reg.filter(function (id) { return !claimed[id]; }).forEach(function (id) {
         var s = S[id]; claimed[id] = 1; cell[5]++;
         if (cprog !== 'OTHER' && s.p !== cprog) st.crossProgram++;
         if (s.rd) { var lr = daysBetween(q.day, s.rd); if (lr != null) lagReg.push(Math.max(0, lr)); }
-        if (s.paid) { paidAny = true; cell[6]++; if (s.pd) { var lp = daysBetween(q.day, s.pd); if (lp != null) lagPaid.push(Math.max(0, lp)); } }
+        if (s.paid) { cell[6]++; if (s.pd) { var lp = daysBetween(q.day, s.pd); if (lp != null) lagPaid.push(Math.max(0, lp)); } }
       });
-      if (paidAny) cell[4]++;
     });
     var unmatchedPaid = {}, paidNoPhone = {};
     Object.keys(S).forEach(function (id) {
@@ -226,6 +236,19 @@
     var P = adm() && adm().PROGRAMS || []; for (var i = 0; i < P.length; i++) if (P[i].k === k) return P[i].label;
     return k === 'OTHER' ? 'Chưa ghép chương trình' : k;
   }
+  var FIVE = ['TS1', 'JS', 'TS6', 'TS10', 'HB'];
+  /** Độ phủ SĐT/ngày của lần đối chiếu: regOk (đủ SĐT cho học sinh chưa đóng phí), low (chương trình có từ 5 em đóng phí mà dưới 90% có SĐT; chỉ năm chương trình có chiến dịch), dated (đủ Ngày đăng ký). */
+  function gates(cov) {
+    cov = cov || {}; var low = {};
+    Object.keys(cov.paidByProg || {}).forEach(function (k) { var x = cov.paidByProg[k]; if (FIVE.indexOf(k) >= 0 && x[0] >= 5 && x[1] / x[0] < PHONE_OK) low[k] = [x[1], x[0]]; });
+    return { regOk: cov.ext > 0 && (cov.extWithPhone || 0) / cov.ext >= PHONE_OK, low: low, dated: cov.ext > 0 && (cov.extWithRegDate || 0) / cov.ext >= PHONE_OK };
+  }
+  /** Lần đọc mới đủ SĐT hoặc ngày hơn lần trước (một cổng độ phủ vừa mở): số của các ngày đã chốt trước đó được tính khi còn thiếu nên cần tính lại. */
+  function coverageGain(prevCov, nextCov) {
+    if (!prevCov || !nextCov) return false;
+    var a = gates(prevCov), b = gates(nextCov);
+    return (!a.regOk && b.regOk) || (!a.dated && b.dated) || Object.keys(a.low).some(function (k) { return !b.low[k]; });
+  }
   function withRates(c, spend, min) {
     var r = rates(c, min), o = Object.assign({}, c, { base: r.base, leadToReg: r.leadToReg, leadToPaid: r.leadToPaid, regToPaid: r.regToPaid, spend: spend > 0 ? spend : 0 });
     o.costPerReg = spend > 0 && c.rs >= MIN_COST ? spend / c.rs : null; o.costPerPaid = spend > 0 && c.ps >= MIN_COST ? spend / c.ps : null;
@@ -240,16 +263,16 @@
   function view(m, since, until, spend) {
     var cov = m && m.cov || {}, bp = spend && spend.byProgram || {}, bc = spend && spend.byCampaign || {};
     // Đăng ký mà chưa đóng phí chỉ khớp được khi học sinh ngoài nội bộ có SĐT/email trong Sheet; thiếu thì "đã đăng ký" chỉ gồm em đã đóng phí (có SĐT ở tab ĐP) và sẽ bằng "đã đóng phí".
-    var regOk = cov.ext > 0 && (cov.extWithPhone || 0) / cov.ext >= PHONE_OK;
-    // Chương trình mà học sinh đã đóng phí phần lớn chưa có SĐT: không khớp được nên không tính tỷ lệ, chi phí; cũng không đưa vào Tổng.
-    var low = {}; Object.keys(cov.paidByProg || {}).forEach(function (k) { var x = cov.paidByProg[k]; if (x[0] >= 5 && x[1] / x[0] < PHONE_OK) low[k] = [x[1], x[0]]; });
+    var g = gates(cov), regOk = g.regOk;
+    // Chương trình mà học sinh đã đóng phí phần lớn chưa có SĐT: không khớp được nên không tính số đăng ký, đóng phí, tỷ lệ, chi phí; cũng không đưa vào Tổng.
+    var low = g.low;
     var s = summarize(m, since, until, low);
     var gate = function (o, prog) {
       if (!regOk) { o.leadToReg = null; o.regToPaid = null; o.costPerReg = null; }
-      if (prog && low[prog]) { o.leadToPaid = null; o.costPerPaid = null; o.lowPhone = true; }
+      if (prog && low[prog]) { o.leadToPaid = null; o.costPerPaid = null; o.leadToReg = null; o.regToPaid = null; o.costPerReg = null; o.lowPhone = true; }
       return o;
     };
-    var five = ['TS1', 'JS', 'TS6', 'TS10', 'HB'], okFive = five.filter(function (k) { return !low[k]; }), totalSpend = 0; okFive.forEach(function (k) { totalSpend += bp[k] > 0 ? bp[k] : 0; });
+    var five = FIVE, okFive = five.filter(function (k) { return !low[k]; }), totalSpend = 0; okFive.forEach(function (k) { totalSpend += bp[k] > 0 ? bp[k] : 0; });
     var progs = [];
     five.concat(['OTHER']).forEach(function (k) { var c = s.programs[k], sp = k === 'OTHER' ? 0 : bp[k] || 0; if ((c && c.l > 0) || sp > 0) progs.push(Object.assign({ k: k, label: progLabel(k) }, gate(withRates(c || blankCell(), sp), k))); });
     var camps = Object.keys(s.campaigns).map(function (id) { var c = s.campaigns[id]; return Object.assign({ id: id, n: c.n, prog: c.prog }, gate(withRates(c, bc[id] || 0), c.prog)); }).sort(function (a, b) { return b.l - a.l || (a.id < b.id ? -1 : 1); });
@@ -290,19 +313,19 @@
   function packOf(m, today, spendOf, info) {
     var A = adm(), mat = maturity(m, today), at = attribution(m), round = function (v) { return v == null ? null : Math.round(v * 1000) / 1000; }, v0 = view(m, '', '', null);
     // số không đáng tin vì thiếu SĐT trong Sheet thì để null (không phải 0), để Claude không nhận định từ số hụt
-    var cellOut = function (c) { return { parents: c.l, only_internal_students: c.i, already_registered_before_form: c.b, registered: v0.regOk ? c.r : null, students_registered: v0.regOk ? c.rs : null, parent_to_registered: round(c.leadToReg), registered_to_paid: round(c.regToPaid),
-      paid: c.lowPhone ? null : c.p, students_paid: c.lowPhone ? null : c.ps, parent_to_paid: round(c.leadToPaid), spend_vnd: Math.round(c.spend || 0), cost_per_paid_student_vnd: c.costPerPaid == null ? null : Math.round(c.costPerPaid) }; };
+    var cellOut = function (c, hasSpend) { var rg = v0.regOk && !c.lowPhone; return { parents: c.l, only_internal_students: c.i, already_registered_before_form: c.b, registered: rg ? c.r : null, students_registered: rg ? c.rs : null, parent_to_registered: rg ? round(c.leadToReg) : null, registered_to_paid: rg ? round(c.regToPaid) : null,
+      paid: c.lowPhone ? null : c.p, students_paid: c.lowPhone ? null : c.ps, parent_to_paid: round(c.leadToPaid), spend_vnd: hasSpend ? Math.round(c.spend || 0) : null, cost_per_paid_student_vnd: c.costPerPaid == null ? null : Math.round(c.costPerPaid) }; };
     var win = function (since, until) {
       // như trang: lead chỉ đọc được từ winFrom nên chi tiêu của những ngày trước đó không được tính (nếu không chi phí / học sinh ĐP bị đẩy lên)
       var s = since && m && m.winFrom && since < m.winFrom ? m.winFrom : since;
-      var v = view(m, s, until, spendOf && s && until && s <= until ? spendOf(s, until) : null);
+      var hasSpend = !!(spendOf && s && until && s <= until), v = view(m, s, until, hasSpend ? spendOf(s, until) : null);
       var empty = !!(s && until && s > until);                      // cửa sổ nằm hết trước khoảng lead đọc được: không có lead, không tra chi tiêu
-      return { from: empty ? null : s, to: empty ? null : until, total: cellOut(v.total), by_program: v.programs.filter(function (p) { return p.l > 0; }).map(function (p) { return Object.assign({ program: p.k }, cellOut(p)); }),
-        top_campaigns: v.campaigns.filter(function (c) { return c.l >= 5; }).slice(0, 8).map(function (c) { return Object.assign({ campaign: c.n, program: c.prog }, cellOut(c)); }), organic_parents: v.organic.l };
+      return { from: empty ? null : s, to: empty ? null : until, total: Object.assign(cellOut(v.total, hasSpend), { students_paid_in_costed_programs: hasSpend ? v.mapped.ps : null }), by_program: v.programs.filter(function (p) { return p.l > 0; }).map(function (p) { return Object.assign({ program: p.k }, cellOut(p, hasSpend)); }),
+        top_campaigns: v.campaigns.filter(function (c) { return c.l >= 5; }).slice(0, 8).map(function (c) { return Object.assign({ campaign: c.n, program: c.prog }, cellOut(c, hasSpend)); }), organic_parents: v.organic.l };
     };
     var out = { as_of: today, method: 'Mỗi phụ huynh điền form lead Facebook được đối chiếu với học sinh trong file tuyển sinh theo số điện thoại hoặc email; lead đầu tiên của phụ huynh quyết định ngày và chiến dịch; học sinh nội bộ và học sinh đã đăng ký trước khi điền form không tính cho quảng cáo.',
       data_freshness: freshness(m, today, info), lead_history_from: m && m.winFrom || null, last_30d: win(A.addDays(today, -30), A.addDays(today, -1)), prev_30d: win(A.addDays(today, -60), A.addDays(today, -31)), all_time: win('', ''),
-      data_quality: { registration_stage_reliable: v0.regOk, phone_share_of_external_registered: round(at.regPhoneShare), phone_share_of_paid: round(at.phoneShare), registration_date_share: round(at.regDateShare), paid_rows_not_linked_to_registration: at.unlinkedPaid, programs_without_paid_phone: Object.keys(v0.lowPhone),
+      data_quality: { registration_stage_reliable: v0.regOk, phone_share_of_external_registered: round(at.regPhoneShare), phone_share_of_paid: round(at.phoneShare), registration_date_share: round(at.regDateShare), paid_rows_not_linked_to_registration: at.unlinkedPaid, low_coverage_before: m && m.lowCovUntil || null, programs_without_paid_phone: Object.keys(v0.lowPhone),
         note: 'Khi registration_stage_reliable = false thì không nhận định về số đăng ký hay tỷ lệ đăng ký → đóng phí. Chương trình trong programs_without_paid_phone không có tỷ lệ và không nằm trong tổng. registration_date_share thấp nghĩa là chưa loại được học sinh đã đăng ký trước khi phụ huynh điền form nên tỷ lệ có thể cao hơn thực tế.' },
       attribution: { paid_students_external: at.paidExt, matched_to_facebook_ads: at.fromAds, matched_share: round(at.share), paid_without_phone_in_sheet: at.noPhone, phone_share_of_paid: round(at.phoneShare) },
       maturity: { days_from_form_to_payment_median: mat.known ? mat.p50 : null, days_p90: mat.known ? mat.p90 : null, parents_filling_form_after: mat.recentFrom, note: 'Phụ huynh điền form sau mốc này chưa đủ thời gian để đóng phí nên tỷ lệ của nhóm đó thấp hơn thực tế.' } };
@@ -340,14 +363,15 @@
       for (j = 0; j < rk.length; j++) {
         var v = row[rk[j]]; if (!out.camps[rk[j]] || !Array.isArray(v) || v.length !== N) return bad('Số theo ngày không hợp lệ.');
         var x = v.map(function (t) { return int0(t); });
-        // l ≥ i + b + r; mỗi gia đình khớp có ít nhất một em: r ≤ rs, p ≤ ps; đóng phí ⊂ đăng ký: p ≤ r, ps ≤ rs
-        if (x.indexOf(null) >= 0 || x[1] + x[2] + x[3] > x[0] || x[4] > x[3] || x[3] > x[5] || x[4] > x[6] || x[6] > x[5]) return bad('Số theo ngày không nhất quán.');
+        // l ≥ i + b + r; đóng phí ⊂ đăng ký: p ≤ r, ps ≤ rs; học sinh chỉ tính một lần nên mỗi phụ huynh có tối đa MAX_SIBLINGS em: rs ≤ 6r, ps ≤ 6p (r có thể lớn hơn rs khi bố và mẹ cùng điền form)
+        if (x.indexOf(null) >= 0 || x[1] + x[2] + x[3] > x[0] || x[4] > x[3] || x[6] > x[5] || x[5] > MAX_SIBLINGS * x[3] || x[6] > MAX_SIBLINGS * x[4]) return bad('Số theo ngày không nhất quán.');
         o[rk[j]] = x;
       }
       out.days[dk[i]] = o;
     }
     var ds = Object.keys(out.days).sort(); out.from = ds[0] || ''; out.to = ds[ds.length - 1] || '';
     out.winFrom = isDay(m.winFrom) ? m.winFrom : ''; out.frozenBefore = isDay(m.frozenBefore) ? m.frozenBefore : '';
+    if (isDay(m.lowCovUntil)) out.lowCovUntil = m.lowCovUntil;      // các ngày trước mốc này được chốt khi Sheet còn thiếu SĐT/ngày (không tính lại được)
     out.syncedAt = typeof m.syncedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(m.syncedAt) && isFinite(Date.parse(m.syncedAt)) ? m.syncedAt : '';
     return { ok: true, match: out };
   }
@@ -358,7 +382,7 @@
   }
 
   var api = {
-    PROGRAMS: PROGRAMS, KEEP_DAYS: KEEP_DAYS, ORGANIC: ORGANIC, NONE: NONE, MAX_SIBLINGS: MAX_SIBLINGS, CELL: CELL, leadFromGraph: leadFromGraph, indexStudents: indexStudents, matchLeads: matchLeads, mergeMatch: mergeMatch,
+    PROGRAMS: PROGRAMS, KEEP_DAYS: KEEP_DAYS, ORGANIC: ORGANIC, NONE: NONE, MAX_SIBLINGS: MAX_SIBLINGS, CELL: CELL, leadFromGraph: leadFromGraph, indexStudents: indexStudents, matchLeads: matchLeads, mergeMatch: mergeMatch, coverageGain: coverageGain, gates: gates,
     windowFrom: windowFrom, summarize: summarize, view: view, maturity: maturity, attribution: attribution, packOf: packOf, progLabel: progLabel, MIN_COST: MIN_COST, rates: rates, validate: validate, phoneCoverage: phoneCoverage, cleanName: cleanName, vnDay: vnDay
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
