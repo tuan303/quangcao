@@ -50,7 +50,7 @@ function sheetData() {
   const hdr = ['MDT', 'HS nội bộ', 'Họ tên học sinh', 'Khối 27 28', 'Chiến dịch', 'SĐT bố', 'SĐT mẹ', 'Email phụ huynh', 'Ngày đăng ký', 'Ngày đóng phí'];
   return {
     meta: { properties: { title: 'DATA TUYỂN SINH (giả)' }, sheets: [
-      { properties: { sheetId: 0, title: 'Danh sách đăng ký' }, merges: [{ sheetId: 0, startRowIndex: 2, endRowIndex: 4, startColumnIndex: 4, endColumnIndex: 5 }] },
+      { properties: { sheetId: 0, title: 'Danh sách đăng ký' }, merges: [{ startRowIndex: 2, endRowIndex: 4, startColumnIndex: 4, endColumnIndex: 5 }] },
       { properties: { sheetId: 1, title: 'LỚP 6 2728 (ĐP)' } }, { properties: { sheetId: 2, title: 'LỚP 10 2728 (ĐP)' } }, { properties: { sheetId: 3, title: 'Ghi chú' } }, { properties: { sheetId: 4, title: 'LỚP 1 2728 (ĐP) cũ' } }] },
     values: {
       'Danh sách đăng ký': [[], hdr,
@@ -135,11 +135,11 @@ test('describeSheetsError: nói rõ cần bật API, chia sẻ Sheet, đổi san
 
 test('expandMerges: ô gộp lấy giá trị ô trên cùng bên trái, không đè ô đã có, bỏ qua vùng quá lớn', () => {
   const rows = [['a', 'b'], ['x', '', 'k'], []];
-  G.expandMerges(rows, [{ sheetId: 7, startRowIndex: 0, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: 1 }, { sheetId: 7, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 1, endColumnIndex: 3 }, { sheetId: 9, startRowIndex: 0, endRowIndex: 2, startColumnIndex: 1, endColumnIndex: 2 }], 7);
+  G.expandMerges(rows, [{ startRowIndex: 0, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: 1 }, { startRowIndex: 1, endRowIndex: 2, startColumnIndex: 1, endColumnIndex: 3 }]);   // Google bỏ trường bằng 0 (sheetId, startRowIndex…)
   assert.deepEqual(rows[1], ['x', '', 'k']);    // ô A2 đã có 'x' nên giữ; gộp B2:C2 có ô trái trống nên không làm gì
   assert.equal(rows[2][0], 'a');
-  const rows2 = [['t', ''], ['', '']]; G.expandMerges(rows2, [{ sheetId: 1, startRowIndex: 0, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: 2 }], 1); assert.deepEqual(rows2, [['t', 't'], ['t', 't']]);
-  const big = [['t']]; G.expandMerges(big, [{ sheetId: 1, startRowIndex: 0, endRowIndex: 100000, startColumnIndex: 0, endColumnIndex: 5 }], 1); assert.equal(big.length, 1);
+  const rows2 = [['t', ''], ['', '']]; G.expandMerges(rows2, [{ endRowIndex: 2, endColumnIndex: 2 }]); assert.deepEqual(rows2, [['t', 't'], ['t', 't']]);
+  const big = [['t']]; G.expandMerges(big, [{ endRowIndex: 100000, endColumnIndex: 5 }]); assert.equal(big.length, 1);
 });
 
 test('readAdmissionsSheet: chọn tab Danh sách đăng ký và tab (ĐP), đọc giá trị gốc, mở rộng ô gộp; tab ĐP tên lạ được báo; tab khác bị bỏ qua', async () => {

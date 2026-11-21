@@ -88,11 +88,11 @@ async function sheetsGet(path, params, sa, env) {
   }
 }
 
-/* Ô gộp: lấy giá trị ô trên cùng bên trái cho các ô còn lại (giống file Excel), để cột Chiến dịch, Khối… gộp ô không mất dữ liệu. */
-export function expandMerges(rows, merges, sheetId) {
+/* Ô gộp: lấy giá trị ô trên cùng bên trái cho các ô còn lại (giống file Excel), để cột Chiến dịch, Khối… gộp ô không mất dữ liệu.
+ * `merges` là danh sách ô gộp của đúng tab đó (sheets[i].merges). Không so sheetId: Google bỏ các số 0 khỏi JSON (tab đầu tiên có sheetId 0 nên có thể không có trường này). */
+export function expandMerges(rows, merges) {
   if (!Array.isArray(merges) || !merges.length || merges.length > 5000) return rows;
   for (const m of merges) {
-    if (m.sheetId !== sheetId) continue;
     const sr = m.startRowIndex || 0, er = m.endRowIndex || 0, sc = m.startColumnIndex || 0, ec = m.endColumnIndex || 0;
     if (er <= sr || ec <= sc || (er - sr) * (ec - sc) > 100000 || er > MAX_ROWS) continue;
     const tl = rows[sr] && rows[sr][sc];
@@ -130,7 +130,7 @@ export async function readAdmissionsSheet(sheetId, { pickTabs, env = process.env
     const rows = (ranges[i] && ranges[i].values || []).slice();
     if (rows.length > MAX_ROWS) throw fail('Tab "' + name.slice(0, 40) + '" quá dài (' + rows.length + ' dòng).');
     const sh = sheets.find(s => s.properties.title === name);
-    return expandMerges(rows, sh && sh.merges, sh && sh.properties.sheetId);
+    return expandMerges(rows, sh && sh.merges);
   };
   return { title: String(meta.properties && meta.properties.title || '').slice(0, 120), reg: rowsOf(0, tabs.regName), paid: tabs.paidNames.map((n, i) => ({ name: n, rows: rowsOf(i + 1, n) })), skipped: tabs.skipped, tabs: want };
 }
