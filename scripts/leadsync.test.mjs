@@ -657,7 +657,7 @@ test('maybeLeadSync: còn mới trong 12 giờ thì bỏ qua, quá 12 giờ ho�
   try { assert.deepEqual(await S.maybeLeadSync({ env: ENV, store }), { skipped: 'còn mới' }); assert.equal(f.calls.length, 0); } finally { f.restore(); }
   for (const prev of [{ v: 1, ok: true, at: hoursAgo(13) }, { v: 1, ok: false, at: hoursAgo(1) }]) {
     G.resetTokenCache(); store = memStore({ leadsync: prev }); f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes()]);
-    try { const r = await S.maybeLeadSync({ env: ENV, store, by: 'cron' }); assert.equal(r.ok, true); assert.equal(store.docs.leadsync.by, 'cron'); } finally { f.restore(); G.resetTokenCache(); }
+    try { const r = await S.maybeLeadSync({ env: ENV, store, by: 'cron', today: TODAY }); assert.equal(r.ok, true); assert.equal(store.docs.leadsync.by, 'cron'); } finally { f.restore(); G.resetTokenCache(); }
   }
 });
 

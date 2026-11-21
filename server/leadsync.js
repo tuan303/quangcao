@@ -153,12 +153,12 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
 }
 
 /** Cho cron: chỉ chạy khi đã cấu hình và lần cập nhật thành công gần nhất đã cũ (mặc định 12 giờ: cron /api/sync lúc 05:30 và /api/insights lúc 07:15 không chạy trùng nhau, còn bấm tay trước 17:30 hôm trước thì sáng hôm sau vẫn cập nhật, sau 17:30 thì bỏ qua vì số còn mới); lỗi không làm hỏng việc gọi nó. */
-export async function maybeLeadSync({ by = 'cron', env = process.env, staleMs = 12 * 3600000, store = { readDocs, writeDocs } } = {}) {
+export async function maybeLeadSync({ by = 'cron', env = process.env, staleMs = 12 * 3600000, store = { readDocs, writeDocs }, today } = {}) {
   if (!leadSyncConfig(env).ready) return { skipped: 'chưa cấu hình' };
   try {
     const s = (await store.readDocs(['leadsync'])).leadsync;
     if (s && s.ok && s.at && Date.now() - Date.parse(s.at) < staleMs) return { skipped: 'còn mới' };
-    return await runLeadSync({ by, env, store });
+    return await runLeadSync({ by, env, store, today });
   } catch (e) { console.error('[leadsync] cập nhật tự động lỗi:', e && e.expose ? e.message : describeUnknown(e)); return { ok: false, error: e && e.expose ? e.message : 'lỗi', stage: e && e.stage }; }
 }
 

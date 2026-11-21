@@ -299,11 +299,11 @@ test('readWorkbook: chỉ nhận .xlsx, mở rộng ô gộp, đọc hệ ngày 
   const reg = { R1C0: cell('MDT'), R1C1: cell('HS nội bộ'), R1C2: cell('Họ tên học sinh'), R1C3: cell('Chiến dịch'),
     R2C0: cell(11), R2C2: cell('A'), R2C3: cell('TS6'), R3C0: cell(12), R3C2: cell('B'), '!merges': [{ s: { r: 2, c: 3 }, e: { r: 3, c: 3 } }] };
   const paid = { R0C0: cell('MDT'), R0C1: cell('Họ tên học sinh'), R1C0: cell(11), R1C1: cell('A') };
-  const r = A.readWorkbook(X({ 'Danh sách đăng ký': reg, 'LỚP 6 (ĐP)': paid }), ZIP);
+  const r = A.readWorkbook(X({ 'Danh sách đăng ký': reg, 'LỚP 6 (ĐP)': paid }), ZIP, '2026-11-20');
   assert.ok(r.ok); assert.deepEqual(r.summary.programs.TS6, { reg: 2, regInt: 0, paid: 1, paidInt: 0 });
   // hệ ngày 1904
   const reg4 = { R0C0: cell('MDT'), R0C1: cell('HS nội bộ'), R0C2: cell('Họ tên học sinh'), R0C3: cell('Chiến dịch'), R0C4: cell('Ngày đăng ký'), R1C0: cell(11), R1C2: cell('A'), R1C3: cell('TS6'), R1C4: cell(46305 - 1462) };
-  const r4 = A.readWorkbook(X({ 'Danh sách đăng ký': reg4, 'LỚP 6 (ĐP)': paid }, { date1904: true }), ZIP);
+  const r4 = A.readWorkbook(X({ 'Danh sách đăng ký': reg4, 'LỚP 6 (ĐP)': paid }, { date1904: true }), ZIP, '2026-11-20');
   assert.deepEqual(Object.keys(r4.summary.regByDay), ['2026-10-10']);
   // tab (ĐP) tên khác được báo là không đọc
   const skipped = A.readWorkbook(X({ 'Danh sách đăng ký': reg, 'LỚP 6 (ĐP)': paid, 'ĐP LỚP 10': paid, 'Ghi chú': {} }), ZIP).summary;
