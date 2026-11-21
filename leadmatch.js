@@ -256,6 +256,18 @@
     return { regOk: cov.ext > 0 && (cov.extWithPhone || 0) / cov.ext >= PHONE_OK, low: low, dated: cov.ext > 0 && (cov.extWithRegDate || 0) / cov.ext >= PHONE_OK };
   }
   /** Lần đọc mới đủ SĐT hoặc ngày hơn lần trước (một cổng độ phủ vừa mở): số của các ngày đã chốt trước đó được tính khi còn thiếu nên cần tính lại. */
+  /**
+   * Lần đọc trước (prev, số đã gộp) có đọc dở không: vùng đã chốt của nó (các ngày từ ngày lead sớm nhất của lần này đến mốc đóng băng `from`) có ít hơn một phần ba số phụ huynh mà lần này thấy cho cùng các ngày
+   * (lần này thấy từ 10 phụ huynh). Ví dụ ứng dụng Meta còn Development chỉ thấy vài lead của người có vai trò: số đã chốt đó không phải lịch sử thật nên phải dựng lại cả cửa sổ đọc được, vì ngày cũ hơn 60 sau đó không đọc lại được.
+   * Lần trước còn nguyên vùng đã chốt (kể cả khi chính nó có một ngày đọc kém ở gần đây) thì không dựng lại: các ngày hỏng gần đây được tính lại theo mốc gián đoạn.
+   */
+  function thinPrev(prev, next, from) {
+    if (!prev || !next || !isDay(next.winFrom) || !isDay(from)) return false;
+    var band = function (m) { var s = 0; Object.keys(m.days || {}).forEach(function (d) { if (d >= next.winFrom && d < from) Object.keys(m.days[d]).forEach(function (c) { s += Number((m.days[d][c] || [])[0]) || 0; }); }); return s; };
+    var nb = band(next); return nb >= 10 && band(prev) * 3 < nb;
+  }
+  /** Số đã lưu (đã qua validate) có lịch sử thật cho mùa `season` không: có ngày nào đó và cùng mùa (mùa trống ở số cũ vẫn tính). Chưa có thì lần đọc này là lần đọc ĐẦU của mùa. */
+  function hasHistory(m, season) { return !!(m && m.days && Object.keys(m.days).length && (!m.season || m.season === (season || ''))); }
   function coverageGain(prevCov, nextCov) {
     if (!prevCov || !nextCov) return false;
     var a = gates(prevCov), b = gates(nextCov);
@@ -332,11 +344,15 @@
     var cellOut = function (c, hasSpend) { var rg = v0.regOk && !c.lowPhone; return { parents: c.l, only_internal_students: c.i, already_registered_before_form: c.b, registered: rg ? c.r : null, students_registered: rg ? c.rs : null, parent_to_registered: rg ? round(c.leadToReg) : null, registered_to_paid: rg ? round(c.regToPaid) : null,
       paid: c.lowPhone ? null : c.p, students_paid: c.lowPhone ? null : c.ps, parent_to_paid: round(c.leadToPaid), spend_vnd: hasSpend ? Math.round(c.spend || 0) : null, cost_per_paid_student_vnd: c.costPerPaid == null ? null : Math.round(c.costPerPaid) }; };
     var win = function (since, until) {
+      var tot = null;
       // như trang: lead chỉ đọc được từ winFrom nên chi tiêu của những ngày trước đó không được tính (nếu không chi phí / học sinh ĐP bị đẩy lên)
       var s = since && m && m.winFrom && since < m.winFrom ? m.winFrom : since;
       var hasSpend = !!(spendOf && s && until && s <= until), v = view(m, s, until, hasSpend ? spendOf(s, until) : null);
       var empty = !!(s && until && s > until);                      // cửa sổ nằm hết trước khoảng lead đọc được: không có lead, không tra chi tiêu
-      return { from: empty ? null : s, to: empty ? null : until, total: Object.assign(cellOut(v.total, hasSpend), { students_paid_in_costed_programs: hasSpend ? v.mapped.ps : null }), by_program: v.programs.filter(function (p) { return p.l > 0; }).map(function (p) { return Object.assign({ program: p.k }, cellOut(p, hasSpend)); }),
+      // held: mọi chương trình có phụ huynh đều thiếu SĐT; Tổng chỉ còn nhóm chưa ghép nên không phải tổng của kỳ → để null (nhóm chưa ghép vẫn có ở by_program)
+      tot = Object.assign(cellOut(v.total, hasSpend), { students_paid_in_costed_programs: hasSpend && !v.held ? v.mapped.ps : null, held_back: !!v.held });
+      if (v.held) Object.assign(tot, { parents: null, only_internal_students: null, already_registered_before_form: null, spend_vnd: null });
+      return { from: empty ? null : s, to: empty ? null : until, total: tot, by_program: v.programs.filter(function (p) { return p.l > 0; }).map(function (p) { return Object.assign({ program: p.k }, cellOut(p, hasSpend)); }),
         top_campaigns: v.campaigns.filter(function (c) { return c.l >= 5; }).slice(0, 8).map(function (c) { return Object.assign({ campaign: c.n, program: c.prog }, cellOut(c, hasSpend)); }), organic_parents: v.organic.l };
     };
     var out = { as_of: today, method: 'Mỗi phụ huynh điền form lead Facebook được đối chiếu với học sinh trong file tuyển sinh theo số điện thoại hoặc email; lead đầu tiên của phụ huynh quyết định ngày và chiến dịch; học sinh nội bộ và học sinh đã đăng ký trước khi điền form không tính cho quảng cáo.',
@@ -398,7 +414,7 @@
   }
 
   var api = {
-    PROGRAMS: PROGRAMS, KEEP_DAYS: KEEP_DAYS, ORGANIC: ORGANIC, NONE: NONE, MAX_SIBLINGS: MAX_SIBLINGS, CELL: CELL, leadFromGraph: leadFromGraph, indexStudents: indexStudents, matchLeads: matchLeads, mergeMatch: mergeMatch, coverageGain: coverageGain, gates: gates,
+    PROGRAMS: PROGRAMS, KEEP_DAYS: KEEP_DAYS, ORGANIC: ORGANIC, NONE: NONE, MAX_SIBLINGS: MAX_SIBLINGS, CELL: CELL, leadFromGraph: leadFromGraph, indexStudents: indexStudents, matchLeads: matchLeads, mergeMatch: mergeMatch, coverageGain: coverageGain, thinPrev: thinPrev, hasHistory: hasHistory, gates: gates,
     windowFrom: windowFrom, summarize: summarize, view: view, maturity: maturity, attribution: attribution, packOf: packOf, progLabel: progLabel, MIN_COST: MIN_COST, rates: rates, validate: validate, phoneCoverage: phoneCoverage, cleanName: cleanName, vnDay: vnDay
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

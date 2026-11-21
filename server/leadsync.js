@@ -93,7 +93,7 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     // Meta báo các biểu mẫu mới tạo có lead nhưng không trả lead nào: không phải "0 lead" thật mà là chưa đủ quyền đọc lead (ứng dụng Development, thiếu Leads access).
     // Cũng dừng khi Meta chỉ trả một phần nhỏ (ví dụ ứng dụng Development chỉ thấy lead của người có vai trò: vài lead thử trong hàng trăm): lần đọc đầu mà ghi nhận vài lead sẽ làm mất các ngày 60–90 trước vì sau đó không đọc lại được.
     // Chỉ canh lần đọc ĐẦU (chưa có số đã lưu cùng mùa): từ lần sau chốt chặn "drop" so với số đã lưu, và chốt chặn này không được chặn mãi cron sau khi quản trị đã chấp nhận một lần ghi đè.
-    const ck = raw.check, firstRead = !(pv && pv.ok && pv.match.days && Object.keys(pv.match.days).length && (!pv.match.season || pv.match.season === (vs.summary.season || '')));
+    const ck = raw.check, firstRead = !M.hasHistory(pv && pv.ok ? pv.match : null, vs.summary.season);
     if (!ack.has('empty') && ck && (emptyRead(ck.expected, ck.got) || (firstRead && thinRead(ck.expected, ck.got, raw.leads.length)))) throw fail('Meta báo các biểu mẫu tạo trong 80 ngày qua có ' + ck.expected + ' lead nhưng ' + (ck.got === 0 ? 'không trả lead nào' : 'chỉ trả ' + ck.got) + ': ' + NO_LEADS_HINT + ' Nếu lead thật sự đã bị xoá, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true, guards: ['empty'] });
     // Nhiều lead quảng cáo không tra được chiến dịch (Meta lỗi, hết giờ): chúng sẽ rơi vào "chưa rõ chiến dịch" và làm sai số theo chương trình, kể cả của các ngày sắp được chốt.
     if (!ack.has('campaign') && raw.unresolved > Math.max(3, raw.leads.length * 0.03)) throw fail('Không tra được chiến dịch của ' + raw.unresolved + '/' + raw.leads.length + ' lead nên chưa ghi đè: số theo chương trình sẽ sai. Thử lại sau vài phút; nếu vẫn vậy, quản trị bấm lại với tuỳ chọn ghi đè.', { status: 409, canForce: true, guards: ['campaign'] });
@@ -116,9 +116,9 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     if (reasons.length) throw fail(reasons.join(' ') + ' Chưa ghi đè số liệu đang đúng; nếu số mới là đúng, quản trị bấm lại “Cập nhật ngay” với tuỳ chọn ghi đè.', { status: 409, canForce: true, guards: fired });
     // Lần đọc này đủ SĐT hoặc ngày hơn lần trước (một cổng độ phủ vừa mở): các ngày đã chốt trước đó được tính khi còn thiếu nên tính lại cả khoảng lead đọc được; ngày cũ hơn thì Meta không cho đọc lại, giữ nguyên và đánh dấu (lowCovUntil).
     const gain = !!(prev && M.coverageGain(prev.cov, next.cov));
-    // Lần trước chỉ đọc được một phần nhỏ số lead hiện tại (ví dụ ứng dụng Meta còn Development nên chỉ thấy vài lead của người có vai trò; biểu mẫu cũ hơn 80 ngày nên chốt chặn "empty" chưa canh được) không phải lịch sử thật:
-    // dựng lại cả cửa sổ đọc được như lần đầu, nếu không các ngày 60–90 trước bị chốt rỗng và không bao giờ đọc lại được (Meta chỉ giữ lead 90 ngày).
-    const thinPrev = !!(prev && prev.leads && next.leads.rows >= 20 && (Number(prev.leads.rows) || 0) * 3 < next.leads.rows), rebuild = gain || thinPrev;
+    // Vùng đã chốt của lần trước có ít hơn một phần ba số phụ huynh mà lần này thấy cho cùng các ngày (ví dụ ứng dụng Meta còn Development nên lần trước chỉ thấy vài lead của người có vai trò, biểu mẫu cũ hơn 80 ngày nên chốt chặn "empty" chưa canh được):
+    // không phải lịch sử thật → dựng lại cả cửa sổ đọc được như lần đầu, nếu không các ngày 60–90 trước bị chốt gần rỗng và không bao giờ đọc lại được (Meta chỉ giữ lead 90 ngày).
+    const rebuild = gain || M.thinPrev(prev, next, from);
     let mergeFrom = from;
     // Sau một đợt gián đoạn (token hết hạn, chốt chặn chờ xác nhận…): các ngày còn "sống" (dưới 60 ngày) ở lần chạy tốt cuối vẫn phải được tính lại; giữ 14 ngày đầu cửa sổ đọc làm vùng nhận ra phụ huynh điền form từ trước.
     const lastGood = prev && A.vnDate(prev.syncedAt);
@@ -129,7 +129,7 @@ export async function runLeadSync({ by = 'cron', env = process.env, force = fals
     const merged = M.mergeMatch(mergePrev, next, mergeFrom); merged.syncedAt = new Date().toISOString();
     if (prev && prev.lowCovUntil) merged.lowCovUntil = prev.lowCovUntil;
     // Ba mươi ngày đầu của vùng tính lại chưa có vùng nhận ra phụ huynh điền form từ trước (lead cũ hơn 90 ngày không đọc lại được) nên chỉ gần đúng: đánh dấu cùng các ngày cũ hơn còn giữ số đã chốt
-    if (gain && prev.from && next.winFrom && prev.from < next.winFrom) merged.lowCovUntil = [merged.lowCovUntil, A.addDays(next.winFrom, 30)].filter(Boolean).sort().pop();
+    if (rebuild && prev.from && next.winFrom && prev.from < next.winFrom) merged.lowCovUntil = [merged.lowCovUntil, A.addDays(next.winFrom, 30)].filter(Boolean).sort().pop();
     const vm = M.validate(merged); if (!vm.ok) throw fail('Kết quả đối chiếu không hợp lệ: ' + vm.error, { status: 500 });
     stage = 'write';
     const stats = { rows: next.leads.rows, parents: next.leads.parents, matched: next.leads.matched, students: next.cov.students, studentsWithPhone: next.cov.withPhone, paidExt: next.cov.paidExt, paidExtWithPhone: next.cov.paidExtWithPhone, forms: raw.forms, pages: raw.pages, skippedForms: raw.skippedForms, from: next.winFrom };

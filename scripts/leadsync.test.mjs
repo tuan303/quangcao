@@ -302,7 +302,9 @@ test('runLeadSync: Meta chỉ trả một phần nhỏ lead của các biểu m�
   for (const [specs, ok, label] of [
     [[{ count: 454, visible: 454 }, { count: 12, visible: 3 }], true, 'một biểu mẫu nhỏ thiếu nhưng tổng gần đủ'],
     [Array.from({ length: 10 }, () => ({ count: 9, visible: 2 })), false, 'mười biểu mẫu mỗi cái chỉ thấy 2/9: tổng 20/90'],
-    [[{ count: 454, visible: 2, next: true }], true, 'trang ngắn nhưng còn trang kế: chưa kết luận được từ trang đầu'],
+    [[{ count: 800, visible: 3, old: true }, { count: 100, visible: 20 }], false, 'biểu mẫu cũ cũng chỉ thấy 3/800: phần thiếu của biểu mẫu mới là đáng kể so với tổng đọc được'],
+    [[{ count: 454, visible: 2, next: true }], false, 'trang ngắn mà còn trang kế (Meta lọc bớt lead): chưa chứng minh được là đủ'],
+    [[{ count: 454, visible: 0, next: true }], false, 'trang rỗng mà còn trang kế'],
     [[{ count: 800, visible: 800, old: true }, { count: 12, visible: 4 }], true, 'biểu mẫu cũ đọc đủ, biểu mẫu mới nhỏ thiếu: phần thiếu dưới 20% tổng'],
     [[{ count: 454, visible: 2 }, { count: 800, visible: 3, old: true }], false, 'cả hai biểu mẫu gần như không đọc được']]) {
     const g = many(specs);
@@ -331,6 +333,31 @@ test('runLeadSync: lần trước chỉ đọc được vài lead (Meta Developm
   // lần đọc đủ tiếp theo, rồi một lần đọc mà Meta đã hết một lead của vùng đóng băng: số đã chốt giữ nguyên (không dựng lại)
   assert.equal((await run(store, band.concat(recent), A.addDays(TODAY, 1))).ok, true);
   assert.equal((await run(store, band.slice(1).concat(recent), A.addDays(TODAY, 2))).ok, true); assert.equal(Object.keys(store.docs.fbmatch.days).length, 24);
+});
+
+test('runLeadSync: chốt chặn "Meta chỉ trả dưới một nửa" chỉ canh lần đọc đầu của mùa (mùa khác, số lưu không có ngày), tính theo tổng đọc được; có số lưu thì chốt chặn "drop" canh; dựng lại vì lần trước đọc dở đánh dấu mốc kém tin cậy khi còn ngày cũ', async () => {
+  const M = globalThis.FBMatch, day = d => A.addDays(TODAY, -d);
+  const prevDays = {}; for (let i = 1; i <= 25; i++) prevDays[day(i)] = { 111111: [1, 0, 0, 0, 0, 0, 0] };
+  const prev = { v: 1, season: '2027–28', leads: { rows: 25 }, cov: { students: 5 }, days: prevDays, camps: { 111111: { n: 'TS6-LEAD | Form', p: 'TS6' } }, unmatchedPaid: {}, paidNoPhone: {}, syncedAt: '2026-11-01T00:00:00.000Z' };
+  const thinForms = [{ id: 'f1', status: 'ACTIVE', leads_count: 454, created_time: RECENT }], thinRoutes = () => [...googleRoutes(sheetData()), ...graphRoutes({ forms: thinForms, leads: LEADS.slice(0, 2) })];
+  const attempt = async (stored, routes = thinRoutes, opts = {}) => { G.resetTokenCache(); const store = memStore(stored), f = stubFetch(routes()); try { return { store, res: await S.runLeadSync(Object.assign({ env: ENV, today: TODAY, store }, opts)).then(r => ({ ok: r.ok }), e => ({ err: e })) }; } finally { f.restore(); G.resetTokenCache(); } };
+  // lần đọc đầu của mùa mới (số lưu của mùa khác; số lưu không có ngày nào): bị chặn bởi "empty"
+  for (const stored of [{ fbmatch: Object.assign({}, prev, { season: '2026–27' }) }, { fbmatch: Object.assign({}, prev, { days: {}, camps: {} }) }]) { const r = await attempt(stored); assert.ok(r.res.err && r.res.err.status === 409 && JSON.stringify(r.res.err.guards) === '["empty"]', JSON.stringify(r.res.err && r.res.err.message || r.res)); }
+  // có số lưu cùng mùa: không còn là lần đọc đầu; số lead tụt thì chốt chặn "drop" canh (không phải "empty")
+  const r2 = await attempt({ fbmatch: prev }); assert.ok(r2.res.err && JSON.stringify(r2.res.err.guards) === '["drop"]', JSON.stringify(r2.res.err && r2.res.err.guards));
+  // tính theo tổng đọc được: biểu mẫu cũ đọc đủ 120 lead, biểu mẫu mới báo 12 lead nhưng chỉ trả 4 → phần thiếu (8) chưa tới 20% tổng: không dừng
+  const gl = (id, d, i) => glead(id, d, '111111', 'TS6-LEAD | Form', '0' + phn(5000 + i)), oldLeads = Array.from({ length: 120 }, (_, i) => gl('O' + i, day(30 + (i % 5)), i)), newLeads = Array.from({ length: 4 }, (_, i) => gl('N' + i, day(3 + i), 200 + i));
+  const forms2 = [{ id: 'o1', status: 'ACTIVE', leads_count: 120, created_time: OLD }, { id: 'r1', status: 'ACTIVE', leads_count: 12, created_time: RECENT }];
+  const routes2 = () => [u => u.host === 'graph.facebook.com' && /\/o1\/leads$/.test(u.pathname) && json({ data: oldLeads }), u => u.host === 'graph.facebook.com' && /\/r1\/leads$/.test(u.pathname) && json({ data: newLeads }), ...googleRoutes(sheetData()), ...graphRoutes({ forms: forms2 })];
+  const r3 = await attempt({}, routes2); assert.equal(r3.res.ok, true, JSON.stringify(r3.res.err && r3.res.err.message));
+  // dựng lại vì lần trước đọc dở và còn một ngày cũ hơn cửa sổ lần này: ngày đó giữ, các ngày sau dựng lại, có mốc kém tin cậy (30 ngày đầu của cửa sổ không có vùng nhận ra)
+  const band = Array.from({ length: 12 }, (_, i) => glead('B' + i, A.addDays(TODAY, -80 + i), '111111', 'TS6-LEAD | Form', '0' + phn(6000 + i))), recent = Array.from({ length: 12 }, (_, i) => glead('R' + i, A.addDays(TODAY, -20 + i), '111111', 'TS6-LEAD | Form', '0' + phn(6100 + i)));
+  const oldForms = [{ id: 'f1', status: 'ACTIVE', leads_count: 454, created_time: OLD }];
+  const run = async (store, leads, today) => { G.resetTokenCache(); const f = stubFetch([...googleRoutes(sheetData()), ...graphRoutes({ forms: oldForms, leads })]); try { return await S.runLeadSync({ env: ENV, today, store }); } finally { f.restore(); G.resetTokenCache(); } };
+  const store = memStore();
+  assert.equal((await run(store, [glead('X0', A.addDays(TODAY, -125), '111111', 'TS6-LEAD | Form', '0' + phn(6200)), glead('X1', A.addDays(TODAY, -45), '111111', 'TS6-LEAD | Form', '0' + phn(6201))], A.addDays(TODAY, -40))).ok, true);
+  assert.equal((await run(store, band.concat(recent), TODAY)).ok, true);
+  const m = store.docs.fbmatch; assert.ok(Object.keys(m.days).includes(A.addDays(TODAY, -125)) && Object.keys(m.days).includes(A.addDays(TODAY, -80))); assert.equal(m.lowCovUntil, A.addDays(TODAY, -50)); assert.ok(M.validate(m).ok);
 });
 
 test('maybeLeadSync: lỗi không rõ khi cron chạy (đọc Firestore, ghi khoá) được ghi log qua describeUnknown thay vì chỉ "xem log"', async () => {
@@ -942,10 +969,15 @@ test('checkLeads: dừng giữa chừng vì hết giờ thì báo đỏ "Mới �
   // 7) 61 biểu mẫu đọc được: dừng sau khi đọc biểu mẫu thứ 61, kể cả khi đứng cuối danh sách; kiểm tra kết nối đỏ cùng lý do
   const r61 = mkForms(61); await run(r61, () => json({ data: [] }), async () => { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && /hơn 60 biểu mẫu có lead đọc được/.test(e.message)); });
   const c61 = await run(r61, () => json({ data: [] }), checkStep); assert.equal(c61.ok, false); assert.match(c61.text, /hơn 60 biểu mẫu có lead đọc được/);
-  // 8) quá nhiều biểu mẫu lưu trữ không đọc được (mỗi cái tốn một yêu cầu): dừng sớm với thông báo rõ thay vì chạy đến hết giờ
+  // 8) quá nhiều biểu mẫu lưu trữ không đọc được (mỗi cái tốn một yêu cầu): giới hạn theo thời gian, dừng với thông báo rõ thay vì chạy đến hết giờ; có thời gian thì đọc hết (nhiều biểu mẫu lưu trữ không còn không phải là lỗi)
   const forms150 = mkForms(150).map((f, i) => i >= 20 ? Object.assign(f, { status: 'ARCHIVED' }) : f);
-  await run(forms150, goneAfter(20), async () => { await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && new RegExp('hơn ' + L.MAX_ATTEMPTS + ' biểu mẫu').test(e.message)); });
-  const c150 = await run(forms150, goneAfter(20), checkStep); assert.equal(c150.ok, false); assert.match(c150.text, new RegExp('hơn ' + L.MAX_ATTEMPTS + ' biểu mẫu'));
+  await run(forms150, goneAfter(20), async () => { const g = await L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }); assert.equal(g.skippedForms, 130); });      // không đặt hạn chót: đọc hết
+  const realNow2 = Date.now; let off2 = 0; Date.now = () => realNow2() + off2;
+  try {
+    const slow = u => { off2 += 1000; return goneAfter(20)(u); };
+    await run(forms150, slow, () => withDeadline(async () => { setDeadline(Date.now() + 40000); await assert.rejects(() => L.fetchLeads({ token: 'tok-test', accts: [], sinceDay: '2026-08-22', env: ENV }), e => e.expose === true && /Chưa đọc hết các biểu mẫu trong thời gian cho phép/.test(e.message) && /Xoá các biểu mẫu cũ/.test(e.message)); }));
+    off2 = 0; const c150 = await run(forms150, slow, () => withDeadline(async () => { setDeadline(Date.now() + 40000); return checkStep(); })); assert.equal(c150.ok, false); assert.match(c150.text, /Mới đọc thử/);
+  } finally { Date.now = realNow2; }
 });
 
 test('checkLeads: đọc thử mọi biểu mẫu có lead (không chỉ 8 đầu), báo đỏ khi một biểu mẫu thứ chín không đọc được hoặc khi vượt giới hạn số biểu mẫu của lần đọc thật', async () => {
