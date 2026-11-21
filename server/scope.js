@@ -42,3 +42,37 @@ export function syncAccounts(C, env = process.env) {
   const kept = listed.filter(a => allowed.includes(a));
   return { accts: kept.length ? kept : allowed, ignored: listed.filter(a => !allowed.includes(a)) };
 }
+
+/* Tài liệu tuyển sinh luôn đi qua kiểm tra cấu trúc trước khi trả ra, dù được ghi bằng đường nào: chỉ số tổng hợp theo đúng dạng đã biết mới ra trang. */
+export async function checkedAdmissionsDocs(docs) {
+  if (!docs.admissions) return docs;
+  await import('../admissions.js');
+  const raw = docs.admissions, v = globalThis.FBAdm.validate(raw), next = Object.assign({}, docs);
+  if (v.ok) {
+    // uploadedAt và by do máy chủ ghi: chỉ nhận đúng dạng (giờ ISO, một địa chỉ email ngắn), chuỗi khác bị bỏ
+    const at = typeof raw.uploadedAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(raw.uploadedAt) && Number.isFinite(Date.parse(raw.uploadedAt)) ? raw.uploadedAt : null;
+    const by = typeof raw.by === 'string' && raw.by.length <= 100 && /^[^\s@<>"']+@[^\s@<>"']+$/.test(raw.by) ? raw.by : null;
+    const source = raw.source === 'sheet' || raw.source === 'upload' ? raw.source : null; // sheet = máy chủ tự đọc Google Sheet; upload = quản trị tải file lên
+    next.admissions = Object.assign({}, v.summary, { uploadedAt: at, by, source });
+  } else { console.warn('[data] tài liệu admissions bị loại vì sai cấu trúc:', v.error); delete next.admissions; }
+  return next;
+}
+const iso = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(s) && Number.isFinite(Date.parse(s)) ? s : null;
+const num = v => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1e9 ? v : null;
+/* Tài liệu đối chiếu phụ huynh (fbmatch) và trạng thái cập nhật (leadsync) cũng chỉ ra trang khi đúng cấu trúc đã biết; chuỗi lạ bị loại. */
+export async function checkedMatchDocs(docs) {
+  if (!docs.fbmatch && !docs.leadsync) return docs;
+  const next = Object.assign({}, docs);
+  if (docs.fbmatch) {
+    await import('../admissions.js'); await import('../leadmatch.js');
+    const v = globalThis.FBMatch.validate(docs.fbmatch);
+    if (v.ok) next.fbmatch = v.match; else { console.warn('[data] tài liệu fbmatch bị loại vì sai cấu trúc:', v.error); delete next.fbmatch; }
+  }
+  if (docs.leadsync && typeof docs.leadsync === 'object') {
+    const r = docs.leadsync, st = r.stats && typeof r.stats === 'object' ? r.stats : null, stats = {};
+    if (st) for (const k of ['rows', 'parents', 'matched', 'students', 'studentsWithPhone', 'paidExt', 'paidExtWithPhone', 'forms', 'pages', 'skippedForms']) stats[k] = num(st[k]);
+    next.leadsync = { v: 1, at: iso(r.at), ok: r.ok === true, stage: ['sheet', 'meta', 'match', 'write'].includes(r.stage) ? r.stage : null, error: typeof r.error === 'string' ? r.error.slice(0, 400) : null,
+      ms: num(r.ms), by: r.by === 'cron' || r.by === 'admin' ? r.by : null, running: !!(iso(r.runningUntil) && Date.parse(r.runningUntil) > Date.now()), stats: st ? stats : null };
+  } else delete next.leadsync;
+  return next;
+}
